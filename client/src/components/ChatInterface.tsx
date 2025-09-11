@@ -9,20 +9,15 @@ import {
   Paper,
   Typography,
   Alert,
-  CircularProgress,
-  FormControl,
-  Select,
-  MenuItem,
-  InputLabel
+  CircularProgress
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
-import { ChatMessage, Reconstruction } from '../types';
+import { ChatMessage } from '../types';
 import { sendChatMessage } from '../utils/api';
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
-  reconstructions: Reconstruction[];
   currentReconstruction: string;
   isLoading: boolean;
   error: string | null;
@@ -35,7 +30,6 @@ interface ChatInterfaceProps {
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
-  reconstructions,
   currentReconstruction,
   isLoading,
   error,
@@ -137,24 +131,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2 }}>
-      {/* Reconstruction Selector */}
-      <Box sx={{ mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Fassung</InputLabel>
-          <Select
-            value={currentReconstruction}
-            label="Fassung"
-            onChange={(e) => onReconstructionChange(e.target.value)}
-          >
-            {reconstructions.map((recon) => (
-              <MenuItem key={recon.id} value={recon.id}>
-                {recon.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
-
       {/* Messages */}
       <Box sx={{ 
         flexGrow: 1, 

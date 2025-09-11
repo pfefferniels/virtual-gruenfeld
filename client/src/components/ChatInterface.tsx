@@ -13,7 +13,8 @@ import {
   FormControl,
   Select,
   MenuItem,
-  InputLabel
+  InputLabel,
+  Snackbar
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
@@ -48,6 +49,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,6 +84,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         locale: 'de'
       });
 
+      // Check if response contains audio - if not, it's an error message
+      if (!response.audio) {
+        // Show error message in Snackbar instead of adding to chat
+        setSnackbarMessage(response.reply);
+        setSnackbarOpen(true);
+        return;
+      }
+
       const botMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         text: response.reply,
@@ -102,14 +113,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         onReconstructionChange(response.context.reconId);
       }
 
-      // Auto-play audio if provided
-      if (response.audio?.url) {
-        playAudio(response.audio.url);
-      }
+      // Auto-play audio
+      playAudio(response.audio.url);
 
     } catch (error) {
       console.error('Chat error:', error);
-      onErrorChange('Fehler beim Senden der Nachricht');
+      setSnackbarMessage('Fehler beim Senden der Nachricht');
+      setSnackbarOpen(true);
     } finally {
       onLoadingChange(false);
     }
@@ -135,119 +145,137 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
   };
 
+  const handleSnackbarClose = (_event?: React.SyntheticEvent | Event, reason?: string) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
+  };
+
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2 }}>
-      {/* Reconstruction Selector */}
-      <Box sx={{ mb: 2 }}>
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel>Fassung</InputLabel>
-          <Select
-            value={currentReconstruction}
-            label="Fassung"
-            onChange={(e) => onReconstructionChange(e.target.value)}
-          >
-            {reconstructions.map((recon) => (
-              <MenuItem key={recon.id} value={recon.id}>
-                {recon.label}
-              </MenuItem>
+    <>
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', p: 2 }}>
+        {/* Reconstruction Selector */}
+        <Box sx={{ mb: 2 }}>
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Fassung</InputLabel>
+            <Select
+              value={currentReconstruction}
+              label="Fassung"
+              onChange={(e) => onReconstructionChange(e.target.value)}
+            >
+              {reconstructions.map((recon) => (
+                <MenuItem key={recon.id} value={recon.id}>
+                  {recon.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+
+        {/* Messages */}
+        <Box sx={{ 
+          flexGrow: 1, 
+          overflow: 'auto', 
+          mb: 2,
+          backgroundColor: '#f5f5f5',
+          borderRadius: 1,
+          p: 1
+        }}>
+          <List>
+            {messages.map((message) => (
+              <ListItem key={message.id} sx={{ 
+                justifyContent: message.isUser ? 'flex-end' : 'flex-start',
+                mb: 1
+              }}>
+                <Paper
+                  sx={{
+                    p: 2,
+                    maxWidth: '70%',
+                    backgroundColor: message.isUser ? 'primary.main' : 'white',
+                    color: message.isUser ? 'white' : 'black'
+                  }}
+                >
+                  <ListItemText
+                    primary={message.text}
+                    secondary={
+                      <Box>
+                        <Typography variant="caption" sx={{ 
+                          color: message.isUser ? 'rgba(255,255,255,0.7)' : 'text.secondary' 
+                        }}>
+                          {message.timestamp.toLocaleTimeString()}
+                        </Typography>
+                        {message.audio && (
+                          <Box sx={{ mt: 1 }}>
+                            <IconButton 
+                              size="small" 
+                              onClick={() => playAudio(message.audio!.url)}
+                              sx={{ color: message.isUser ? 'white' : 'primary.main' }}
+                            >
+                              ▶️
+                            </IconButton>
+                            <Typography variant="caption" sx={{ ml: 1 }}>
+                              Audio ({message.audio.durationSec}s)
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                    }
+                  />
+                </Paper>
+              </ListItem>
             ))}
-          </Select>
-        </FormControl>
-      </Box>
+          </List>
+          <div ref={messagesEndRef} />
+        </Box>
 
-      {/* Messages */}
-      <Box sx={{ 
-        flexGrow: 1, 
-        overflow: 'auto', 
-        mb: 2,
-        backgroundColor: '#f5f5f5',
-        borderRadius: 1,
-        p: 1
-      }}>
-        <List>
-          {messages.map((message) => (
-            <ListItem key={message.id} sx={{ 
-              justifyContent: message.isUser ? 'flex-end' : 'flex-start',
-              mb: 1
-            }}>
-              <Paper
-                sx={{
-                  p: 2,
-                  maxWidth: '70%',
-                  backgroundColor: message.isUser ? 'primary.main' : 'white',
-                  color: message.isUser ? 'white' : 'black'
-                }}
-              >
-                <ListItemText
-                  primary={message.text}
-                  secondary={
-                    <Box>
-                      <Typography variant="caption" sx={{ 
-                        color: message.isUser ? 'rgba(255,255,255,0.7)' : 'text.secondary' 
-                      }}>
-                        {message.timestamp.toLocaleTimeString()}
-                      </Typography>
-                      {message.audio && (
-                        <Box sx={{ mt: 1 }}>
-                          <IconButton 
-                            size="small" 
-                            onClick={() => playAudio(message.audio!.url)}
-                            sx={{ color: message.isUser ? 'white' : 'primary.main' }}
-                          >
-                            ▶️
-                          </IconButton>
-                          <Typography variant="caption" sx={{ ml: 1 }}>
-                            Audio ({message.audio.durationSec}s)
-                          </Typography>
-                        </Box>
-                      )}
-                    </Box>
-                  }
-                />
-              </Paper>
-            </ListItem>
-          ))}
-        </List>
-        <div ref={messagesEndRef} />
-      </Box>
+        {/* Error Alert */}
+        {error && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        )}
 
-      {/* Error Alert */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
-      {/* Input */}
-      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', gap: 1 }}>
-        <TextField
-          fullWidth
-          variant="outlined"
-          placeholder="Sprechen Sie mit Alfred Grünfeld..."
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          disabled={isLoading}
-          size="small"
-        />
-        {currentAudio && (
+        {/* Input */}
+        <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            placeholder="Sprechen Sie mit Alfred Grünfeld..."
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            disabled={isLoading}
+            size="small"
+          />
+          {currentAudio && (
+            <IconButton 
+              onClick={stopAudio}
+              color="secondary"
+              size="small"
+            >
+              <StopIcon />
+            </IconButton>
+          )}
           <IconButton 
-            onClick={stopAudio}
-            color="secondary"
+            type="submit" 
+            color="primary" 
+            disabled={!inputText.trim() || isLoading}
             size="small"
           >
-            <StopIcon />
+            {isLoading ? <CircularProgress size={20} /> : <SendIcon />}
           </IconButton>
-        )}
-        <IconButton 
-          type="submit" 
-          color="primary" 
-          disabled={!inputText.trim() || isLoading}
-          size="small"
-        >
-          {isLoading ? <CircularProgress size={20} /> : <SendIcon />}
-        </IconButton>
+        </Box>
       </Box>
-    </Box>
+      
+      {/* Snackbar for error messages */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        message={snackbarMessage}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      />
+    </>
   );
 };
 

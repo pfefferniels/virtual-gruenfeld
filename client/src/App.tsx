@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Container, Box, Typography, AppBar, Toolbar } from '@mui/material';
 import ChatInterface from './components/ChatInterface';
 import ScorePanel from './components/ScorePanel';
-import { AppState, Reconstruction } from './types';
+import { AppState } from './types';
 import { fetchReconstructions } from './utils/api';
 
 const initialState: AppState = {

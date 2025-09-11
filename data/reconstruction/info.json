@@ -1,0 +1,1434 @@
+{
+  "@context": {
+    "crm": "http://www.cidoc-crm.org/cidoc-crm/",
+    "crminf": "http://www.cidoc-crm.org/extensions/crminf/",
+    "lrm": "http://iflastandards.info/ns/lrm/lrmoo/",
+    "id": "@id",
+    "type": "@type",
+    "name": "crm:P2_has_title",
+    "expression": "lrm:R3_is_realised_in",
+    "creation": "lrm:R16i_was_created_by",
+    "argumentations": "crm:P9_consists_of",
+    "calls": "crm:P9_consists_of",
+    "author": "crm:P14_carried_out_by",
+    "encoder": "crm:P14_carried_out_by",
+    "description": "crm:P3_has_note",
+    "incorporates": "crm:P15_was_influenced_by"
+  },
+  "@id": "reconstruction",
+  "label": "Rekonstruktion",
+  "creation": {
+    "incorporates": [
+      "02ce1fc1-949d-41b9-8672-abf2cc67049d",
+      "d5c27509-b992-4f89-856b-4bb81a64010c"
+    ],
+    "argumentations": [
+      {
+        "description": "Da es einige Fälle gibt, in denen bei späteren Fassungen  Anschlagszeitpunkte zur besseren dynamischen Differenzierung verschoben wurden, wird pauschal die Dynamik aus den späteren Fassungen, die Anschlagszeitpunkte hingegen aus den früheren Fassungen übernommen.",
+        "id": "decision-10cd8291",
+        "calls": [
+          {
+            "id": "7757b443-5287-434d-be78-6deaffce2e3b",
+            "created": [],
+            "name": "MakeChoice",
+            "options": {
+              "timing": "d5c27509-b992-4f89-856b-4bb81a64010c",
+              "velocity": "02ce1fc1-949d-41b9-8672-abf2cc67049d"
+            }
+          }
+        ]
+      },
+      {
+        "description": "Die Dynamik unterschreitet hier vermutlich den Rahmen des Welte-Systems. Sie wurde daher an die Pegelverhältnisse der akustischen Aufnahme (1913) angepasst.",
+        "id": "decision-35c68177",
+        "calls": [
+          {
+            "id": "fbb12a14-9f25-49d5-b3dc-b9bee321c73b",
+            "created": [],
+            "name": "Modify",
+            "options": {
+              "from": 16920,
+              "to": 18360,
+              "scope": "global",
+              "aspect": "velocity",
+              "change": -3
+            }
+          },
+          {
+            "id": "b75ee127-70da-4a11-b45d-41cb43b22fcc",
+            "created": [],
+            "name": "Modify",
+            "options": {
+              "from": 17640,
+              "to": 18000,
+              "scope": "global",
+              "aspect": "velocity",
+              "change": -3
+            }
+          }
+        ]
+      },
+      {
+        "description": "[Pauschale Werte, vorläufig]",
+        "id": "decision-4e415fcc",
+        "calls": [
+          {
+            "id": "2896835b-f0c0-41df-9353-fba4fcb7cc5a",
+            "created": [
+              "ornament_720",
+              "ornament_1440",
+              "ornament_4320",
+              "ornament_5760",
+              "ornament_6120",
+              "ornament_6480",
+              "ornament_7200",
+              "ornament_7920",
+              "ornament_8640",
+              "ornament_9000",
+              "ornament_9360",
+              "ornament_10080",
+              "ornament_11520",
+              "ornament_12240",
+              "ornament_12960",
+              "ornament_15840",
+              "ornament_18000",
+              "ornament_19080",
+              "ornament_19440",
+              "ornament_20520",
+              "ornament_20880",
+              "ornament_21600",
+              "ornament_22320",
+              "ornament_23400",
+              "ornament_23760",
+              "ornament_24480",
+              "ornament_27360",
+              "ornament_28800",
+              "ornament_29520",
+              "ornament_30240",
+              "ornament_30960",
+              "ornament_31680",
+              "ornament_32040",
+              "ornament_32400",
+              "ornament_33120",
+              "ornament_34560",
+              "ornament_35280",
+              "ornament_36000",
+              "ornament_38880",
+              "ornament_41040",
+              "ornament_42120",
+              "ornament_42480",
+              "ornament_43560",
+              "ornament_43920",
+              "ornament_44640",
+              "ornament_45360",
+              "ornament_46440",
+              "ornament_46800",
+              "ornament_47520",
+              "ornament_50040",
+              "ornament_50400",
+              "ornament_52200",
+              "ornament_52560",
+              "ornament_53640",
+              "ornament_54000",
+              "ornament_55080",
+              "ornament_55440",
+              "ornament_56520",
+              "ornament_57960",
+              "ornament_58320",
+              "ornament_59040",
+              "ornament_61560",
+              "ornament_61920",
+              "ornament_63360",
+              "ornament_63720",
+              "ornament_64080",
+              "ornament_65160",
+              "ornament_65520",
+              "ornament_66600",
+              "ornament_66960",
+              "ornament_68040",
+              "ornament_68400",
+              "ornament_69120",
+              "ornament_69840",
+              "ornament_70560",
+              "ornament_73440",
+              "ornament_74880",
+              "ornament_75240",
+              "ornament_75600",
+              "ornament_76320",
+              "ornament_77040",
+              "ornament_77760",
+              "ornament_78120",
+              "ornament_78480",
+              "ornament_79200",
+              "ornament_80640",
+              "ornament_81360",
+              "ornament_82080",
+              "ornament_84960",
+              "ornament_87120",
+              "ornament_87840",
+              "ornament_89280",
+              "ornament_89640",
+              "ornament_90000",
+              "ornament_90720",
+              "ornament_91080",
+              "ornament_91440"
+            ],
+            "name": "InsertTemporalSpread",
+            "options": {
+              "scope": "global",
+              "placement": "estimate",
+              "noteOffShiftTolerance": 2,
+              "durationThreshold": 35
+            }
+          },
+          {
+            "id": "b1a62062-a57e-4098-b8ca-600ed24cf6a0",
+            "created": [
+              "ornament_720_1",
+              "ornament_4320_1",
+              "ornament_5760_1",
+              "ornament_6120_1",
+              "ornament_6480_1",
+              "ornament_7200_1",
+              "ornament_7920_1",
+              "ornament_8640_1",
+              "ornament_9000_1",
+              "ornament_10080_1",
+              "ornament_11520_1",
+              "ornament_12240_1",
+              "ornament_15840_1",
+              "ornament_18000_1",
+              "ornament_19080_1",
+              "ornament_19440_1",
+              "ornament_20880_1",
+              "ornament_21600_1",
+              "ornament_23400_1",
+              "ornament_23760_1",
+              "ornament_24480_1",
+              "ornament_28800_1",
+              "ornament_29160",
+              "ornament_29520_1",
+              "ornament_30240_1",
+              "ornament_30960_1",
+              "ornament_31680_1",
+              "ornament_32040_1",
+              "ornament_32400_1",
+              "ornament_33120_1",
+              "ornament_34560_1",
+              "ornament_35280_1",
+              "ornament_38880_1",
+              "ornament_41040_1",
+              "ornament_42480_1",
+              "ornament_43560_1",
+              "ornament_43920_1",
+              "ornament_44640_1",
+              "ornament_45360_1",
+              "ornament_46440_1",
+              "ornament_46800_1",
+              "ornament_50040_1",
+              "ornament_52200_1",
+              "ornament_52560_1",
+              "ornament_53640_1",
+              "ornament_54000_1",
+              "ornament_55080_1",
+              "ornament_56520_1",
+              "ornament_57960_1",
+              "ornament_58320_1",
+              "ornament_61560_1",
+              "ornament_61920_1",
+              "ornament_63360_1",
+              "ornament_63720_1",
+              "ornament_64080_1",
+              "ornament_65520_1",
+              "ornament_68400_1",
+              "ornament_69840_1",
+              "ornament_73440_1",
+              "ornament_74880_1",
+              "ornament_76320_1",
+              "ornament_77040_1",
+              "ornament_77760_1",
+              "ornament_78120_1",
+              "ornament_79200_1",
+              "ornament_80640_1",
+              "ornament_81360_1",
+              "ornament_87120_1",
+              "ornament_87840_1",
+              "ornament_88200",
+              "ornament_89640_1",
+              "ornament_91080_1"
+            ],
+            "name": "InsertDynamicsGradient",
+            "options": {
+              "scope": "global",
+              "crescendo": {
+                "from": -1,
+                "to": 0
+              },
+              "decrescendo": {
+                "from": 0,
+                "to": -1
+              },
+              "sortVelocities": true
+            }
+          }
+        ]
+      },
+      {
+        "description": "Beruhigung durch Decrescendo und Ritardando, Dynamische Schattierung des nachschlagenden Akkords ",
+        "id": "decision-df243d0d",
+        "calls": [
+          {
+            "id": "95eeba16-0668-4acd-a9a6-65a338481e1c",
+            "created": [
+              "tempo_0",
+              "tempo_ccb80c21-ee72-4366-a553-13ccb6817fd9"
+            ],
+            "options": {
+              "from": 0,
+              "to": 2160,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "4a6db1d7-2162-4298-b81e-577e86256e39",
+            "created": [
+              "dynamics_0"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 0,
+              "to": 2520,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          },
+          {
+            "id": "afdb2d83-776f-4397-8b08-6c1da56945d4",
+            "created": [
+              "accentuationPattern_720",
+              "accentuationPattern_92520"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 720,
+              "to": 2520,
+              "beatLength": 0.125,
+              "name": "new-pattern",
+              "scaleTolerance": 0,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "Auftaktgeste durch Crescendo und zeitliche Stauchung hin zum c im folgenden Takt. Dieses unterbricht die Geste, da es gedehnt ist. Dynamik und Agogik laufen hier parallel.",
+        "id": "decision-9bb1a3aa",
+        "calls": [
+          {
+            "id": "280b8c83-c89c-476a-a0ef-784f4ca6d25d",
+            "created": [
+              "tempo_2160",
+              "tempo_5b1c7f29-ca1d-47a5-a5b4-43ec37fd6ee7"
+            ],
+            "options": {
+              "from": 2160,
+              "to": 3600,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "6171f418-4932-45a1-92f3-e2d789412f5a",
+            "created": [
+              "rubato_2160"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 2160,
+              "length": 720
+            }
+          },
+          {
+            "id": "890151e0-47a5-42d7-abb9-99997995ce19",
+            "created": [
+              "rubato_3600"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 3600,
+              "length": 720
+            }
+          },
+          {
+            "id": "68d087ca-7297-4d29-a359-9659af1016cc",
+            "created": [
+              "dynamics_2520"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 2520,
+              "to": 3600,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "Seufzen nach Auftaktgeste: Verlangsamung, aber gleichzeitig betontes Auftaktachtel zum B-Dur-Akkord.",
+        "id": "decision-99868135",
+        "calls": [
+          {
+            "id": "f4769cbe-4fbd-447f-93cb-9957f41303b7",
+            "created": [
+              "tempo_3600",
+              "tempo_1dd1ff09-d786-4939-8a54-7324a34bdb3a"
+            ],
+            "options": {
+              "from": 3600,
+              "to": 5760,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "b2ccffde-2beb-432f-859c-016b639a98e6",
+            "created": [
+              "dynamics_3600"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 3600,
+              "to": 5760,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "Verlängerung der Phase durch erneutes, überlagerndes Ritardando. Betonungsschema erfolgt wieder auf regulärer Zeit.",
+        "id": "decision-feb51539",
+        "calls": [
+          {
+            "id": "c8d6a3a9-79de-4481-91fc-273f775150c5",
+            "created": [
+              "tempo_5760",
+              "tempo_cf9a2bc8-4003-4ea8-a2d2-0f589d91ac46"
+            ],
+            "options": {
+              "from": 5760,
+              "to": 7200,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "c96c7868-55da-42ae-96c3-7e45444fae96",
+            "created": [
+              "dynamics_5760"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 5760,
+              "to": 6480,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "Hinspielen zur nächsten Phrase, angetrieben durch fortlaufende Inegalité",
+        "id": "decision-cfcd2188",
+        "calls": [
+          {
+            "id": "515ad657-b2a6-45e4-8992-b2249d6cfc1e",
+            "created": [
+              "tempo_7200",
+              "tempo_9d24c02c-10cb-45a3-b4d4-bf7283b501c1"
+            ],
+            "options": {
+              "from": 7200,
+              "to": 9360,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "ba8df537-bb70-482a-95c8-e235a686fc3d",
+            "created": [
+              "rubato_7200"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 7200,
+              "length": 720
+            }
+          },
+          {
+            "id": "2041acd1-0485-4a62-b74c-d1a10444f2b9",
+            "created": [
+              "rubato_7920"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 7920,
+              "length": 720
+            }
+          },
+          {
+            "id": "bdc38bcc-b172-42a4-a944-d1ff4bd64766",
+            "created": [
+              "rubato_8640"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 8640,
+              "length": 720
+            }
+          },
+          {
+            "id": "cda19c36-d323-4a9a-8643-d46710114292",
+            "created": [
+              "rubato_9360"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 9360,
+              "length": 720
+            }
+          },
+          {
+            "id": "0da389bb-4586-4081-93a1-4280a17e388a",
+            "created": [
+              "dynamics_6480"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 6480,
+              "to": 10080,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-ff5e67de",
+        "calls": [
+          {
+            "id": "81e01299-23db-4a93-a463-f866f113e850",
+            "created": [
+              "tempo_9360",
+              "tempo_3751743d-0fd6-4a18-8481-d457e63ab126"
+            ],
+            "options": {
+              "from": 9360,
+              "to": 10800,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                },
+                {
+                  "date": 13680,
+                  "onset": 21.365745923795753
+                },
+                {
+                  "date": 16380,
+                  "onset": 25.58011049723757
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          }
+        ]
+      },
+      {
+        "description": "Der Beginn der neuen Phrase wird nicht neu markiert, sondern mit der Überleitung verbunden",
+        "id": "decision-28fdcd0a",
+        "calls": [
+          {
+            "id": "75fa5901-9846-462b-97fd-767c4581fe36",
+            "created": [
+              "tempo_10800",
+              "tempo_f0f6c0d4-b07a-49e2-bbe9-fab4cc7ab415"
+            ],
+            "options": {
+              "from": 10800,
+              "to": 15120,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                },
+                {
+                  "date": 13680,
+                  "onset": 21.365745923795753
+                },
+                {
+                  "date": 16380,
+                  "onset": 25.58011049723757
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "39a7a945-9769-42ba-a91f-84bb6fd30a87",
+            "created": [
+              "dynamics_10080"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "from": 10080,
+              "to": 12240,
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-bd209987",
+        "calls": [
+          {
+            "id": "d7187bbc-b557-4193-99bb-639be4f24b6e",
+            "created": [
+              "tempo_15120",
+              "tempo_8e04eba7-83f0-42db-98ea-336b1aec4bcd"
+            ],
+            "options": {
+              "from": 15120,
+              "to": 17280,
+              "beatLength": 0.25,
+              "scope": "global",
+              "silentOnsets": [
+                {
+                  "date": 2160,
+                  "onset": 3.0939226519337018
+                },
+                {
+                  "date": 5040,
+                  "onset": 7.513812154696133
+                },
+                {
+                  "date": 13680,
+                  "onset": 21.365745923795753
+                },
+                {
+                  "date": 16380,
+                  "onset": 25.58011049723757
+                },
+                {
+                  "date": 16560,
+                  "onset": 25.646408839779006
+                }
+              ]
+            },
+            "name": "ApproximateLogarithmicTempo"
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-0c50c753",
+        "calls": [
+          {
+            "id": "501e1f92-a117-42a2-a1fa-0a8cd3fc74cf",
+            "created": [],
+            "name": "TranslatePhyiscalTimeToTicks",
+            "options": {
+              "translatePhysicalModifiers": true
+            }
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-133b21bd",
+        "calls": [
+          {
+            "id": "c3c4b373-d65e-422e-91da-fc1d10ea38d6",
+            "created": [],
+            "name": "StylizeOrnamentation",
+            "options": {
+              "tickTolerance": 10,
+              "intensityTolerance": 0.3,
+              "gradientTolerance": 0.1
+            }
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-ba858558",
+        "calls": [
+          {
+            "id": "75cad33d-fe79-42e7-8e9b-6fafaaeaf3b6",
+            "created": [
+              "rubato_6480"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 6480,
+              "length": 720
+            }
+          }
+        ]
+      },
+      {
+        "description": "",
+        "id": "decision-aace69a4",
+        "calls": [
+          {
+            "id": "49bf4350-03cc-4968-b245-d173f0f2d738",
+            "created": [
+              "pedal-0_start",
+              "pedal-0_moveDown",
+              "pedal-0_moveUp",
+              "pedal-0_end",
+              "pedal-1_start",
+              "pedal-1_moveDown",
+              "pedal-1_moveUp",
+              "pedal-1_end",
+              "pedal-2_start",
+              "pedal-2_moveDown",
+              "pedal-2_moveUp",
+              "pedal-2_end",
+              "pedal-3_start",
+              "pedal-3_moveDown",
+              "pedal-3_moveUp",
+              "pedal-3_end",
+              "pedal-4_start",
+              "pedal-4_moveDown",
+              "pedal-4_moveUp",
+              "pedal-4_end",
+              "pedal-5_start",
+              "pedal-5_moveDown",
+              "pedal-5_moveUp",
+              "pedal-5_end",
+              "pedal-6_start",
+              "pedal-6_moveDown",
+              "pedal-6_moveUp",
+              "pedal-6_end",
+              "pedal-7_start",
+              "pedal-7_moveDown",
+              "pedal-7_moveUp",
+              "pedal-7_end",
+              "pedal-8_start",
+              "pedal-8_moveDown",
+              "pedal-8_moveUp",
+              "pedal-8_end",
+              "pedal-9_start",
+              "pedal-9_moveDown",
+              "pedal-9_moveUp",
+              "pedal-9_end",
+              "pedal-10_start",
+              "pedal-10_moveDown",
+              "pedal-10_moveUp",
+              "pedal-10_end",
+              "pedal-11_start",
+              "pedal-11_moveDown",
+              "pedal-11_moveUp",
+              "pedal-11_end",
+              "pedal-12_start",
+              "pedal-12_moveDown",
+              "pedal-12_moveUp",
+              "pedal-12_end",
+              "pedal-13_start",
+              "pedal-13_moveDown",
+              "pedal-13_moveUp",
+              "pedal-13_end",
+              "pedal-14_start",
+              "pedal-14_moveDown",
+              "pedal-14_moveUp",
+              "pedal-14_end",
+              "pedal-15_start",
+              "pedal-15_moveDown",
+              "pedal-15_moveUp",
+              "pedal-15_end",
+              "pedal-16_start",
+              "pedal-16_moveDown",
+              "pedal-16_moveUp",
+              "pedal-16_end",
+              "pedal-17_start",
+              "pedal-17_moveDown",
+              "pedal-17_moveUp",
+              "pedal-17_end",
+              "pedal-18_start",
+              "pedal-18_moveDown",
+              "pedal-18_moveUp",
+              "pedal-18_end",
+              "pedal-19_start",
+              "pedal-19_moveDown",
+              "pedal-19_moveUp",
+              "pedal-19_end",
+              "pedal-20_start",
+              "pedal-20_moveDown",
+              "pedal-20_moveUp",
+              "pedal-20_end",
+              "pedal-21_start",
+              "pedal-21_moveDown",
+              "pedal-21_moveUp",
+              "pedal-21_end",
+              "pedal-22_start",
+              "pedal-22_moveDown",
+              "pedal-22_moveUp",
+              "pedal-22_end",
+              "pedal-23_start",
+              "pedal-23_moveDown",
+              "pedal-23_moveUp",
+              "pedal-23_end",
+              "pedal-24_start",
+              "pedal-24_moveDown",
+              "pedal-24_moveUp",
+              "pedal-24_end",
+              "pedal-25_start",
+              "pedal-25_moveDown",
+              "pedal-25_moveUp",
+              "pedal-25_end",
+              "pedal-26_start",
+              "pedal-26_moveDown",
+              "pedal-26_moveUp",
+              "pedal-26_end",
+              "pedal-27_start",
+              "pedal-27_moveDown",
+              "pedal-27_moveUp",
+              "pedal-27_end",
+              "pedal-28_start",
+              "pedal-28_moveDown",
+              "pedal-28_moveUp",
+              "pedal-28_end",
+              "pedal-29_start",
+              "pedal-29_moveDown",
+              "pedal-29_moveUp",
+              "pedal-29_end",
+              "pedal-30_start",
+              "pedal-30_moveDown",
+              "pedal-30_moveUp",
+              "pedal-30_end",
+              "pedal-31_start",
+              "pedal-31_moveDown",
+              "pedal-31_moveUp",
+              "pedal-31_end",
+              "pedal-32_start",
+              "pedal-32_moveDown",
+              "pedal-32_moveUp",
+              "pedal-32_end",
+              "pedal-33_start",
+              "pedal-33_moveDown",
+              "pedal-33_moveUp",
+              "pedal-33_end",
+              "pedal-34_start",
+              "pedal-34_moveDown",
+              "pedal-34_moveUp",
+              "pedal-34_end",
+              "pedal-35_start",
+              "pedal-35_moveDown",
+              "pedal-35_moveUp",
+              "pedal-35_end",
+              "pedal-36_start",
+              "pedal-36_moveDown",
+              "pedal-36_moveUp",
+              "pedal-36_end",
+              "pedal-37_start",
+              "pedal-37_moveDown",
+              "pedal-37_moveUp",
+              "pedal-37_end",
+              "pedal-38_start",
+              "pedal-38_moveDown",
+              "pedal-38_moveUp",
+              "pedal-38_end",
+              "pedal-39_start",
+              "pedal-39_moveDown",
+              "pedal-39_moveUp",
+              "pedal-39_end",
+              "pedal-40_start",
+              "pedal-40_moveDown",
+              "pedal-40_moveUp",
+              "pedal-40_end",
+              "pedal-41_start",
+              "pedal-41_moveDown",
+              "pedal-41_moveUp",
+              "pedal-41_end",
+              "pedal-42_start",
+              "pedal-42_moveDown",
+              "pedal-42_moveUp",
+              "pedal-42_end",
+              "pedal-43_start",
+              "pedal-43_moveDown",
+              "pedal-43_moveUp",
+              "pedal-43_end",
+              "pedal-44_start",
+              "pedal-44_moveDown",
+              "pedal-44_moveUp",
+              "pedal-44_end",
+              "pedal-45_start",
+              "pedal-45_moveDown",
+              "pedal-45_moveUp",
+              "pedal-45_end",
+              "pedal-46_start",
+              "pedal-46_moveDown",
+              "pedal-46_moveUp",
+              "pedal-46_end",
+              "pedal-47_start",
+              "pedal-47_moveDown",
+              "pedal-47_moveUp",
+              "pedal-47_end",
+              "pedal-48_start",
+              "pedal-48_moveDown",
+              "pedal-48_moveUp",
+              "pedal-48_end",
+              "pedal-49_start",
+              "pedal-49_moveDown",
+              "pedal-49_moveUp",
+              "pedal-49_end",
+              "pedal-50_start",
+              "pedal-50_moveDown",
+              "pedal-50_moveUp",
+              "pedal-50_end",
+              "pedal-51_start",
+              "pedal-51_moveDown",
+              "pedal-51_moveUp",
+              "pedal-51_end",
+              "pedal-52_start",
+              "pedal-52_moveDown",
+              "pedal-52_moveUp",
+              "pedal-52_end",
+              "pedal-53_start",
+              "pedal-53_moveDown",
+              "pedal-53_moveUp",
+              "pedal-53_end",
+              "pedal-54_start",
+              "pedal-54_moveDown",
+              "pedal-54_moveUp",
+              "pedal-54_end",
+              "pedal-55_start",
+              "pedal-55_moveDown",
+              "pedal-55_moveUp",
+              "pedal-55_end",
+              "pedal-56_start",
+              "pedal-56_moveDown",
+              "pedal-56_moveUp",
+              "pedal-56_end",
+              "pedal-57_start",
+              "pedal-57_moveDown",
+              "pedal-57_moveUp",
+              "pedal-57_end",
+              "pedal-58_start",
+              "pedal-58_moveDown",
+              "pedal-58_moveUp",
+              "pedal-58_end",
+              "pedal-59_start",
+              "pedal-59_moveDown",
+              "pedal-59_moveUp",
+              "pedal-59_end",
+              "pedal-60_start",
+              "pedal-60_moveDown",
+              "pedal-60_moveUp",
+              "pedal-60_end",
+              "pedal-61_start",
+              "pedal-61_moveDown",
+              "pedal-61_moveUp",
+              "pedal-61_end",
+              "pedal-62_start",
+              "pedal-62_moveDown",
+              "pedal-62_moveUp",
+              "pedal-62_end",
+              "pedal-63_start",
+              "pedal-63_moveDown",
+              "pedal-63_moveUp",
+              "pedal-63_end",
+              "pedal-64_start",
+              "pedal-64_moveDown",
+              "pedal-64_moveUp",
+              "pedal-64_end",
+              "pedal-65_start",
+              "pedal-65_moveDown",
+              "pedal-65_moveUp",
+              "pedal-65_end",
+              "pedal-66_start",
+              "pedal-66_moveDown",
+              "pedal-66_moveUp",
+              "pedal-66_end",
+              "pedal-67_start",
+              "pedal-67_moveDown",
+              "pedal-67_moveUp",
+              "pedal-67_end",
+              "pedal-68_start",
+              "pedal-68_moveDown",
+              "pedal-68_moveUp",
+              "pedal-68_end",
+              "pedal-69_start",
+              "pedal-69_moveDown",
+              "pedal-69_moveUp",
+              "pedal-69_end",
+              "pedal-70_start",
+              "pedal-70_moveDown",
+              "pedal-70_moveUp",
+              "pedal-70_end",
+              "pedal-71_start",
+              "pedal-71_moveDown",
+              "pedal-71_moveUp",
+              "pedal-71_end",
+              "pedal-72_start",
+              "pedal-72_moveDown",
+              "pedal-72_moveUp",
+              "pedal-72_end",
+              "pedal-73_start",
+              "pedal-73_moveDown",
+              "pedal-73_moveUp",
+              "pedal-73_end",
+              "pedal-74_start",
+              "pedal-74_moveDown",
+              "pedal-74_moveUp",
+              "pedal-74_end",
+              "pedal-75_start",
+              "pedal-75_moveDown",
+              "pedal-75_moveUp",
+              "pedal-75_end",
+              "pedal-76_start",
+              "pedal-76_moveDown",
+              "pedal-76_moveUp",
+              "pedal-76_end",
+              "pedal-77_start",
+              "pedal-77_moveDown",
+              "pedal-77_moveUp",
+              "pedal-77_end",
+              "pedal-78_start",
+              "pedal-78_moveDown",
+              "pedal-78_moveUp",
+              "pedal-78_end",
+              "pedal-79_start",
+              "pedal-79_moveDown",
+              "pedal-79_moveUp",
+              "pedal-79_end",
+              "pedal-80_start",
+              "pedal-80_moveDown",
+              "pedal-80_moveUp",
+              "pedal-80_end",
+              "pedal-81_start",
+              "pedal-81_moveDown",
+              "pedal-81_moveUp",
+              "pedal-81_end",
+              "pedal-82_start",
+              "pedal-82_moveDown",
+              "pedal-82_moveUp",
+              "pedal-82_end",
+              "pedal-83_start",
+              "pedal-83_moveDown",
+              "pedal-83_moveUp",
+              "pedal-83_end",
+              "pedal-84_start",
+              "pedal-84_moveDown",
+              "pedal-84_moveUp",
+              "pedal-84_end",
+              "pedal-85_start",
+              "pedal-85_moveDown",
+              "pedal-85_moveUp",
+              "pedal-85_end",
+              "pedal-86_start",
+              "pedal-86_moveDown",
+              "pedal-86_moveUp",
+              "pedal-86_end",
+              "pedal-87_start",
+              "pedal-87_moveDown",
+              "pedal-87_moveUp",
+              "pedal-87_end",
+              "pedal-88_start",
+              "pedal-88_moveDown",
+              "pedal-88_moveUp",
+              "pedal-88_end",
+              "pedal-89_start",
+              "pedal-89_moveDown",
+              "pedal-89_moveUp",
+              "pedal-89_end",
+              "pedal-90_start",
+              "pedal-90_moveDown",
+              "pedal-90_moveUp",
+              "pedal-90_end",
+              "pedal-91_start",
+              "pedal-91_moveDown",
+              "pedal-91_moveUp",
+              "pedal-91_end",
+              "pedal-92_start",
+              "pedal-92_moveDown",
+              "pedal-92_moveUp",
+              "pedal-92_end",
+              "pedal-93_start",
+              "pedal-93_moveDown",
+              "pedal-93_moveUp",
+              "pedal-93_end",
+              "pedal-94_start",
+              "pedal-94_moveDown",
+              "pedal-94_moveUp",
+              "pedal-94_end",
+              "pedal-95_start",
+              "pedal-95_moveDown",
+              "pedal-95_moveUp",
+              "pedal-95_end",
+              "pedal-96_start",
+              "pedal-96_moveDown",
+              "pedal-96_moveUp",
+              "pedal-96_end",
+              "pedal-97_start",
+              "pedal-97_moveDown",
+              "pedal-97_moveUp",
+              "pedal-97_end",
+              "pedal-98_start",
+              "pedal-98_moveDown",
+              "pedal-98_moveUp",
+              "pedal-98_end",
+              "pedal-99_start",
+              "pedal-99_moveDown",
+              "pedal-99_moveUp",
+              "pedal-99_end",
+              "pedal-100_start",
+              "pedal-100_moveDown",
+              "pedal-100_moveUp",
+              "pedal-100_end",
+              "pedal-101_start",
+              "pedal-101_moveDown",
+              "pedal-101_moveUp",
+              "pedal-101_end",
+              "pedal-102_start",
+              "pedal-102_moveDown",
+              "pedal-102_moveUp",
+              "pedal-102_end",
+              "pedal-103_start",
+              "pedal-103_moveDown",
+              "pedal-103_moveUp",
+              "pedal-103_end",
+              "pedal-104_start",
+              "pedal-104_moveDown",
+              "pedal-104_moveUp",
+              "pedal-104_end",
+              "pedal-105_start",
+              "pedal-105_moveDown",
+              "pedal-105_moveUp",
+              "pedal-105_end",
+              "pedal-106_start",
+              "pedal-106_moveDown",
+              "pedal-106_moveUp",
+              "pedal-106_end",
+              "pedal-107_start",
+              "pedal-107_moveDown",
+              "pedal-107_moveUp",
+              "pedal-107_end",
+              "pedal-108_start",
+              "pedal-108_moveDown",
+              "pedal-108_moveUp",
+              "pedal-108_end",
+              "pedal-109_start",
+              "pedal-109_moveDown",
+              "pedal-109_moveUp",
+              "pedal-109_end",
+              "pedal-110_start",
+              "pedal-110_moveDown",
+              "pedal-110_moveUp",
+              "pedal-110_end",
+              "pedal-111_start",
+              "pedal-111_moveDown",
+              "pedal-111_moveUp",
+              "pedal-111_end",
+              "pedal-112_start",
+              "pedal-112_moveDown",
+              "pedal-112_moveUp",
+              "pedal-112_end",
+              "pedal-113_start",
+              "pedal-113_moveDown",
+              "pedal-113_moveUp",
+              "pedal-113_end",
+              "pedal-114_start",
+              "pedal-114_moveDown",
+              "pedal-114_moveUp",
+              "pedal-114_end",
+              "pedal-115_start",
+              "pedal-115_moveDown",
+              "pedal-115_moveUp",
+              "pedal-115_end",
+              "pedal-116_start",
+              "pedal-116_moveDown",
+              "pedal-116_moveUp",
+              "pedal-116_end",
+              "pedal-117_start",
+              "pedal-117_moveDown",
+              "pedal-117_moveUp",
+              "pedal-117_end",
+              "pedal-118_start",
+              "pedal-118_moveDown",
+              "pedal-118_moveUp",
+              "pedal-118_end",
+              "pedal-119_start",
+              "pedal-119_moveDown",
+              "pedal-119_moveUp",
+              "pedal-119_end",
+              "pedal-120_start",
+              "pedal-120_moveDown",
+              "pedal-120_moveUp",
+              "pedal-120_end",
+              "pedal-121_start",
+              "pedal-121_moveDown",
+              "pedal-121_moveUp",
+              "pedal-121_end",
+              "pedal-122_start",
+              "pedal-122_moveDown",
+              "pedal-122_moveUp",
+              "pedal-122_end",
+              "pedal-123_start",
+              "pedal-123_moveDown",
+              "pedal-123_moveUp",
+              "pedal-123_end",
+              "pedal-124_start",
+              "pedal-124_moveDown",
+              "pedal-124_moveUp",
+              "pedal-124_end",
+              "pedal-125_start",
+              "pedal-125_moveDown",
+              "pedal-125_moveUp",
+              "pedal-125_end",
+              "pedal-126_start",
+              "pedal-126_moveDown",
+              "pedal-126_moveUp",
+              "pedal-126_end",
+              "pedal-127_start",
+              "pedal-127_moveDown",
+              "pedal-127_moveUp",
+              "pedal-127_end",
+              "pedal-128_start",
+              "pedal-128_moveDown",
+              "pedal-128_moveUp",
+              "pedal-128_end",
+              "pedal-129_start",
+              "pedal-129_moveDown",
+              "pedal-129_moveUp",
+              "pedal-129_end",
+              "pedal-130_start",
+              "pedal-130_moveDown",
+              "pedal-130_moveUp",
+              "pedal-130_end",
+              "pedal-131_start",
+              "pedal-131_moveDown",
+              "pedal-131_moveUp",
+              "pedal-131_end",
+              "pedal-132_start",
+              "pedal-132_moveDown",
+              "pedal-132_moveUp",
+              "pedal-132_end",
+              "pedal-133_start",
+              "pedal-133_moveDown",
+              "pedal-133_moveUp",
+              "pedal-133_end",
+              "pedal-134_start",
+              "pedal-134_moveDown",
+              "pedal-134_moveUp",
+              "pedal-134_end",
+              "pedal-135_start",
+              "pedal-135_moveDown",
+              "pedal-135_moveUp",
+              "pedal-135_end",
+              "pedal-136_start",
+              "pedal-136_moveDown",
+              "pedal-136_moveUp",
+              "pedal-136_end",
+              "pedal-137_start",
+              "pedal-137_moveDown",
+              "pedal-137_moveUp",
+              "pedal-137_end",
+              "pedal-138_start",
+              "pedal-138_moveDown",
+              "pedal-138_moveUp",
+              "pedal-138_end",
+              "pedal-139_start",
+              "pedal-139_moveDown",
+              "pedal-139_moveUp",
+              "pedal-139_end",
+              "pedal-140_start",
+              "pedal-140_moveDown",
+              "pedal-140_moveUp",
+              "pedal-140_end",
+              "pedal-141_start",
+              "pedal-141_moveDown",
+              "pedal-141_moveUp",
+              "pedal-141_end",
+              "pedal-142_start",
+              "pedal-142_moveDown",
+              "pedal-142_moveUp",
+              "pedal-142_end",
+              "pedal-143_start",
+              "pedal-143_moveDown",
+              "pedal-143_moveUp",
+              "pedal-143_end",
+              "pedal-144_start",
+              "pedal-144_moveDown",
+              "pedal-144_moveUp",
+              "pedal-144_end",
+              "pedal-145_start",
+              "pedal-145_moveDown",
+              "pedal-145_moveUp",
+              "pedal-145_end",
+              "pedal-146_start",
+              "pedal-146_moveDown",
+              "pedal-146_moveUp",
+              "pedal-146_end",
+              "pedal-147_start",
+              "pedal-147_moveDown",
+              "pedal-147_moveUp",
+              "pedal-147_end",
+              "pedal-148_start",
+              "pedal-148_moveDown",
+              "pedal-148_moveUp",
+              "pedal-148_end",
+              "pedal-149_start",
+              "pedal-149_moveDown",
+              "pedal-149_moveUp",
+              "pedal-149_end",
+              "pedal-150_start",
+              "pedal-150_moveDown",
+              "pedal-150_moveUp",
+              "pedal-150_end",
+              "pedal-151_start",
+              "pedal-151_moveDown",
+              "pedal-151_moveUp",
+              "pedal-151_end",
+              "pedal-152_start",
+              "pedal-152_moveDown",
+              "pedal-152_moveUp",
+              "pedal-152_end",
+              "pedal-153_start",
+              "pedal-153_moveDown",
+              "pedal-153_moveUp",
+              "pedal-153_end",
+              "pedal-154_start",
+              "pedal-154_moveDown",
+              "pedal-154_moveUp",
+              "pedal-154_end",
+              "pedal-155_start",
+              "pedal-155_moveDown",
+              "pedal-155_moveUp",
+              "pedal-155_end",
+              "pedal-156_start",
+              "pedal-156_moveDown",
+              "pedal-156_moveUp",
+              "pedal-156_end",
+              "pedal-157_start",
+              "pedal-157_moveDown",
+              "pedal-157_moveUp",
+              "pedal-157_end",
+              "pedal-158_start",
+              "pedal-158_moveDown",
+              "pedal-158_moveUp",
+              "pedal-158_end",
+              "pedal-159_start",
+              "pedal-159_moveDown",
+              "pedal-159_moveUp",
+              "pedal-159_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "changeDuration": 79
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

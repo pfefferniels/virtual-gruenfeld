@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { ReconId, ReconInfo } from '../types';
 
 /**
@@ -86,7 +87,6 @@ export function validateReconstruction(reconId: ReconId): boolean {
  * Generate hash for caching rendered files
  */
 export function generateRenderHash(data: any): string {
-  const crypto = require('crypto');
   return crypto.createHash('md5').update(JSON.stringify(data)).digest('hex');
 }
 

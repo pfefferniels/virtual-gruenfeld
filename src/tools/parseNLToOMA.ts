@@ -13,19 +13,27 @@ export function parseNLToOMA(input: ParseNLToOMAInput): ParseNLToOMAOutput {
     return { intent: "stop" };
   }
 
-  if (lowerText.includes('reduktion') || lowerText.includes('harmonisch')) {
+  // Check for explicit swap intent (must contain switching language)
+  if ((lowerText.includes('wechsle') || lowerText.includes('schalte') || 
+       lowerText.includes('switch') || lowerText.includes('change')) &&
+      (lowerText.includes('reduktion') || lowerText.includes('harmonisch'))) {
     return { 
       intent: "swap",
       targetReconId: "harmonic_reduction"
     };
   }
 
-  if (lowerText.includes('vollständig') || lowerText.includes('original')) {
+  if ((lowerText.includes('wechsle') || lowerText.includes('schalte') || 
+       lowerText.includes('switch') || lowerText.includes('change')) &&
+      (lowerText.includes('vollständig') || lowerText.includes('original'))) {
     return { 
       intent: "swap",
       targetReconId: "reconstruction"
     };
   }
+
+  // Detect reconstruction preference (implicit, not requiring swap)
+  const preferredReconId = detectReconstructionPreference(lowerText);
 
   // Modifier detection
   const modifiers: ModifierSpec = {};
@@ -56,7 +64,8 @@ export function parseNLToOMA(input: ParseNLToOMAInput): ParseNLToOMAOutput {
       (lowerText.includes('an dieser stelle') || lowerText.includes('diese stelle'))) {
     return {
       intent: "modify",
-      modifiers
+      modifiers,
+      targetReconId: preferredReconId
     };
   }
 
@@ -67,15 +76,40 @@ export function parseNLToOMA(input: ParseNLToOMAInput): ParseNLToOMAOutput {
     return {
       oma,
       intent: Object.keys(modifiers).length > 0 ? "modify" : "play",
-      modifiers: Object.keys(modifiers).length > 0 ? modifiers : undefined
+      modifiers: Object.keys(modifiers).length > 0 ? modifiers : undefined,
+      targetReconId: preferredReconId
     };
   }
 
   // Default to beginning if no specific location found
   return {
     oma: { from: { measure: 1, beat: 1 } },
-    intent: "play"
+    intent: "play",
+    targetReconId: preferredReconId
   };
+}
+
+/**
+ * Detect preferred reconstruction from text without requiring explicit swap
+ */
+function detectReconstructionPreference(lowerText: string): string | undefined {
+  // Check for harmonic reduction keywords
+  if (lowerText.includes('reduktion') || 
+      lowerText.includes('harmonisch') ||
+      lowerText.includes('vereinfacht') ||
+      lowerText.includes('simplified')) {
+    return "harmonic_reduction";
+  }
+  
+  // Check for full reconstruction keywords
+  if (lowerText.includes('vollständig') || 
+      lowerText.includes('original') ||
+      lowerText.includes('komplett') ||
+      lowerText.includes('ganz')) {
+    return "reconstruction";
+  }
+  
+  return undefined;
 }
 
 /**

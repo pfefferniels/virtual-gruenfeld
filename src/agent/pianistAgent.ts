@@ -33,6 +33,19 @@ export class PianistAgent {
       // Parse natural language to understand intent
       const nlResult = parseNLToOMA({ text: message });
       
+      // Handle reconstruction preference if specified
+      if (nlResult.targetReconId && nlResult.targetReconId !== this.context.currentReconId) {
+        // Switch to preferred reconstruction if it's different from current
+        const swapResult = await this.handleSwap(nlResult.targetReconId);
+        if (swapResult.reply.includes('nicht verfügbar')) {
+          // If swap fails, continue with current reconstruction but notify user
+          // This is handled by the swap function, we just continue
+        }
+      } else if (!this.context.currentReconId) {
+        // If no reconstruction is set and none specified, default to main reconstruction
+        this.context.currentReconId = 'reconstruction';
+      }
+      
       switch (nlResult.intent) {
         case 'stop':
           return this.handleStop();

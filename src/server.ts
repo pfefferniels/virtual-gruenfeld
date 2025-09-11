@@ -5,6 +5,7 @@ import path from 'path';
 import { chatRouter } from './api/chat';
 import { reconstructionsRouter } from './api/reconstructions';
 import { rendersRouter } from './api/renders';
+import { meiRouter } from './api/mei';
 
 // Load environment variables
 dotenv.config();
@@ -20,6 +21,7 @@ app.use(express.static('client/build')); // Serve React build
 // API Routes
 app.use('/api/chat', chatRouter);
 app.use('/api/reconstructions', reconstructionsRouter);
+app.use('/api/mei', meiRouter);
 app.use('/renders', rendersRouter);
 
 // Health check

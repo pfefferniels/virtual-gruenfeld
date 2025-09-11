@@ -17,27 +17,7 @@ const initialState: AppState = {
 function App() {
   const [state, setState] = useState<AppState>(initialState);
 
-  useEffect(() => {
-    // Load available reconstructions on app start
-    const loadReconstructions = async () => {
-      try {
-        const reconstructions = await fetchReconstructions();
-        setState(prev => ({ 
-          ...prev, 
-          reconstructions,
-          currentReconstruction: reconstructions[0]?.id || 'reconstruction'
-        }));
-      } catch (error) {
-        console.error('Failed to load reconstructions:', error);
-        setState(prev => ({ 
-          ...prev, 
-          error: 'Failed to load reconstructions' 
-        }));
-      }
-    };
-
-    loadReconstructions();
-  }, []);
+  // No need to load reconstructions for UI anymore - they are selected automatically
 
   const updateMessages = (messages: any[]) => {
     setState(prev => ({ ...prev, messages }));
@@ -102,7 +82,6 @@ function App() {
         }}>
           <ChatInterface
             messages={state.messages}
-            reconstructions={state.reconstructions}
             currentReconstruction={state.currentReconstruction}
             isLoading={state.isLoading}
             error={state.error}

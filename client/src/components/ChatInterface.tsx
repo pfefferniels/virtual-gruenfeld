@@ -18,12 +18,11 @@ import {
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
-import { ChatMessage, Reconstruction } from '../types';
+import { ChatMessage } from '../types';
 import { sendChatMessage } from '../utils/api';
 
 interface ChatInterfaceProps {
   messages: ChatMessage[];
-  reconstructions: Reconstruction[];
   currentReconstruction: string;
   isLoading: boolean;
   error: string | null;
@@ -36,7 +35,6 @@ interface ChatInterfaceProps {
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages,
-  reconstructions,
   currentReconstruction,
   isLoading,
   error,

@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Container, Box, Typography, AppBar, Toolbar } from '@mui/material';
 import ChatInterface from './components/ChatInterface';
 import ScorePanel from './components/ScorePanel';
 import { AppState } from './types';
-import { fetchReconstructions } from './utils/api';
 
 const initialState: AppState = {
   messages: [],
@@ -52,46 +51,37 @@ function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth={false} sx={{ 
-        flexGrow: 1, 
-        display: 'flex', 
+      <Container maxWidth={false} sx={{
+        flexGrow: 1,
+        display: 'flex',
         flexDirection: 'column',
         padding: 2,
         height: 'calc(100vh - 64px)' // Subtract AppBar height
       }}>
-        {/* Score Panel - Top Half */}
-        <Box sx={{ 
-          flexGrow: 1, 
-          border: '1px solid #ddd', 
+        <Box sx={{
+          flexGrow: 1,
+          border: '1px solid #ddd',
           borderRadius: 2,
           marginBottom: 2,
           overflow: 'hidden'
         }}>
-          <ScorePanel 
+          <ScorePanel
             highlights={state.scoreHighlights}
             reconstruction={state.currentReconstruction}
           />
         </Box>
 
-        {/* Chat Interface - Bottom Half */}
-        <Box sx={{ 
-          height: '40vh',
-          border: '1px solid #ddd',
-          borderRadius: 2,
-          overflow: 'hidden'
-        }}>
-          <ChatInterface
-            messages={state.messages}
-            currentReconstruction={state.currentReconstruction}
-            isLoading={state.isLoading}
-            error={state.error}
-            onMessagesChange={updateMessages}
-            onLoadingChange={setLoading}
-            onErrorChange={setError}
-            onHighlightsChange={setHighlights}
-            onReconstructionChange={setCurrentReconstruction}
-          />
-        </Box>
+        <ChatInterface
+          messages={state.messages}
+          currentReconstruction={state.currentReconstruction}
+          isLoading={state.isLoading}
+          error={state.error}
+          onMessagesChange={updateMessages}
+          onLoadingChange={setLoading}
+          onErrorChange={setError}
+          onHighlightsChange={setHighlights}
+          onReconstructionChange={setCurrentReconstruction}
+        />
       </Container>
     </Box>
   );

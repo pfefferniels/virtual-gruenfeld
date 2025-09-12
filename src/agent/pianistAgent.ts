@@ -6,38 +6,9 @@ import {
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
 import { loadHumdrum } from '../utils/verovioWrapper';
-import { listAvailableReconstructions } from '../utils/fileSystem';
-
-const extractIntent = (message: string): 'play' | 'stop' => {
-  // TODO: use AI to understand if the message 
-  // is a play or stop command. If nothing
-  // is specified, it's always "play"
-  return "play"
-}
-
-const extractReconstruction = (message: string): string | null => {
-  // TODO: use AI to find out which reconstruction
-  // the user means, i.e., find the best fit from
-  // the list available reconstructions
-  const list = listAvailableReconstructions()
-
-  return list[0].id
-}
-
-const extractIDs = (message: string, chosenReconstruction: string): string[] => {
-  const humdrum = loadHumdrum(chosenReconstruction);
-
-  // TODO: use AI to understand from the user's message
-  // which specific notes they mean. E.g., from b. 1 to
-  // b. 4 should include all notes in measures 1 to 4,
-  // "the upbeat to the high f in bar 3" should include
-  // just these notes. AI should introspect the humdrum
-  // encoding of the whole piece. Possibly needs a separate
-  // tool to only select relevant from the encoding or
-  // to incrementally inspect it, since it is a larger file.
-
-  return ['n18uj2a', 'ni1o2nd', 'naji81h']
-}
+import { extractIntent } from './IntentAgent';
+import { chooseReconstruction } from './ChoseReconstructionAgent';
+import { extractIDsFromMessage } from './ExtractIDsAgent';
 
 const extractModifiers = (message: string): ModifierSpec => {
   // Derive a modifier spec from the user message
@@ -64,15 +35,22 @@ export class PianistAgent {
    * Process a user message and return appropriate response
    */
   async processMessage(message: string): Promise<ChatResponse> {
-    const intent = extractIntent(message);
+    const intent = await extractIntent(message);
     if (intent === 'stop') {
       return { stop: true }
     }
 
-    const reconstruction = extractReconstruction(message) || this.context.reconstruction || 'reconstruction';
+    const reconstruction = await chooseReconstruction(message) || this.context.reconstruction || 'reconstruction';
     this.context.reconstruction = reconstruction;
 
-    const ids: string[] = extractIDs(message, reconstruction);
+
+    const humdrum = await loadHumdrum(reconstruction)
+    console.log('humdrum', humdrum)
+    if (humdrum.length === 0 || humdrum === "[empty]") {
+      return { reply: `Sorry, I cannot find the reconstruction "${reconstruction}".` }
+    }
+
+    const ids: string[] = await extractIDsFromMessage(humdrum, message);
 
     let mpmPath = this.getDefaultMPMPath();
 

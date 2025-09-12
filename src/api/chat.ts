@@ -1,6 +1,6 @@
 import express from 'express';
 import { ChatRequest } from '../types';
-import { PianistAgent } from '../agent/pianistAgent';
+import { PianistAgent } from '../agent/PianistAgent';
 
 export const chatRouter = express.Router();
 

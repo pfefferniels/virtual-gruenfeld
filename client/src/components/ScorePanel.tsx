@@ -89,9 +89,6 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
       overflow: 'auto',
       backgroundColor: '#fafafa'
     }}>
-      {vrvToolkit && (
-        <div>Verovio Toolkit successfully loaded</div>
-      )}
       {isLoading && (
         <Box sx={{
           display: 'flex',

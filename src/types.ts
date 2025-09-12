@@ -11,6 +11,8 @@ export interface OMA {
 export interface RegionResult {
   oma: OMA;                              // normalized OMA
   meiXmlIds: string[];                   // notes/rests in selection (for highlight)
+  startTick: number;                     // score-time ticks (MPM PPQ)
+  endTick: number;                       // score-time ticks (MPM PPQ; exclusive)
   barsLabel: string;                     // e.g., "Anfang–T.3/1" or "Auftakt→T.2/1"
 }
 

@@ -23,9 +23,15 @@ export function omaToRegion(input: OMAToRegionInput): RegionResult {
   const meiXmlIds = findMEIElementsWithVerovio(normalizedOMA, paths.score);
   const barsLabel = generateBarsLabel(normalizedOMA);
 
+  // Calculate ticks - placeholder implementation for now
+  const startTick = 0; // This would be calculated using MEI+MPM analysis
+  const endTick = 480; // This would be calculated using MEI+MPM analysis
+
   return {
     oma: normalizedOMA,
     meiXmlIds,
+    startTick,
+    endTick,
     barsLabel
   };
 }

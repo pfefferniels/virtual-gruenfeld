@@ -40,7 +40,8 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
 
         setIsLoading(false);
       } catch (err) {
-        setError('Fehler beim Laden der Partitur');
+        console.error('Error loading MEI:', err);
+        setError('Fehler beim Laden der MEI-Datei');
         setIsLoading(false);
       }
     };
@@ -51,10 +52,6 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
   useEffect(() => {
     // Apply highlights when they change
     if (highlights.length > 0 && !isLoading) {
-      // 1. Find SVG elements with the specified xml:id values
-      // 2. Add highlight CSS classes
-      // 3. Scroll to the highlighted region if needed
-
       const container = containerRef.current;
       if (!container) return;
 
@@ -62,79 +59,19 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
       const prev = container.querySelectorAll('.vrv-highlight');
       prev.forEach(el => el.classList.remove('vrv-highlight'));
 
-      // Helper to escape CSS id selectors
-      const cssEscape = (id: string) => {
-        // Prefer native CSS.escape if available
-        // @ts-ignore
-        if (typeof (window as any).CSS?.escape === 'function') return (window as any).CSS.escape(id);
-        // Fallback simple escape for common cases
-        return id.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1');
-      };
-
       // Apply highlights and collect elements to scroll to
-      const matchedElements: Element[] = [];
-      highlights.forEach(rawId => {
-        if (!rawId) return;
-        const id = rawId.trim();
+      const matchedElements: SVGElement[] = [];
+      highlights.forEach((id, i) => {
+        const el = container.querySelector<SVGElement>(`#${id}`)
+        if (!el) return
 
-        let el: Element | null = null;
-        // Try getting by id (fast)
-        try {
-          el = container.querySelector(`#${cssEscape(id)}`);
-        } catch {
-          // Ignore selector errors, fallback to attribute search
-        }
-        // Fallback: search by xml\\:id or [id=...] attribute if necessary
-        if (!el) {
-          el = container.querySelector(`[id="${id}"], [xml\\:id="${id}"], [data-id="${id}"]`);
-        }
-        if (!el) {
-          // Try global getElementById within container's SVG
-          const svgs = container.querySelectorAll('svg');
-          for (const svg of Array.from(svgs)) {
-            // @ts-ignore
-            const found = (svg as SVGSVGElement).getElementById?.(id);
-            if (found) {
-              el = found;
-              break;
-            }
-          }
+        if (i === 0) {
+          el.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' });
         }
 
-        if (el) {
-          el.classList.add('vrv-highlight');
-          matchedElements.push(el);
-        } else {
-          console.warn('Highlight id not found in SVG:', id);
-        }
+        el.classList.add('vrv-highlight');
+        matchedElements.push(el);
       });
-
-      // If we have matched elements, scroll the first one into view (centered)
-      if (matchedElements.length > 0) {
-        const target = matchedElements[0];
-        // Prefer scrollIntoView with centering; if container is scrollable, compute offsets
-        try {
-          // Use element.scrollIntoView if available
-          (target as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' });
-        } catch {
-          // Fallback: compute scroll offsets relative to container
-          const elemRect = target.getBoundingClientRect();
-          const contRect = container.getBoundingClientRect();
-          const left = container.scrollLeft + (elemRect.left - contRect.left) - contRect.width / 2 + elemRect.width / 2;
-          const top = container.scrollTop + (elemRect.top - contRect.top) - contRect.height / 2 + elemRect.height / 2;
-          container.scrollTo({ left, top, behavior: 'smooth' });
-        }
-      }
-
-      console.log('Applying highlights:', highlights);
-
-      // Simulate highlighting by updating the display
-      if (containerRef.current) {
-        const highlightInfo = containerRef.current.querySelector('.highlight-info');
-        if (highlightInfo) {
-          highlightInfo.textContent = `Highlights: [${highlights.join(', ')}]`;
-        }
-      }
     }
   }, [highlights, isLoading]);
 

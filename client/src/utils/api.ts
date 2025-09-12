@@ -40,6 +40,15 @@ export const sendChatMessage = async (request: ChatRequest): Promise<ChatRespons
   return response.data;
 };
 
+export const fetchMEI = async (reconId: string): Promise<string> => {
+  const response = await axios.get(`${API_BASE}/mei/${reconId}`, {
+    headers: {
+      'Accept': 'application/xml'
+    }
+  });
+  return response.data;
+};
+
 // Simple session ID generation for conversation context
 let sessionId: string | null = null;
 

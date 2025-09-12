@@ -29,8 +29,8 @@ export class PianistAgent {
    */
   async processMessage(message: string, locale: string = 'de'): Promise<ChatResponse> {
     try {
-      // Parse natural language to understand intent
-      const nlResult = parseNLToOMA({ text: message });
+      // Parse natural language to understand intent (now async with OpenAI Agent SDK)
+      const nlResult = await parseNLToOMA({ text: message });
       
       // Handle reconstruction preference if specified
       if (nlResult.targetReconId && nlResult.targetReconId !== this.context.currentReconId) {

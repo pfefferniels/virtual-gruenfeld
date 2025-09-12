@@ -1,10 +1,38 @@
 import { ParseNLToOMAInput, ParseNLToOMAOutput, OMA, ModifierSpec } from '../types';
+import { OpenAIAgentNLParser } from './openaiAgentNLParser';
+
+// Create a singleton instance of the OpenAI Agent parser
+const openaiParser = new OpenAIAgentNLParser();
 
 /**
  * Tool 2: Parse natural language locator (DE/EN) to OMA
- * Converts German/English descriptions to canonical OMA format
+ * NOW ENHANCED with OpenAI Agent SDK for intelligent parsing
+ * 
+ * This function now uses OpenAI's Agent/Assistant API for sophisticated
+ * natural language understanding, with fallback to the original string-matching approach.
  */
-export function parseNLToOMA(input: ParseNLToOMAInput): ParseNLToOMAOutput {
+export async function parseNLToOMA(input: ParseNLToOMAInput): Promise<ParseNLToOMAOutput> {
+  // Check if OpenAI API key is available
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      // Use OpenAI Agent SDK for intelligent parsing
+      return await openaiParser.parseNaturalLanguage(input);
+    } catch (error) {
+      console.error('OpenAI parsing failed, falling back to primitive parsing:', error);
+      // Fall through to primitive parsing
+    }
+  } else {
+    console.warn('OpenAI API key not found, using primitive parsing');
+  }
+
+  // Fallback to original primitive parsing
+  return parseNLToOMAPrimitive(input);
+}
+
+/**
+ * Original primitive string-matching implementation (kept as fallback)
+ */
+function parseNLToOMAPrimitive(input: ParseNLToOMAInput): ParseNLToOMAOutput {
   const { text } = input;
   const lowerText = text.toLowerCase();
 

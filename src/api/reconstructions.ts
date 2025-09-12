@@ -1,5 +1,5 @@
 import express from 'express';
-import { listReconstructions } from '../tools/listReconstructions';
+import { listAvailableReconstructions } from '../utils/fileSystem';
 
 export const reconstructionsRouter = express.Router();
 
@@ -9,7 +9,7 @@ export const reconstructionsRouter = express.Router();
  */
 reconstructionsRouter.get('/', (req, res) => {
   try {
-    const result = listReconstructions();
+    const result = listAvailableReconstructions();
     res.json(result);
   } catch (error) {
     console.error('Error listing reconstructions:', error);

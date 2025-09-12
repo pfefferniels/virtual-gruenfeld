@@ -66,14 +66,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
     try {
       const response = await sendChatMessage({
-        message: inputText,
-        reconId: currentReconstruction,
-        locale: 'de'
+        message: inputText
       });
+
+      if (response.stop) {
+        stopAudio();
+        return;
+      }
 
       const botMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        text: response.reply,
+        text: response.reply || '[no text]',
         isUser: false,
         timestamp: new Date(),
         audio: response.audio,
@@ -83,16 +86,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       onMessagesChange([...newMessages, botMessage]);
 
       // Update highlights if provided
-      if (response.highlight?.xmlIds) {
-        onHighlightsChange(response.highlight.xmlIds);
+      if (response.highlight) {
+        onHighlightsChange(response.highlight);
       }
 
-      // Update reconstruction context if changed
-      if (response.context?.reconId && response.context.reconId !== currentReconstruction) {
-        onReconstructionChange(response.context.reconId);
+      // Update reconstruction display if changed
+      if (response.reconstruction && response.reconstruction !== currentReconstruction) {
+        onReconstructionChange(response.reconstruction);
       }
 
-      // Auto-play audio
+      // Play audio if provided
       if (response.audio) {
         playAudio(response.audio.url);
       }

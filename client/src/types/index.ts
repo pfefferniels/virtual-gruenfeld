@@ -1,5 +1,3 @@
-// Types for the frontend application
-
 export interface ChatMessage {
   id: string;
   text: string;
@@ -7,12 +5,8 @@ export interface ChatMessage {
   timestamp: Date;
   audio?: {
     url: string;
-    format: 'mp3' | 'wav';
-    durationSec: number;
   };
-  highlight?: {
-    xmlIds: string[];
-  };
+  highlight?: string[];
 }
 
 export interface Reconstruction {

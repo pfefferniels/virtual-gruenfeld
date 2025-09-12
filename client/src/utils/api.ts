@@ -5,24 +5,16 @@ const API_BASE = '/api';
 
 export interface ChatRequest {
   message: string;
-  reconId?: string;
-  locale?: 'de' | 'en';
 }
 
 export interface ChatResponse {
-  reply: string;
+  reply?: string;
+  stop?: boolean
   audio?: {
     url: string;
-    format: 'mp3' | 'wav';
-    durationSec: number;
   };
-  highlight?: {
-    xmlIds: string[];
-  };
-  context?: {
-    reconId: string;
-    oma?: any;
-  };
+  highlight?: string[];
+  reconstruction?: string;
 }
 
 export const fetchReconstructions = async (): Promise<Reconstruction[]> => {

@@ -9,9 +9,9 @@ import { execSync } from 'child_process';
  * Converts MEI+MPM to MIDI and optionally MSM using the meico tool
  */
 export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput> {
-  const { reconId, region, mpmPath } = input;
+  const { reconstruction, ids, mpmPath } = input;
 
-  const paths = getReconstructionPaths(reconId);
+  const paths = getReconstructionPaths(reconstruction);
   const effectiveMpmPath = mpmPath || paths.performance;
 
   if (!fs.existsSync(paths.score)) {
@@ -25,7 +25,7 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
   ensureRendersDirectory();
 
   // Generate hash for output filenames
-  const hash = generateRenderHash({ reconId, region, mpmPath: effectiveMpmPath });
+  const hash = generateRenderHash({ reconstruction, ids, mpmPath: effectiveMpmPath });
   const mp3Path = path.join(process.cwd(), 'renders', `${hash}.mp3`);
 
   // Check if already exists (caching)
@@ -39,11 +39,7 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
     throw new Error('meico bin does not exist')
   }
 
-  // This would be the actual meico command for tick extraction
-  // The exact parameters will be defined later as mentioned in the problem statement
-
-  // For now, create a framework that shows the intended structure
-  const command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --ids ${region.meiXmlIds.join(',')} --out ${mp3Path}`;
+  const command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --ids ${ids.join(',')} --out ${mp3Path}`;
   execSync(command, { stdio: 'inherit' });
 
   return { mp3Path };

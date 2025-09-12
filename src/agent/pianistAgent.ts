@@ -1,15 +1,51 @@
-import { 
-  ChatResponse, 
-  ConversationContext, 
-  OMA, 
-  RegionResult 
+import {
+  ChatResponse,
+  ModifierSpec,
+  ParsedNL,
 } from '../types';
-import { parseNLToOMA } from '../tools/parseNLToOMA';
-import { omaToRegion } from '../tools/omaToRegion';
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
-import { swapReconstruction } from '../tools/swapReconstruction';
-import { stopPlayback } from '../tools/stopPlayback';
+import { loadHumdrum } from '../utils/verovioWrapper';
+import { listAvailableReconstructions } from '../utils/fileSystem';
+
+const extractIntent = (message: string): 'play' | 'stop' => {
+  // TODO: use AI to understand if the message 
+  // is a play or stop command. If nothing
+  // is specified, it's always "play"
+  return "play"
+}
+
+const extractReconstruction = (message: string): string | null => {
+  // TODO: use AI to find out which reconstruction
+  // the user means, i.e., find the best fit from
+  // the list available reconstructions
+  const list = listAvailableReconstructions()
+
+  return list[0].id
+}
+
+const extractIDs = (message: string, chosenReconstruction: string): string[] => {
+  const humdrum = loadHumdrum(chosenReconstruction);
+
+  // TODO: use AI to understand from the user's message
+  // which specific notes they mean. E.g., from b. 1 to
+  // b. 4 should include all notes in measures 1 to 4,
+  // "the upbeat to the high f in bar 3" should include
+  // just these notes. AI should introspect the humdrum
+  // encoding of the whole piece. Possibly needs a separate
+  // tool to only select relevant from the encoding or
+  // to incrementally inspect it, since it is a larger file.
+
+  return ['n18uj2a', 'ni1o2nd', 'naji81h']
+}
+
+const extractModifiers = (message: string): ModifierSpec => {
+  // Derive a modifier spec from the user message
+  // E.g., "etwas langsamer und mit übertreibe dein Rubato"
+  // should result in { tempo: { factor: 0.9 }, exeggerate: { rubato: 1.2 } }
+
+  return {};
+}
 
 /**
  * PianistAgent - Main agent for processing user requests
@@ -18,237 +54,69 @@ import { stopPlayback } from '../tools/stopPlayback';
  * Style: brief, precise; return audio ASAP, a one-liner only when something went wrong.
  */
 export class PianistAgent {
-  private context: ConversationContext;
+  private context: ParsedNL;
 
-  constructor(context: ConversationContext) {
+  constructor(context: ParsedNL) {
     this.context = { ...context };
   }
 
   /**
    * Process a user message and return appropriate response
    */
-  async processMessage(message: string, locale: string = 'de'): Promise<ChatResponse> {
-    try {
-      // Parse natural language to understand intent
-      const nlResult = parseNLToOMA({ text: message });
-      
-      // Handle reconstruction preference if specified
-      if (nlResult.targetReconId && nlResult.targetReconId !== this.context.currentReconId) {
-        // Switch to preferred reconstruction if it's different from current
-        const swapResult = await this.handleSwap(nlResult.targetReconId);
-        if (swapResult.reply.includes('nicht verfügbar')) {
-          // If swap fails, continue with current reconstruction but notify user
-          // This is handled by the swap function, we just continue
-        }
-      } else if (!this.context.currentReconId) {
-        // If no reconstruction is set and none specified, default to main reconstruction
-        this.context.currentReconId = 'reconstruction';
-      }
-      
-      switch (nlResult.intent) {
-        case 'stop':
-          return this.handleStop();
-          
-        case 'swap':
-          return await this.handleSwap(nlResult.targetReconId!);
-          
-        case 'play':
-          return await this.handlePlay(nlResult.oma!, nlResult.modifiers);
-          
-        case 'modify':
-          return await this.handleModify(nlResult.modifiers!);
-          
-        default:
-          return {
-            reply: "Entschuldigung, ich habe Sie nicht verstanden. Können Sie Ihre Anfrage präzisieren?"
-          };
-      }
-      
-    } catch (error) {
-      console.error('PianistAgent error:', error);
-      return {
-        reply: "Es tut mir leid, bei der Verarbeitung Ihrer Anfrage ist ein Fehler aufgetreten."
-      };
+  async processMessage(message: string): Promise<ChatResponse> {
+    const intent = extractIntent(message);
+    if (intent === 'stop') {
+      return { stop: true }
     }
-  }
 
-  /**
-   * Handle stop playback request
-   */
-  private handleStop(): ChatResponse {
-    stopPlayback();
-    return {
-      reply: "Verstanden."
-    };
-  }
+    const reconstruction = extractReconstruction(message) || this.context.reconstruction || 'reconstruction';
+    this.context.reconstruction = reconstruction;
 
-  /**
-   * Handle reconstruction swap
-   */
-  private async handleSwap(targetReconId: string): Promise<ChatResponse> {
-    try {
-      swapReconstruction({ reconId: targetReconId });
-      this.context.currentReconId = targetReconId;
-      
-      const isReduction = targetReconId.includes('reduction');
-      return {
-        reply: isReduction 
-          ? "Ich wechsele zur harmonischen Reduktion."
-          : "Ich kehre zur vollständigen Fassung zurück.",
-        context: {
-          reconId: targetReconId
-        }
-      };
-    } catch (error) {
-      return {
-        reply: "Diese Fassung ist leider nicht verfügbar."
-      };
-    }
-  }
+    const ids: string[] = extractIDs(message, reconstruction);
 
-  /**
-   * Handle play request for specific musical location
-   */
-  private async handlePlay(oma: OMA, modifiers?: any): Promise<ChatResponse> {
-    try {
-      // Convert OMA to region
-      const region = omaToRegion({
-        reconId: this.context.currentReconId,
-        oma
-      });
-      
-      // Store region for potential future "an dieser Stelle" references
-      this.context.lastRegion = region;
-      
-      let mpmPath = this.getDefaultMPMPath();
-      
-      // Apply modifiers if present
-      if (modifiers && Object.keys(modifiers).length > 0) {
-        const modifyResult = await modifyMPM({
-          mpmPath: this.getDefaultMPMPath(),
-          modifiers
-        });
-        mpmPath = modifyResult.mpmPath;
-      }
-      
-      // Generate MP3
-      const audio = await generateMP3({
-        reconId: this.context.currentReconId,
-        region,
-        mpmPath
-      });
-            
-      return {
-        reply: this.generatePlayResponse(region),
-        audio: {
-          url: `/renders/${audio.mp3Path.split('/').pop()}`,
-        },
-        highlight: {
-          xmlIds: region.meiXmlIds
-        },
-        context: {
-          reconId: this.context.currentReconId,
-          oma: region.oma
-        }
-      };
-      
-    } catch (error) {
-      return {
-        reply: `Diese Stelle konnte ich leider nicht finden oder abspielen. ${error}`
-      };
-    }
-  }
+    let mpmPath = this.getDefaultMPMPath();
 
-  /**
-   * Handle modification of the last played region
-   */
-  private async handleModify(modifiers: any): Promise<ChatResponse> {
-    if (!this.context.lastRegion) {
-      return {
-        reply: "Ich weiß nicht, auf welche Stelle Sie sich beziehen. Können Sie eine konkrete Stelle angeben?"
-      };
-    }
-    
-    try {
-      // Apply modifiers to the last region
+    // Apply modifiers if present
+    const modifiers = extractModifiers(message);
+    this.context.modifiers = modifiers;
+    if (modifiers && Object.keys(modifiers).length > 0) {
       const modifyResult = await modifyMPM({
-        mpmPath: this.getDefaultMPMPath(),
+        mpmPath,
         modifiers
       });
-      
-      // Generate MP3 with modified MPM
-      const audio = await generateMP3({
-        reconId: this.context.currentReconId,
-        region: this.context.lastRegion,
-        mpmPath: modifyResult.mpmPath
-      });
-      
-      return {
-        reply: this.generateModifyResponse(modifiers),
-        audio: {
-          url: `/renders/${audio.mp3Path.split('/').pop()}`,
-        },
-        highlight: {
-          xmlIds: this.context.lastRegion.meiXmlIds
-        },
-        context: {
-          reconId: this.context.currentReconId,
-          oma: this.context.lastRegion.oma
-        }
-      };
-      
-    } catch (error) {
-      return {
-        reply: "Die Modifikation konnte leider nicht angewendet werden."
-      };
+      mpmPath = modifyResult.mpmPath;
     }
-  }
 
-  /**
-   * Generate response text for play actions
-   */
-  private generatePlayResponse(region: RegionResult): string {
-    return `Hier ist ${region.barsLabel}.`;
-  }
+    // Generate MP3
+    const audio = await generateMP3({
+      reconstruction,
+      ids,
+      mpmPath
+    });
 
-  /**
-   * Generate response text for modify actions
-   */
-  private generateModifyResponse(modifiers: any): string {
-    const modifications: string[] = [];
-    
-    if (modifiers.exaggerate?.dynamics) {
-      modifications.push("übertriebene Dynamik");
-    }
-    if (modifiers.exaggerate?.rubato) {
-      modifications.push("verstärktes Rubato");
-    }
-    if (modifiers.tempo?.factor) {
-      if (modifiers.tempo.factor < 1) {
-        modifications.push("langsameres Tempo");
-      } else if (modifiers.tempo.factor > 1) {
-        modifications.push("schnelleres Tempo");
-      }
-    }
-    
-    if (modifications.length === 0) {
-      return "Hier ist die modifizierte Version.";
-    }
-    
-    return `Hier mit ${modifications.join(' und ')}.`;
+    return {
+      reply: this.generatePlayResponse(),
+      audio: {
+        url: `/renders/${audio.mp3Path.split('/').pop()}`,
+      },
+      highlight: ids,
+      reconstruction
+    };
   }
 
   /**
    * Get default MPM path for current reconstruction
    */
   private getDefaultMPMPath(): string {
-    return `assets/${this.context.currentReconId}/performance.mpm`;
+    return `assets/${this.context.reconstruction}/performance.mpm`;
   }
 
   /**
-   * Get current conversation context
+   * Generate a brief play response
    */
-  getContext(): ConversationContext {
-    return { ...this.context };
+  private generatePlayResponse(): string {
+    // TODO: use AI to generate a natural response
+    // of what we are playing based on context
+    return 'Playing now.';
   }
 }

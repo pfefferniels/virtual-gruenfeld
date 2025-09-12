@@ -5,7 +5,7 @@ import {
 } from '../types';
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
-import { loadHumdrum } from '../utils/verovioWrapper';
+import { loadMEI } from '../utils/verovioWrapper';
 import { extractIntent } from './IntentAgent';
 import { chooseReconstruction } from './ChoseReconstructionAgent';
 import { extractIDsFromMessage } from './ExtractIDsAgent';
@@ -43,14 +43,13 @@ export class PianistAgent {
     const reconstruction = await chooseReconstruction(message) || this.context.reconstruction || 'reconstruction';
     this.context.reconstruction = reconstruction;
 
-
-    const humdrum = await loadHumdrum(reconstruction)
-    console.log('humdrum', humdrum)
-    if (humdrum.length === 0 || humdrum === "[empty]") {
+    const mei = await loadMEI(reconstruction)
+    // console.log('humdrum', mei)
+    if (mei.length === 0 || mei === "[empty]") {
       return { reply: `Sorry, I cannot find the reconstruction "${reconstruction}".` }
     }
 
-    const ids: string[] = await extractIDsFromMessage(humdrum, message);
+    const ids: string[] = await extractIDsFromMessage(mei, message);
 
     let mpmPath = this.getDefaultMPMPath();
 

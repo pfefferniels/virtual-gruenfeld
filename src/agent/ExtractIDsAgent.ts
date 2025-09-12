@@ -1,13 +1,8 @@
-// src/ai/ExtractIDsFromMEIAgent.ts
 import { Agent, run, system, user, tool, RunContext } from '@openai/agents';
 import { z } from 'zod';
 import { DOMParser } from '@xmldom/xmldom';
 import { evaluateXPath } from 'fontoxpath';
 
-/** Public API: call from your PianistAgent
- *   const meiXml = await loadMEI(reconstruction)
- *   const ids = await extractIDsFromMessage(meiXml, userMessage)
- */
 export async function extractIDsFromMessage(meiXml: string, message: string): Promise<string[]> {
     const env = buildMeiEnv(meiXml);
     const agent = createIdsAgent();
@@ -17,14 +12,13 @@ export async function extractIDsFromMessage(meiXml: string, message: string): Pr
         [
             system(
                 [
-                    'Nutze local-name() für Element-Namen. Sei kreativ mit deinen XPath-Ausdrücken.',
-                    'Nutze zur zeitlichen Orientierung besonders das @qstamp-Attribut, das jedem <note>-Element zugeordnet wurde. Es zählt durchgängig über Taktgrenzen hinweg.',
+                    'Nutze local-name()="..." für Element-Namen.',
+                    'Nutze zur zeitlichen Orientierung auch das @qstamp-Attribut, das jedem <note>-Element zugeordnet wurde. Es zählt durchgängig über Taktgrenzen hinweg. Aber Achtung: Der Baum ist *nicht* nach @qstamp sortiert.',
                     'Ein XPath-Beispiel:',
                     '  ////*[local-name()="measure" and @n=3]//*[local-name()="note"][@pname="f" and @oct="5"]/preceding::*[local-name()="note"][1]/@xml:id',
-
                 ].join('\n')
             ),
-            user(`MEI ist geladen. Aufgabe: Wähle präzise Noten-IDs.\nNutzer: ${message}`),
+            user(message),
         ],
         { context: { env } }
     );
@@ -62,10 +56,10 @@ export function createIdsAgent() {
     return new Agent<MeiContext>({
         name: 'ExtractIDsAgent',
         instructions: [
-            'Du bist ein exzellenter Musiktheoretiker (DE/EN), spezialisiert auf MEI-XML und Notation polyphoner Klaviermusik des 19. Jahrhunderts..',
+            'Du bist ein Musiktheoretiker (DE/EN), spezialisiert auf MEI-XML und Notation polyphoner Klaviermusik des 19. Jahrhunderts..',
             'Ziel: Wähle präzise Noten-IDs für das Abspielen.',
-            'Verwende ausschließlich "queryXPath".',
-            'Antworte NUR als JSON {"ids":[...]} – keine Erklärungen.',
+            'Verwende ausschließlich "queryXPath". Mache zunächst einen Plan und führe dann die XPath-Abfragen durch. Bevorzuge kleinere und effiziente Abfragen.',
+            'Antworte NUR als JSON {"ids":[...]} – keine Erklärungen, Markdown oder ähnliches.',
         ].join('\n'),
         tools: [queryXPath],
     });

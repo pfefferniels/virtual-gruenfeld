@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Typography, Alert } from '@mui/material';
+import createVerovioModule from 'verovio/wasm';
+import { VerovioToolkit } from 'verovio/esm';
+import "./ScorePanel.css"
 
 interface ScorePanelProps {
   highlights: string[];
@@ -10,40 +13,31 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [vrvToolkit, setVrvToolkit] = useState<VerovioToolkit | null>(null);
 
   useEffect(() => {
-    // In a full implementation, this would:
-    // 1. Load the MEI file for the current reconstruction
-    // 2. Use Verovio to render it as SVG
-    // 3. Display the score in the container
-    // 4. Apply highlights to the specified xmlIds
+    createVerovioModule().then(VerovioModule => {
+      const verovioToolkit = new VerovioToolkit(VerovioModule);
+      setVrvToolkit(verovioToolkit);
+    });
+  }, [])
 
+  useEffect(() => {
+    if (!vrvToolkit) return;
     const loadScore = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        
-        // For now, show a placeholder
+
+        // Fetch MEI 
+        const response = await fetch(`/api/mei/${reconstruction}`);
+        const mei = await response.text();
+        vrvToolkit.loadData(mei);
+        const svg = vrvToolkit.renderToSVG(1);
         if (containerRef.current) {
-          containerRef.current.innerHTML = `
-            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; background: #fafafa;">
-              <h3>Musik-Notenbild</h3>
-              <p>Reconstruction: ${reconstruction}</p>
-              <p>Highlights: [${highlights.join(', ')}]</p>
-              <div style="margin-top: 20px; padding: 20px; border: 2px dashed #ccc; border-radius: 8px;">
-                <p><strong>Verovio Score wird hier angezeigt</strong></p>
-                <p>In der vollständigen Implementierung würde hier:</p>
-                <ul style="text-align: left;">
-                  <li>MEI-Datei geladen werden</li>
-                  <li>Verovio die Partitur als SVG rendern</li>
-                  <li>Highlighting der angegebenen xml:id Elemente erfolgen</li>
-                  <li>Navigation und Interaktion ermöglicht werden</li>
-                </ul>
-              </div>
-            </div>
-          `;
+          containerRef.current.innerHTML = svg;
         }
-        
+
         setIsLoading(false);
       } catch (err) {
         setError('Fehler beim Laden der Partitur');
@@ -52,18 +46,88 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
     };
 
     loadScore();
-  }, [reconstruction]);
+  }, [reconstruction, vrvToolkit]);
 
   useEffect(() => {
     // Apply highlights when they change
     if (highlights.length > 0 && !isLoading) {
-      // In a real implementation, this would:
       // 1. Find SVG elements with the specified xml:id values
       // 2. Add highlight CSS classes
       // 3. Scroll to the highlighted region if needed
-      
+
+      const container = containerRef.current;
+      if (!container) return;
+
+      // Remove previous highlights
+      const prev = container.querySelectorAll('.vrv-highlight');
+      prev.forEach(el => el.classList.remove('vrv-highlight'));
+
+      // Helper to escape CSS id selectors
+      const cssEscape = (id: string) => {
+        // Prefer native CSS.escape if available
+        // @ts-ignore
+        if (typeof (window as any).CSS?.escape === 'function') return (window as any).CSS.escape(id);
+        // Fallback simple escape for common cases
+        return id.replace(/([!"#$%&'()*+,.\/:;<=>?@[\\\]^`{|}~])/g, '\\$1');
+      };
+
+      // Apply highlights and collect elements to scroll to
+      const matchedElements: Element[] = [];
+      highlights.forEach(rawId => {
+        if (!rawId) return;
+        const id = rawId.trim();
+
+        let el: Element | null = null;
+        // Try getting by id (fast)
+        try {
+          el = container.querySelector(`#${cssEscape(id)}`);
+        } catch {
+          // Ignore selector errors, fallback to attribute search
+        }
+        // Fallback: search by xml\\:id or [id=...] attribute if necessary
+        if (!el) {
+          el = container.querySelector(`[id="${id}"], [xml\\:id="${id}"], [data-id="${id}"]`);
+        }
+        if (!el) {
+          // Try global getElementById within container's SVG
+          const svgs = container.querySelectorAll('svg');
+          for (const svg of Array.from(svgs)) {
+            // @ts-ignore
+            const found = (svg as SVGSVGElement).getElementById?.(id);
+            if (found) {
+              el = found;
+              break;
+            }
+          }
+        }
+
+        if (el) {
+          el.classList.add('vrv-highlight');
+          matchedElements.push(el);
+        } else {
+          console.warn('Highlight id not found in SVG:', id);
+        }
+      });
+
+      // If we have matched elements, scroll the first one into view (centered)
+      if (matchedElements.length > 0) {
+        const target = matchedElements[0];
+        // Prefer scrollIntoView with centering; if container is scrollable, compute offsets
+        try {
+          // Use element.scrollIntoView if available
+          (target as HTMLElement).scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' });
+        } catch {
+          // Fallback: compute scroll offsets relative to container
+          const elemRect = target.getBoundingClientRect();
+          const contRect = container.getBoundingClientRect();
+          const left = container.scrollLeft + (elemRect.left - contRect.left) - contRect.width / 2 + elemRect.width / 2;
+          const top = container.scrollTop + (elemRect.top - contRect.top) - contRect.height / 2 + elemRect.height / 2;
+          container.scrollTo({ left, top, behavior: 'smooth' });
+        }
+      }
+
       console.log('Applying highlights:', highlights);
-      
+
       // Simulate highlighting by updating the display
       if (containerRef.current) {
         const highlightInfo = containerRef.current.querySelector('.highlight-info');
@@ -83,25 +147,28 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
   }
 
   return (
-    <Box sx={{ 
-      height: '100%', 
+    <Box sx={{
+      height: '100%',
       overflow: 'auto',
       backgroundColor: '#fafafa'
     }}>
+      {vrvToolkit && (
+        <div>Verovio Toolkit successfully loaded</div>
+      )}
       {isLoading && (
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          height: '100%' 
+        <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100%'
         }}>
           <Typography>Lade Partitur...</Typography>
         </Box>
       )}
-      <div 
-        ref={containerRef} 
-        style={{ 
-          height: '100%', 
+      <div
+        ref={containerRef}
+        style={{
+          height: '100%',
           minHeight: '400px'
         }}
       />

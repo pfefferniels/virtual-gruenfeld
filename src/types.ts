@@ -11,8 +11,6 @@ export interface OMA {
 export interface RegionResult {
   oma: OMA;                              // normalized OMA
   meiXmlIds: string[];                   // notes/rests in selection (for highlight)
-  startTick: number;                     // score-time ticks (MPM PPQ)
-  endTick: number;                       // score-time ticks (MPM PPQ; exclusive)
   barsLabel: string;                     // e.g., "Anfang–T.3/1" or "Auftakt→T.2/1"
 }
 
@@ -61,13 +59,11 @@ export interface OMAToRegionInput {
 export interface ApplyMPMInput {
   reconId: ReconId;
   region: RegionResult;
-  mpmPath?: string;
+  mpmPath: string;
 }
 
 export interface ApplyMPMOutput {
-  midiPath: string;
-  msmPath?: string;
-  log: string[];
+  mp3Path: string;
 }
 
 export interface ModifyMPMInput {
@@ -78,16 +74,6 @@ export interface ModifyMPMInput {
 export interface ModifyMPMOutput {
   mpmPath: string;
   log: string[];
-}
-
-export interface RenderAudioInput {
-  midiPath: string;
-  format?: "mp3" | "wav";
-}
-
-export interface RenderAudioOutput {
-  audioPath: string;
-  durationSec: number;
 }
 
 export interface SwapReconstructionInput {
@@ -113,8 +99,6 @@ export interface ChatResponse {
   reply: string;                                 // short text
   audio?: { 
     url: string; 
-    format: "mp3" | "wav"; 
-    durationSec: number; 
   };
   highlight?: { xmlIds: string[] };              // for Verovio to emphasize
   context?: { 

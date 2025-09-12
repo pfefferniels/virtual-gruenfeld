@@ -6,9 +6,8 @@ import {
 } from '../types';
 import { parseNLToOMA } from '../tools/parseNLToOMA';
 import { omaToRegion } from '../tools/omaToRegion';
-import { applyMPM } from '../tools/applyMPM';
+import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
-import { renderAudio } from '../tools/renderAudio';
 import { swapReconstruction } from '../tools/swapReconstruction';
 import { stopPlayback } from '../tools/stopPlayback';
 
@@ -121,7 +120,7 @@ export class PianistAgent {
       // Store region for potential future "an dieser Stelle" references
       this.context.lastRegion = region;
       
-      let mpmPath: string | undefined;
+      let mpmPath = this.getDefaultMPMPath();
       
       // Apply modifiers if present
       if (modifiers && Object.keys(modifiers).length > 0) {
@@ -132,25 +131,17 @@ export class PianistAgent {
         mpmPath = modifyResult.mpmPath;
       }
       
-      // Generate MIDI
-      const midiResult = await applyMPM({
+      // Generate MP3
+      const audio = await generateMP3({
         reconId: this.context.currentReconId,
         region,
         mpmPath
       });
-      
-      // Render audio
-      const audioResult = await renderAudio({
-        midiPath: midiResult.midiPath,
-        format: (process.env.RENDER_AUDIO_FORMAT as 'mp3' | 'wav') || 'mp3'
-      });
-      
+            
       return {
         reply: this.generatePlayResponse(region),
         audio: {
-          url: `/renders/${audioResult.audioPath.split('/').pop()}`,
-          format: audioResult.audioPath.endsWith('.mp3') ? 'mp3' : 'wav',
-          durationSec: audioResult.durationSec
+          url: `/renders/${audio.mp3Path.split('/').pop()}`,
         },
         highlight: {
           xmlIds: region.meiXmlIds
@@ -163,7 +154,7 @@ export class PianistAgent {
       
     } catch (error) {
       return {
-        reply: "Diese Stelle konnte ich leider nicht finden oder abspielen."
+        reply: `Diese Stelle konnte ich leider nicht finden oder abspielen. ${error}`
       };
     }
   }
@@ -185,25 +176,17 @@ export class PianistAgent {
         modifiers
       });
       
-      // Generate MIDI with modified MPM
-      const midiResult = await applyMPM({
+      // Generate MP3 with modified MPM
+      const audio = await generateMP3({
         reconId: this.context.currentReconId,
         region: this.context.lastRegion,
         mpmPath: modifyResult.mpmPath
       });
       
-      // Render audio
-      const audioResult = await renderAudio({
-        midiPath: midiResult.midiPath,
-        format: (process.env.RENDER_AUDIO_FORMAT as 'mp3' | 'wav') || 'mp3'
-      });
-      
       return {
         reply: this.generateModifyResponse(modifiers),
         audio: {
-          url: `/renders/${audioResult.audioPath.split('/').pop()}`,
-          format: audioResult.audioPath.endsWith('.mp3') ? 'mp3' : 'wav',
-          durationSec: audioResult.durationSec
+          url: `/renders/${audio.mp3Path.split('/').pop()}`,
         },
         highlight: {
           xmlIds: this.context.lastRegion.meiXmlIds

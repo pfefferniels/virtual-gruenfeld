@@ -8,7 +8,20 @@ import { modifyMPM } from '../tools/modifyMPM';
 import { loadMEI } from '../utils/verovioWrapper';
 import { extractIntent } from './IntentAgent';
 import { chooseReconstruction } from './ChoseReconstructionAgent';
-import { extractIDsFromMessage } from './ExtractIDsAgent';
+import { extractIDsFromMessage, LabelEntry } from './ExtractIDsAgent';
+import path from 'path';
+import * as fs from 'fs';
+
+const loadLabels = (reconstruction: string): LabelEntry[] => {
+    const labelPath = path.join(process.cwd(), 'assets', reconstruction, 'labels.json');
+    console.log('label path', labelPath)
+  
+    if (!fs.existsSync(labelPath)) return []
+
+    const fileContent = fs.readFileSync(labelPath, 'utf8');
+    const labels: LabelEntry[] = JSON.parse(fileContent);
+    return labels;
+}
 
 const extractModifiers = (message: string): ModifierSpec => {
   // Derive a modifier spec from the user message
@@ -49,7 +62,10 @@ export class PianistAgent {
       return { reply: `Sorry, I cannot find the reconstruction "${reconstruction}".` }
     }
 
-    const ids: string[] = await extractIDsFromMessage(mei, message);
+    const labels = loadLabels(reconstruction);
+    console.log('labels', labels)
+    if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
+    const ids: string[] = await extractIDsFromMessage(mei, message, labels);
 
     let mpmPath = this.getDefaultMPMPath();
 

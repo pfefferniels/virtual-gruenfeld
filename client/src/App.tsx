@@ -56,12 +56,10 @@ function App() {
         display: 'flex',
         flexDirection: 'column',
         padding: 2,
-        height: 'calc(100vh - 64px)' // Subtract AppBar height
+        height: 'calc(100vh - 64px)'
       }}>
         <Box sx={{
           flexGrow: 1,
-          border: '1px solid #ddd',
-          borderRadius: 2,
           marginBottom: 2,
           overflow: 'hidden'
         }}>

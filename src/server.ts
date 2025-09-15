@@ -6,6 +6,7 @@ import { chatRouter } from './api/chat';
 import { reconstructionsRouter } from './api/reconstructions';
 import { rendersRouter } from './api/renders';
 import { meiRouter } from './api/mei';
+import { tokenRouter } from './api/token';
 
 // Load environment variables
 dotenv.config();
@@ -23,6 +24,7 @@ app.use('/api/chat', chatRouter);
 app.use('/api/reconstructions', reconstructionsRouter);
 app.use('/api/mei', meiRouter);
 app.use('/renders', rendersRouter);
+app.use('/token', tokenRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

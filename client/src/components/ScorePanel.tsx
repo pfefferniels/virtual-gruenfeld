@@ -32,6 +32,13 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
         // Fetch MEI 
         const response = await fetch(`/api/mei/${reconstruction}`);
         const mei = await response.text();
+        vrvToolkit.setOptions({
+          footer: 'none',
+          adjustPageHeight: true,
+          adjustPageWidth: true,
+          scale: 60,
+          breaks: 'none'
+        })
         vrvToolkit.loadData(mei);
         const svg = vrvToolkit.renderToSVG(1);
         if (containerRef.current) {
@@ -87,7 +94,6 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
     <Box sx={{
       height: '100%',
       overflow: 'auto',
-      backgroundColor: '#fafafa'
     }}>
       {isLoading && (
         <Box sx={{
@@ -96,9 +102,10 @@ const ScorePanel: React.FC<ScorePanelProps> = ({ highlights, reconstruction }) =
           justifyContent: 'center',
           height: '100%'
         }}>
-          <Typography>Lade Partitur...</Typography>
+          <Typography>Loading Score ...</Typography>
         </Box>
       )}
+
       <div
         ref={containerRef}
         style={{

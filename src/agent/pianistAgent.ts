@@ -56,7 +56,6 @@ export class PianistAgent {
     }
 
     const labels = loadLabels(reconstruction);
-    console.log('labels', labels)
     if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
     const ids: string[] = await extractIDsFromMessage(mei, message, labels);
 

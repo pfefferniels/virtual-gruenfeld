@@ -6,7 +6,6 @@ import {
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
 import { loadMEI } from '../utils/verovioWrapper';
-import { extractIntent } from './IntentAgent';
 import { chooseReconstruction } from './ChoseReconstructionAgent';
 import { extractIDsFromMessage, LabelEntry } from './ExtractIDsAgent';
 import path from 'path';
@@ -48,16 +47,10 @@ export class PianistAgent {
    * Process a user message and return appropriate response
    */
   async processMessage(message: string): Promise<ChatResponse> {
-    const intent = await extractIntent(message);
-    if (intent === 'stop') {
-      return { stop: true }
-    }
-
     const reconstruction = await chooseReconstruction(message) || this.context.reconstruction || 'reconstruction';
     this.context.reconstruction = reconstruction;
 
     const mei = await loadMEI(reconstruction)
-    // console.log('humdrum', mei)
     if (mei.length === 0 || mei === "[empty]") {
       return { reply: `Sorry, I cannot find the reconstruction "${reconstruction}".` }
     }

@@ -1,4 +1,3 @@
-// ChooseReconstructionAgent.ts
 import { Agent, run, system, user } from '@openai/agents';
 import { z } from 'zod';
 import { listAvailableReconstructions } from '../utils/fileSystem';

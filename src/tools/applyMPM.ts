@@ -33,13 +33,13 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
     return { mp3Path };
   }
 
-  const meicoBin = process.env.MEICO_BIN
+  const meicoBin = process.env.PERFORM_BIN
 
   if (!meicoBin) {
     throw new Error('meico bin does not exist')
   }
 
-  let command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --ids ${ids.join(',')} --out ${mp3Path}`
+  let command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --out ${mp3Path}`
   if (ids.length > 0) {
     command += ` --ids ${ids.join(',')}`;
   }

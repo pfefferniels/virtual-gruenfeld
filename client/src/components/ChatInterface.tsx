@@ -36,8 +36,101 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onReconstructionChange
 }) => {
     const [inputText, setInputText] = useState('');
-    const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const dcRef = useRef<RTCDataChannel>();
+
+    const handlePlay = async (message: string) => {
+        console.log('handle play: message', message)
+        if (!message.trim() || isLoading) return;
+
+        const userMessage: ChatMessage = {
+            id: Date.now().toString(),
+            text: message,
+            isUser: true,
+            timestamp: new Date()
+        };
+
+        console.log('sending to server', userMessage)
+
+        const newMessages = [...messages, userMessage];
+        onMessagesChange(newMessages);
+        setInputText('');
+        onLoadingChange(true);
+        onErrorChange(null);
+
+        try {
+            const response = await sendChatMessage({
+                message
+            });
+
+            const botMessage: ChatMessage = {
+                id: (Date.now() + 1).toString(),
+                text: response.reply || '[no text]',
+                isUser: false,
+                timestamp: new Date(),
+                audio: response.audio,
+                highlight: response.highlight
+            };
+
+            onMessagesChange([...newMessages, botMessage]);
+
+            // Update highlights if provided
+            if (response.highlight) {
+                onHighlightsChange(response.highlight);
+            }
+
+            // Update reconstruction display if changed
+            if (response.reconstruction && response.reconstruction !== currentReconstruction) {
+                onReconstructionChange(response.reconstruction);
+            }
+
+            // Play audio if provided
+            if (response.audio) {
+                playAudio(response.audio.url);
+            }
+
+        } catch (error) {
+            console.error('Chat error:', error);
+        } finally {
+            onLoadingChange(false);
+        }
+    };
+
+    const playAudio = (url: string) => {
+        // Stop current audio if playing
+        if (audioRef.current) {
+            console.log('audio exists, stopping it')
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+        }
+
+        console.log('playing audio')
+
+        const audio = new Audio(url);
+        audio.play().catch(console.error);
+        audioRef.current = audio;
+    };
+
+    const dampAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.volume = 0.2;
+        }
+    }
+
+    const resumeAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.volume = 1.0;
+        }
+    }
+
+    const stopAudio = () => {
+        console.log('stopping audio')
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            audioRef.current = null;
+        }
+    };
 
     useEffect(() => {
         const attachToMicrophone = async () => {
@@ -82,14 +175,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 type: "realtime",
                                 model: "gpt-realtime",
                                 tracing: 'auto',
-                                instructions: `
-When the user says 'Stop', or 'warte', 'halt mal', 'wait' etc., call the "stopPlayback" tool.
+                                instructions: `When the user says 'Stop', or 'warte', 'halt mal', 'wait' etc., call the "stopPlayback" tool.
 Otherwise, summarize the user's request STRICTLY in the following format:
-
-    'Stelle: "[Welche Stelle möchte der Nutzer hören?]",
-    Modifikation: "[Möchte er, dass die Stelle irgendwie modifiziert wird?]",
-    Verwendete Rekonstruktion: "[Welche Rekonstruktion soll verwendet werden?]",'
-                                    
+    'Stelle: "<Welche Stelle möchte der Nutzer hören?>",
+    Modifikation: "<Möchte er, dass die Stelle dynamisch, agogisch, artikulatorisch modifiziert wird?>",
+    Rekonstruktion: "<Welche Rekonstruktion soll verwendet werden?>",'
 Do not add any additional information or replies, only and strictly follow the format.
 If certain inormation are not given by the user, leave the field empty!`,
                                 output_modalities: ["text"],
@@ -125,7 +215,8 @@ If certain inormation are not given by the user, leave the field empty!`,
                         console.log('playing:', msg.text)
                         handlePlay(msg.text)
                     }
-                    else if (msg.type === "response.function_call.delta" && msg.delta?.name === "stopPlayback") {
+                    else if (msg.type === "response.function_call.delta") {
+                        console.log('response.function_call_arguments.delta', msg.delta.name, msg)
                         console.log('stop playback')
                         stopAudio()
                     }
@@ -143,99 +234,7 @@ If certain inormation are not given by the user, leave the field empty!`,
         if (!dcRef.current) {
             attachToMicrophone()
         }
-    }, [dcRef])
-
-    const handlePlay = async (message: string) => {
-        //e.preventDefault();
-        if (!inputText.trim() || isLoading) return;
-
-        const userMessage: ChatMessage = {
-            id: Date.now().toString(),
-            text: message,
-            isUser: true,
-            timestamp: new Date()
-        };
-
-        const newMessages = [...messages, userMessage];
-        onMessagesChange(newMessages);
-        setInputText('');
-        onLoadingChange(true);
-        onErrorChange(null);
-
-        try {
-            const response = await sendChatMessage({
-                message: inputText
-            });
-
-            if (response.stop) {
-                stopAudio();
-                return;
-            }
-
-            const botMessage: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                text: response.reply || '[no text]',
-                isUser: false,
-                timestamp: new Date(),
-                audio: response.audio,
-                highlight: response.highlight
-            };
-
-            onMessagesChange([...newMessages, botMessage]);
-
-            // Update highlights if provided
-            if (response.highlight) {
-                onHighlightsChange(response.highlight);
-            }
-
-            // Update reconstruction display if changed
-            if (response.reconstruction && response.reconstruction !== currentReconstruction) {
-                onReconstructionChange(response.reconstruction);
-            }
-
-            // Play audio if provided
-            if (response.audio) {
-                playAudio(response.audio.url);
-            }
-
-        } catch (error) {
-            console.error('Chat error:', error);
-        } finally {
-            onLoadingChange(false);
-        }
-    };
-
-    const playAudio = (url: string) => {
-        // Stop current audio if playing
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-        }
-
-        const audio = new Audio(url);
-        audio.play().catch(console.error);
-        setCurrentAudio(audio);
-    };
-
-    const dampAudio = () => {
-        if (currentAudio) {
-            currentAudio.volume = 0.2;
-        }
-    }
-
-    const resumeAudio = () => {
-        if (currentAudio) {
-            currentAudio.volume = 1.0;
-        }
-    }
-
-    const stopAudio = () => {
-        if (currentAudio) {
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-            setCurrentAudio(null);
-        }
-    };
+    }, [dcRef, handlePlay, stopAudio, dampAudio, resumeAudio])
 
     const handleSnackbarClose = (_event?: React.SyntheticEvent | Event, reason?: string) => {
         if (reason === 'clickaway') {
@@ -262,7 +261,7 @@ If certain inormation are not given by the user, leave the field empty!`,
                     disabled={isLoading}
                     size="small"
                 />
-                {currentAudio && (
+                {audioRef.current && (
                     <IconButton
                         onClick={stopAudio}
                         color="secondary"

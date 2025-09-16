@@ -1,6 +1,5 @@
 import {
   ChatResponse,
-  ModifierSpec,
   ParsedNL,
 } from '../types';
 import { generateMP3 } from '../tools/applyMPM';
@@ -10,24 +9,17 @@ import { chooseReconstruction } from './ChoseReconstructionAgent';
 import { extractIDsFromMessage, LabelEntry } from './ExtractIDsAgent';
 import path from 'path';
 import * as fs from 'fs';
+import { modify } from './ModifyAgent';
 
 const loadLabels = (reconstruction: string): LabelEntry[] => {
-    const labelPath = path.join(process.cwd(), 'assets', reconstruction, 'labels.json');
-    console.log('label path', labelPath)
-  
-    if (!fs.existsSync(labelPath)) return []
+  const labelPath = path.join(process.cwd(), 'assets', reconstruction, 'labels.json');
+  console.log('label path', labelPath)
 
-    const fileContent = fs.readFileSync(labelPath, 'utf8');
-    const labels: LabelEntry[] = JSON.parse(fileContent);
-    return labels;
-}
+  if (!fs.existsSync(labelPath)) return []
 
-const extractModifiers = (message: string): ModifierSpec => {
-  // Derive a modifier spec from the user message
-  // E.g., "etwas langsamer und mit übertreibe dein Rubato"
-  // should result in { tempo: { factor: 0.9 }, exeggerate: { rubato: 1.2 } }
-
-  return {};
+  const fileContent = fs.readFileSync(labelPath, 'utf8');
+  const labels: LabelEntry[] = JSON.parse(fileContent);
+  return labels;
 }
 
 /**
@@ -62,14 +54,14 @@ export class PianistAgent {
     let mpmPath = this.getDefaultMPMPath();
 
     // Apply modifiers if present
-    const modifiers = extractModifiers(message);
-    this.context.modifiers = modifiers;
+    const modifiers = await modify(message)
     if (modifiers && Object.keys(modifiers).length > 0) {
-      const modifyResult = await modifyMPM({
+      this.context.modifiers = modifiers;
+
+      mpmPath = await modifyMPM({
         mpmPath,
         modifiers
       });
-      mpmPath = modifyResult.mpmPath;
     }
 
     // Generate MP3

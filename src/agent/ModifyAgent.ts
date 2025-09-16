@@ -77,7 +77,9 @@ function extractJson(raw: string): string {
     return s;
 }
 
-export async function modify(message: string): Promise<ModifyParams> {
+export async function modify(message: string): Promise<ModifyParams | null> {
+    if (message.length === 0) return null
+
     const res = await run(modifyAgent, [user(message)]);
     const raw = (res.finalOutput ?? "").trim();
     const jsonText = extractJson(raw);
@@ -93,9 +95,10 @@ export async function modify(message: string): Promise<ModifyParams> {
     const result = ModifyParamsSchema.safeParse(parsed);
     if (!result.success) {
         const preview = jsonText.slice(0, 500);
-        throw new Error(
+        console.log(
             `Output failed schema validation: ${result.error.message}\nPreview:\n${preview}`
         );
+        return null
     }
     return result.data;
 }

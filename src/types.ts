@@ -1,22 +1,9 @@
 // Core types for Virtual Grünfeld application
 // Based on specification.md
 
-export type ReconId = string;
+import { ModifyParams } from "./agent/ModifyAgent";
 
-export interface ModifierSpec {
-  exaggerate?: {
-    dynamics?: number;
-    rubato?: number;
-    articulation?: number
-  }; // 0..2
-  tempo?: { factor: number }; // e.g., 0.9 slower, 1.1 faster
-  hide?: {
-    dynamics?: boolean;
-    rubato?: boolean;
-    articulation?: boolean
-  };
-  // If user says "an dieser Stelle", resolver will scope to last RegionResult
-}
+export type ReconId = string;
 
 export interface ReconInfo {
   id: ReconId;                        // "full_reconstruction" | "harmonic_reduction" | ...
@@ -36,7 +23,7 @@ export interface NLInput {
 export interface ParsedNL {
   reconstruction?: ReconId;
   notes?: string[];
-  modifiers?: ModifierSpec;
+  modifiers?: ModifyParams;
   intent?: 'play' | 'stop'
 }
 
@@ -52,12 +39,11 @@ export interface ApplyMPMOutput {
 
 export interface ModifyMPMInput {
   mpmPath: string;
-  modifiers: ModifierSpec;
+  modifiers: ModifyParams;
 }
 
 export interface ModifyMPMOutput {
   mpmPath: string;
-  log: string[];
 }
 
 // REST API types

@@ -61,7 +61,7 @@ From a natural language description, output only valid JSON matching this shape:
 
 Rules:
 - Output JSON only, no explanation or text.
-- Use numbers (floats or integers) for all values.
+- Use numbers (floats or integers) for all values in the interval [-1, 1], where 0 means no modification.
 - If a parameter is not described, do not set it.
 
 Mapping examples (non-exhaustive):

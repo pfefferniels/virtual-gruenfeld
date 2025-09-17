@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Container, Box, Typography, AppBar, Toolbar } from '@mui/material';
+import { Container, Box, Paper } from '@mui/material';
 import ChatInterface from './components/ChatInterface';
 import ScorePanel from './components/ScorePanel';
 import { AppState } from './types';
@@ -40,16 +40,22 @@ function App() {
 
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <AppBar position="static" elevation={1}>
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Virtual Grünfeld
-          </Typography>
-          <Typography variant="subtitle1" color="inherit">
-            Alfred Grünfeld • Schumann Träumerei (1905)
-          </Typography>
-        </Toolbar>
-      </AppBar>
+      <Paper elevation={5} sx={{
+        position: 'absolute',
+        right: '3rem',
+        top: '3rem',
+        maxWidth: 400,
+        padding: 3
+      }}
+      >
+        <h3>About</h3>
+        <p>
+          This prototype lets you interact with Alfred Grünfeld about his interpretation of
+          Schumann’s <i>Träumerei</i> (Kinderszenen, Op. 15). You can ask him to play the piece
+          or parts of it, adjust his style (rubato, dynamics, agogics, arpeggiation, etc.),
+          or illustrate his ideas with a harmonic reduction.
+        </p>
+      </Paper>
 
       <Container maxWidth={false} sx={{
         flexGrow: 1,
@@ -67,6 +73,10 @@ function App() {
             highlights={state.scoreHighlights}
             reconstruction={state.currentReconstruction}
           />
+        </Box>
+
+        <Box>
+          Footnotes
         </Box>
 
         <ChatInterface

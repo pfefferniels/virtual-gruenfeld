@@ -3,14 +3,15 @@ import {
     Box,
     TextField,
     IconButton,
-    CircularProgress,
     Snackbar
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
 import { ChatMessage } from '../types';
 import { sendChatMessage } from '../utils/api';
-import { Error } from '@mui/icons-material';
+import { Error, Mic } from '@mui/icons-material';
+import LoadingOverlay from './LoadingOverlay';
+import { Pulsing } from '../Pulse';
 
 interface ChatInterfaceProps {
     messages: ChatMessage[];
@@ -26,7 +27,6 @@ interface ChatInterfaceProps {
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
     messages,
-    currentReconstruction,
     isLoading,
     error,
     onMessagesChange,
@@ -36,12 +36,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     onReconstructionChange
 }) => {
     const [inputText, setInputText] = useState('');
+    const [conversationalReply, setConversationalReply] = useState<string>();
+
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const dcRef = useRef<RTCDataChannel>();
 
     const handlePlay = async (message: string) => {
-        console.log('handle play: message', message)
         if (!message.trim() || isLoading) return;
+
+        if (conversationalReply) {
+            setConversationalReply(undefined)
+        }
 
         const userMessage: ChatMessage = {
             id: Date.now().toString(),
@@ -54,14 +59,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
         const newMessages = [...messages, userMessage];
         onMessagesChange(newMessages);
+
+        console.log('new messages=', newMessages)
+
         setInputText('');
         onLoadingChange(true);
         onErrorChange(null);
 
         try {
-            const response = await sendChatMessage({
-                message
-            });
+            const response = await sendChatMessage({ message });
 
             const botMessage: ChatMessage = {
                 id: (Date.now() + 1).toString(),
@@ -72,6 +78,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 highlight: response.highlight
             };
 
+            console.log('bot message', botMessage)
+
             onMessagesChange([...newMessages, botMessage]);
 
             // Update highlights if provided
@@ -80,7 +88,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
 
             // Update reconstruction display if changed
-            if (response.reconstruction && response.reconstruction !== currentReconstruction) {
+            console.log('changing to', response.reconstruction)
+            if (response.reconstruction) {
                 onReconstructionChange(response.reconstruction);
             }
 
@@ -99,12 +108,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const playAudio = (url: string) => {
         // Stop current audio if playing
         if (audioRef.current) {
-            console.log('audio exists, stopping it')
             audioRef.current.pause();
             audioRef.current.currentTime = 0;
         }
-
-        console.log('playing audio')
 
         const audio = new Audio(url);
         audio.play().catch(console.error);
@@ -124,7 +130,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
 
     const stopAudio = () => {
-        console.log('stopping audio')
         if (audioRef.current) {
             audioRef.current.pause();
             audioRef.current.currentTime = 0;
@@ -177,11 +182,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 tracing: 'auto',
                                 instructions: `When the user says 'Stop', or 'warte', 'halt mal', 'wait' etc., call the "stopPlayback" tool.
 Otherwise, summarize the user's request STRICTLY in the following format:
-    'Stelle: "<Welche Stelle möchte der Nutzer hören?>",
-    Modifikation: "<Möchte er, dass die Stelle dynamisch, agogisch, artikulatorisch modifiziert wird?>",
-    Rekonstruktion: "<Welche Rekonstruktion soll verwendet werden?>",'
-Do not add any additional information or replies, only and strictly follow the format.
-If certain inormation are not given by the user, leave the field empty!`,
+    {"Stelle": "<Welche Stelle möchte der Nutzer hören?>",
+      "Modifikation": "<Möchte er, dass die Stelle dynamisch, agogisch, artikulatorisch modifiziert wird?>",
+      "Rekonstruktion": "<Welche Rekonstruktion soll verwendet werden?>"}
+If certain inormation are not given by the user, leave the field empty! Do never answer anything
+else then that JSON, except for when you are *very* sure that it is absolutely impossible to interpret the user's
+request as the given JSON format.`,
                                 output_modalities: ["text"],
                                 tools: [
                                     {
@@ -202,6 +208,7 @@ If certain inormation are not given by the user, leave the field empty!`,
 
                 dc.onmessage = async (ev) => {
                     const msg = JSON.parse(ev.data);
+                    console.log('msg', msg)
 
                     if (msg.type === 'input_audio_buffer.speech_started') {
                         console.log('damping audio')
@@ -212,8 +219,13 @@ If certain inormation are not given by the user, leave the field empty!`,
                         resumeAudio()
                     }
                     else if (msg.type === 'response.output_text.done') {
-                        console.log('playing:', msg.text)
-                        handlePlay(msg.text)
+                        try {
+                            JSON.parse(msg.text)
+                            handlePlay(msg.text)
+                        }
+                        catch (e) {
+                            setConversationalReply(msg.text)
+                        }
                     }
                     else if (msg.type === "response.function_call.delta") {
                         console.log('response.function_call_arguments.delta', msg.delta.name, msg)
@@ -234,13 +246,24 @@ If certain inormation are not given by the user, leave the field empty!`,
         if (!dcRef.current) {
             attachToMicrophone()
         }
-    }, [dcRef, handlePlay, stopAudio, dampAudio, resumeAudio])
+    }, [dcRef, handlePlay, stopAudio, dampAudio, resumeAudio, onMessagesChange, onReconstructionChange, setConversationalReply])
 
     const handleSnackbarClose = (_event?: React.SyntheticEvent | Event, reason?: string) => {
         if (reason === 'clickaway') {
             return;
         }
     };
+
+    let messageToServer = messages[messages.length - 1]?.text || ''
+    try {
+        const result = JSON.parse(messageToServer)
+        messageToServer = Object
+            .values(result)
+            .filter(v => typeof v === 'string')
+            .filter(v => v.length > 0)
+            .join(' – ')
+    }
+    catch { }
 
     return (
         <>
@@ -261,6 +284,12 @@ If certain inormation are not given by the user, leave the field empty!`,
                     disabled={isLoading}
                     size="small"
                 />
+
+                <Pulsing>
+                    <Mic />
+                </Pulsing>
+
+
                 {audioRef.current && (
                     <IconButton
                         onClick={stopAudio}
@@ -277,19 +306,23 @@ If certain inormation are not given by the user, leave the field empty!`,
                     size="small"
                 >
                     {error && <Error />}
-                    {isLoading ? <CircularProgress size={20} /> : <SendIcon />}
+                    {<LoadingOverlay
+                        open={isLoading}
+                        text={messageToServer}
+                    />}
+                    {!isLoading && !error && (
+                        <SendIcon />
+                    )}
                 </IconButton>
             </Box>
 
-            {messages.length > 0 && (
-                <Snackbar
-                    open={true}
-                    autoHideDuration={1000}
-                    onClose={handleSnackbarClose}
-                    message={messages[messages.length - 1].text}
-                    anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-                />
-            )}
+            <Snackbar
+                open={conversationalReply !== undefined}
+                autoHideDuration={1000}
+                onClose={handleSnackbarClose}
+                message={conversationalReply}
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+            />
         </>
     );
 };

@@ -27,6 +27,7 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
   // Generate hash for output filenames
   const hash = generateRenderHash({ reconstruction, ids, mpmPath: effectiveMpmPath });
   const mp3Path = path.join(process.cwd(), 'renders', `${hash}.mp3`);
+  const soundfont = path.join(process.cwd(), 'soundfont', 'piano.sf2');
 
   // Check if already exists (caching)
   if (fs.existsSync(mp3Path)) {
@@ -39,7 +40,7 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
     throw new Error('meico bin does not exist')
   }
 
-  let command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --out ${mp3Path}`
+  let command = `${meicoBin} --mei ${paths.score} --mpm ${mpmPath} --out ${mp3Path} --soundfont ${soundfont}`
   if (ids.length > 0) {
     command += ` --ids ${ids.join(',')}`;
   }

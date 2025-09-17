@@ -1,0 +1,22 @@
+[
+    {
+        "key": "right_hand",
+        "description": "All RH notes",
+        "xpath": "//staff[@n=1]//note/@xml:id"
+    },
+    {
+        "key": "left_hand",
+        "description": "All LH notes",
+        "xpath": "//staff[@n=2]//note/@xml:id"
+    },
+    {
+        "key": "melody",
+        "description": "The melody notes",
+        "xpath": "//staff[@n=1]//layer[@n=1]//note[not(parent::chord) or @oct = max(parent::chord/note/@oct)]/@xml:id"
+    },
+    {
+        "key": "first_phrase",
+        "description": "The notes of the first phrase, measures 1-4",
+        "xpath": "(//measure[@n>=1 and @n<=4]//note/@xml:id) | (//measure[@n=5]//note[@tstamp<=2]/@xml:id)"
+    }
+]

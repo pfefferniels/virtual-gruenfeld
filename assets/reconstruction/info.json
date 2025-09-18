@@ -275,6 +275,12 @@
       },
       {
         "description": "Beruhigung durch Decrescendo und Ritardando, Dynamische Schattierung des nachschlagenden Akkords ",
+        "conclusion": {
+          "about": {
+            "note": "Nachschlagenden Akkord schattieren"
+          },
+          "cert": "authentic"
+        },
         "id": "decision-df243d0d",
         "calls": [
           {
@@ -339,6 +345,12 @@
       {
         "description": "Auftaktgeste durch Crescendo und zeitliche Stauchung hin zum c im folgenden Takt. Dieses unterbricht die Geste, da es gedehnt ist. Dynamik und Agogik laufen hier parallel.",
         "id": "decision-9bb1a3aa",
+        "conclusion": {
+          "about": {
+            "note": "Auftaktgeste durch Crescendo und zeitliche Stauchung hin zum c im folgenden Takt. Dieses unterbricht die Geste, da es gedehnt ist. Dynamik und Agogik laufen hier parallel."
+          },
+          "cert": "plausible"
+        },
         "calls": [
           {
             "id": "280b8c83-c89c-476a-a0ef-784f4ca6d25d",

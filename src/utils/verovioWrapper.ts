@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import path from 'path';
 import { loadVerovio } from '../loadVerovio.mjs';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
+import { Belief, Transformer } from 'mpmify'
 
 export const loadMEI = async (reconstruction: string): Promise<string> => {
   const meiPath = path.join(process.cwd(), 'assets', reconstruction, 'score.mei');
@@ -14,7 +15,7 @@ export const loadMEI = async (reconstruction: string): Promise<string> => {
 
   const tk = await loadVerovio();
   tk.loadData(meiContent);
-  const timemap = tk.renderToTimemap({ includeMeasures: true});
+  const timemap = tk.renderToTimemap({ includeMeasures: true });
 
   const doc = new DOMParser().parseFromString(meiContent, 'application/xml');
   const allNotes = Array.from(doc.getElementsByTagName('note'));
@@ -23,7 +24,7 @@ export const loadMEI = async (reconstruction: string): Promise<string> => {
     .filter((e: any) => 'measureOn' in e)
     .map(e => e.qstamp)
     .sort((a, b) => a - b);
-  
+
   for (const entry of timemap) {
     const qstamp = entry.qstamp;
     const lastMeasureStart = measureStarts.slice().reverse().find(ms => ms <= qstamp);

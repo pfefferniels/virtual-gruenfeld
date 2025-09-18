@@ -17,7 +17,7 @@ export function evaluate(xpath: string, env: MeiEnv) {
 
     if (Array.isArray(value)) {
         if (value.every(isScalar)) {
-            console.log('returning scalar array', value)
+            // console.log('returning scalar array', value)
             return value;
         }
 

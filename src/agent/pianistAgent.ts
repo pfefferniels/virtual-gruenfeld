@@ -1,6 +1,7 @@
 import {
   ChatResponse,
   ParsedNL,
+  Ranges,
 } from '../types';
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
@@ -10,10 +11,17 @@ import { extractIDsFromMessage, LabelEntry } from './ExtractIDsAgent';
 import path from 'path';
 import * as fs from 'fs';
 import { modify } from './ModifyAgent';
+import { BeliefMap, beliefsBasedOn, loadObservations } from '../utils/observations';
+
+function overlap(a: [number, number], b: [number, number]): boolean {
+  const [start1, end1] = a;
+  const [start2, end2] = b;
+
+  return start1 <= end2 && start2 <= end1;
+}
 
 const loadLabels = (reconstruction: string): LabelEntry[] => {
   const labelPath = path.join(process.cwd(), 'assets', reconstruction, 'labels.json');
-  console.log('label path', labelPath)
 
   if (!fs.existsSync(labelPath)) return []
 
@@ -65,19 +73,48 @@ export class PianistAgent {
     }
 
     // Generate MP3
-    const audio = await generateMP3({
+    const { mp3Path, rangesPath } = await generateMP3({
       reconstruction,
       ids,
       mpmPath
     });
 
+    const observations: BeliefMap = []
+    if (fs.existsSync(rangesPath)) {
+      const allObservations = loadObservations(reconstruction);
+      const rangesContent = fs.readFileSync(rangesPath, 'utf8');
+
+      try {
+        const ranges = JSON.parse(rangesContent) as Ranges;
+        for (const [mpmId, range] of Object.entries(ranges)) {
+          const beliefs = beliefsBasedOn(mpmId, allObservations || [])
+          for (const belief of beliefs) {
+            const sameBelief = observations.find(o => o.belief === belief)
+            if (sameBelief && overlap(sameBelief.range, range)) {
+              // extend range
+              sameBelief.range[0] = Math.min(sameBelief.range[0], range[0]);
+              sameBelief.range[1] = Math.max(sameBelief.range[1], range[1]);
+            }
+            else {
+              observations.push({ belief, range });
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error parsing ranges JSON:', error);
+      }
+
+      console.log('generated observations', observations, 'from', allObservations)
+    }
+
     return {
       reply: this.generatePlayResponse(),
       audio: {
-        url: `/renders/${audio.mp3Path.split('/').pop()}`,
+        url: `/renders/${mp3Path.split('/').pop()}`,
       },
       highlight: ids,
-      reconstruction
+      reconstruction,
+      observations
     };
   }
 

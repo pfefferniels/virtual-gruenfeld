@@ -7,38 +7,26 @@ import {
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import StopIcon from '@mui/icons-material/Stop';
-import { ChatMessage } from '../types';
-import { sendChatMessage } from '../utils/api';
+import { ChatResponse, sendChatMessage } from '../utils/api';
 import { Error, Mic } from '@mui/icons-material';
 import LoadingOverlay from './LoadingOverlay';
 import { Pulsing } from '../Pulse';
 
 interface ChatInterfaceProps {
-    messages: ChatMessage[];
-    currentReconstruction: string;
-    isLoading: boolean;
-    error: string | null;
-    onMessagesChange: (messages: ChatMessage[]) => void;
-    onLoadingChange: (loading: boolean) => void;
-    onErrorChange: (error: string | null) => void;
-    onHighlightsChange: (xmlIds: string[]) => void;
-    onReconstructionChange: (reconId: string) => void;
+    onResponse: (reply: ChatResponse) => void;
+    audioRef: React.MutableRefObject<HTMLAudioElement | null>;
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
-    messages,
-    isLoading,
-    error,
-    onMessagesChange,
-    onLoadingChange,
-    onErrorChange,
-    onHighlightsChange,
-    onReconstructionChange
+    audioRef,
+    onResponse
 }) => {
     const [inputText, setInputText] = useState('');
+    const [messageToServer, setMessageToServer] = useState<any>();
     const [conversationalReply, setConversationalReply] = useState<string>();
+    const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
 
-    const audioRef = useRef<HTMLAudioElement | null>(null);
     const dcRef = useRef<RTCDataChannel>();
 
     const handlePlay = async (message: string) => {
@@ -48,50 +36,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             setConversationalReply(undefined)
         }
 
-        const userMessage: ChatMessage = {
-            id: Date.now().toString(),
-            text: message,
-            isUser: true,
-            timestamp: new Date()
-        };
-
-        console.log('sending to server', userMessage)
-
-        const newMessages = [...messages, userMessage];
-        onMessagesChange(newMessages);
-
-        console.log('new messages=', newMessages)
+        // Do not play while thinking
+        audioRef.current?.pause();
 
         setInputText('');
-        onLoadingChange(true);
-        onErrorChange(null);
+        setIsLoading(true);
+        setError(null);
 
         try {
             const response = await sendChatMessage({ message });
-
-            const botMessage: ChatMessage = {
-                id: (Date.now() + 1).toString(),
-                text: response.reply || '[no text]',
-                isUser: false,
-                timestamp: new Date(),
-                audio: response.audio,
-                highlight: response.highlight
-            };
-
-            console.log('bot message', botMessage)
-
-            onMessagesChange([...newMessages, botMessage]);
-
-            // Update highlights if provided
-            if (response.highlight) {
-                onHighlightsChange(response.highlight);
-            }
-
-            // Update reconstruction display if changed
-            console.log('changing to', response.reconstruction)
-            if (response.reconstruction) {
-                onReconstructionChange(response.reconstruction);
-            }
+            onResponse(response)
 
             // Play audio if provided
             if (response.audio) {
@@ -101,7 +55,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         } catch (error) {
             console.error('Chat error:', error);
         } finally {
-            onLoadingChange(false);
+            setIsLoading(false);
         }
     };
 
@@ -208,7 +162,7 @@ request as the given JSON format.`,
 
                 dc.onmessage = async (ev) => {
                     const msg = JSON.parse(ev.data);
-                    console.log('msg', msg)
+                    // console.log('msg', msg)
 
                     if (msg.type === 'input_audio_buffer.speech_started') {
                         console.log('damping audio')
@@ -220,7 +174,7 @@ request as the given JSON format.`,
                     }
                     else if (msg.type === 'response.output_text.done') {
                         try {
-                            JSON.parse(msg.text)
+                            setMessageToServer(JSON.parse(msg.text))
                             handlePlay(msg.text)
                         }
                         catch (e) {
@@ -246,7 +200,7 @@ request as the given JSON format.`,
         if (!dcRef.current) {
             attachToMicrophone()
         }
-    }, [dcRef, handlePlay, stopAudio, dampAudio, resumeAudio, onMessagesChange, onReconstructionChange, setConversationalReply])
+    }, [dcRef, handlePlay, stopAudio, dampAudio, resumeAudio, onResponse, setConversationalReply, setMessageToServer])
 
     const handleSnackbarClose = (_event?: React.SyntheticEvent | Event, reason?: string) => {
         if (reason === 'clickaway') {
@@ -254,16 +208,20 @@ request as the given JSON format.`,
         }
     };
 
-    let messageToServer = messages[messages.length - 1]?.text || ''
-    try {
-        const result = JSON.parse(messageToServer)
-        messageToServer = Object
-            .values(result)
-            .filter(v => typeof v === 'string')
-            .filter(v => v.length > 0)
-            .join(' – ')
+    let messageToServerStr
+    if (messageToServer) {
+        console.log('messageToServer', messageToServer)
+        try {
+            messageToServerStr = Object
+                .values(messageToServer)
+                .filter(v => typeof v === 'string')
+                .filter(v => v.length > 0)
+                .join(' – ')
+        }
+        catch { }
     }
-    catch { }
+
+    console.log('messageToServerStr', messageToServerStr)
 
     return (
         <>
@@ -308,7 +266,7 @@ request as the given JSON format.`,
                     {error && <Error />}
                     {<LoadingOverlay
                         open={isLoading}
-                        text={messageToServer}
+                        text={messageToServerStr}
                     />}
                     {!isLoading && !error && (
                         <SendIcon />

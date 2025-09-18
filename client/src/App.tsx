@@ -1,42 +1,13 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Container, Box, Paper } from '@mui/material';
 import ChatInterface from './components/ChatInterface';
 import ScorePanel from './components/ScorePanel';
-import { AppState } from './types';
-
-const initialState: AppState = {
-  messages: [],
-  currentReconstruction: 'reconstruction',
-  reconstructions: [],
-  isLoading: false,
-  error: null,
-  scoreHighlights: []
-};
+import { ChatResponse } from './utils/api';
+import { ObservationPanel } from './components/ObservationPanel';
 
 function App() {
-  const [state, setState] = useState<AppState>(initialState);
-
-  // No need to load reconstructions for UI anymore - they are selected automatically
-
-  const updateMessages = (messages: any[]) => {
-    setState(prev => ({ ...prev, messages }));
-  };
-
-  const setLoading = (isLoading: boolean) => {
-    setState(prev => ({ ...prev, isLoading }));
-  };
-
-  const setError = (error: string | null) => {
-    setState(prev => ({ ...prev, error }));
-  };
-
-  const setHighlights = (xmlIds: string[]) => {
-    setState(prev => ({ ...prev, scoreHighlights: xmlIds }));
-  };
-
-  const setCurrentReconstruction = (reconId: string) => {
-    setState(prev => ({ ...prev, currentReconstruction: reconId }));
-  };
+  const [lastResponse, setLastResponse] = useState<ChatResponse>()
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -70,25 +41,23 @@ function App() {
           overflow: 'hidden'
         }}>
           <ScorePanel
-            highlights={state.scoreHighlights}
-            reconstruction={state.currentReconstruction}
+            highlights={lastResponse?.highlight || []}
+            reconstruction={lastResponse?.reconstruction || 'reconstruction'}
           />
         </Box>
 
-        <Box>
-          Footnotes
-        </Box>
+        {lastResponse?.observations && (
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+            <ObservationPanel
+              audioRef={audioRef}
+              observations={lastResponse?.observations}
+            />
+            </Box>
+        )}
 
         <ChatInterface
-          messages={state.messages}
-          currentReconstruction={state.currentReconstruction}
-          isLoading={state.isLoading}
-          error={state.error}
-          onMessagesChange={updateMessages}
-          onLoadingChange={setLoading}
-          onErrorChange={setError}
-          onHighlightsChange={setHighlights}
-          onReconstructionChange={setCurrentReconstruction}
+          onResponse={resp => setLastResponse(resp)}
+          audioRef={audioRef}
         />
       </Container>
     </Box>

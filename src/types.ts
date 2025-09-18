@@ -2,6 +2,7 @@
 // Based on specification.md
 
 import { ModifyParams } from "./agent/ModifyAgent";
+import { BeliefMap } from "./utils/observations";
 
 export type ReconId = string;
 
@@ -35,7 +36,10 @@ export interface ApplyMPMInput {
 
 export interface ApplyMPMOutput {
   mp3Path: string;
+  rangesPath: string;
 }
+
+export type Ranges = { [key: string]: [number, number] };
 
 export interface ModifyMPMInput {
   mpmPath: string;
@@ -59,4 +63,5 @@ export interface ChatResponse {
   };
   highlight?: string[];              // for Verovio to emphasize
   reconstruction?: string;
+  observations?: BeliefMap;          // beliefs with ranges
 }

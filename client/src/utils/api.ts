@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Reconstruction } from '../types';
+import { BeliefMap, Reconstruction } from '../types';
 
 const API_BASE = '/api';
 
@@ -15,6 +15,7 @@ export interface ChatResponse {
   };
   highlight?: string[];
   reconstruction?: string;
+  observations?: BeliefMap;
 }
 
 export const fetchReconstructions = async (): Promise<Reconstruction[]> => {

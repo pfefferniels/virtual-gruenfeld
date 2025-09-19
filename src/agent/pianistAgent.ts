@@ -6,12 +6,11 @@ import {
 import { generateMP3 } from '../tools/applyMPM';
 import { modifyMPM } from '../tools/modifyMPM';
 import { loadMEI } from '../utils/verovioWrapper';
-import { chooseReconstruction } from './ChoseReconstructionAgent';
-import { extractIDsFromMessage, LabelEntry } from './ExtractIDsAgent';
+import { understandSelection, LabelEntry } from './SelectionAgent';
 import path from 'path';
 import * as fs from 'fs';
-import { modify } from './ModifyAgent';
 import { BeliefMap, beliefsBasedOn, loadObservations } from '../utils/observations';
+import { understandAspect } from './AspectAgent';
 
 function overlap(a: [number, number], b: [number, number]): boolean {
   const [start1, end1] = a;
@@ -47,8 +46,20 @@ export class PianistAgent {
    * Process a user message and return appropriate response
    */
   async processMessage(message: string): Promise<ChatResponse> {
-    const reconstruction = await chooseReconstruction(message) || this.context.reconstruction || 'reconstruction';
-    this.context.reconstruction = reconstruction;
+    const json = JSON.parse(message);
+    if (!('aspect' in json) || !('selection' in json)) {
+      return { reply: 'Invalid message format.' };
+    }
+
+    const aspectComprehension = await understandAspect(json.aspect);
+    if (!aspectComprehension) {
+      return { reply: `Sorry, I cannot understand the aspect "${json.aspect}".` }
+    }
+
+    const { reconstruction, increase, exaggerate } = aspectComprehension
+    if (!reconstruction) {
+      return { reply: `Sorry, I cannot determine the reconstruction for the aspect "${json.aspect}".` }
+    }
 
     const mei = await loadMEI(reconstruction)
     if (mei.length === 0 || mei === "[empty]") {
@@ -58,20 +69,15 @@ export class PianistAgent {
     const labels = loadLabels(reconstruction);
     if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
 
-    const [ids, modifiers] = await Promise.all([
-      extractIDsFromMessage(mei, message, labels),
-      modify(message)
-    ]);
+    const ids = await understandSelection(mei, message, labels)
 
     let mpmPath = this.getDefaultMPMPath();
 
     // Apply modifiers if present
-    if (modifiers && Object.keys(modifiers).length > 0) {
-      this.context.modifiers = modifiers;
-
+    if (increase || exaggerate) {
       mpmPath = await modifyMPM({
         mpmPath,
-        modifiers
+        modifiers: { increase, exaggerate }
       });
     }
 

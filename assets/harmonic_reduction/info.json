@@ -1,4 +1,7 @@
 {
   "@id": "harmonic_reconstruction",
-  "label": "Harmonische Reduktion"
+  "label": "Harmonische Reduktion",
+  "creation": {
+    "argumentations": []
+  }
 }

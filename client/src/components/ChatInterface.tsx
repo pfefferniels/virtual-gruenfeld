@@ -134,14 +134,13 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                                 type: "realtime",
                                 model: "gpt-realtime",
                                 tracing: 'auto',
-                                instructions: `When the user says 'Stop', or 'warte', 'halt mal', 'wait' etc., call the "stopPlayback" tool.
-Otherwise, summarize the user's request STRICTLY in the following format:
-    {"Stelle": "<Welche Stelle möchte der Nutzer hören?>",
-      "Modifikation": "<Möchte er, dass die Stelle dynamisch, agogisch, artikulatorisch modifiziert wird?>",
-      "Rekonstruktion": "<Welche Rekonstruktion soll verwendet werden?>"}
-If certain inormation are not given by the user, leave the field empty! Do never answer anything
-else then that JSON, except for when you are *very* sure that it is absolutely impossible to interpret the user's
-request as the given JSON format.`,
+                                instructions: `
+When the user says 'stop', 'wait', 'hold on' etc., call the "stopPlayback" tool and reply "Stopping".
+Otherwise, you must respond ONLY with valid JSON in the following format:
+    {"selection": "<Which places in the music does the user want to hear? E.g. b. 1-4, first phrase, only left hand, etc.>",
+     "aspect": "<Which aspect is the user interested in? E.g. exaggerated dynamics, phrasing, inegalité, melodic shaping, etc.>",
+If you can guess at least one field, return JSON with empty string for the other.
+If no field can be reasonably extracted, return "I do not understand".`,
                                 output_modalities: ["text"],
                                 tools: [
                                     {
@@ -239,7 +238,7 @@ request as the given JSON format.`,
                 <TextField
                     fullWidth
                     variant="outlined"
-                    placeholder="Sprechen Sie mit Alfred Grünfeld ..."
+                    placeholder="Sprechen Sie mit Alfred Grünfeld: Welche Stelle möchten Sie hören,  an welchem Aspekt sind Sie interessiert?"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     disabled={isLoading}

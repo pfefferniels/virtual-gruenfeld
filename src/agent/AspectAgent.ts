@@ -1,5 +1,6 @@
-import { Agent, run, user } from "@openai/agents";
+import { Agent, run, system, user } from "@openai/agents";
 import { z } from "zod";
+import { listAvailableReconstructions } from "../utils/fileSystem";
 
 const factor = z.number().finite().nonnegative();
 
@@ -24,6 +25,7 @@ const ExaggerateSchema = z
 
 export const ModifyParamsSchema = z
     .object({
+        reconstruction: z.string().optional(),
         increase: IncreaseSchema.optional(),
         exaggerate: ExaggerateSchema.optional(),
     })
@@ -37,13 +39,21 @@ export const ModifyParamsSchema = z
 
 export type ModifyParams = z.infer<typeof ModifyParamsSchema>;
 
-export const modifyAgent = new Agent({
-    name: "ModifyAgent",
+export const aspectAgent = new Agent({
+    name: "AspectAgent",
     instructions: `
-You are a parameter extraction agent.
-From a natural language description, output only valid JSON matching this shape:
+Your job is to find out how best to render a piece of music, so that the user can 
+hear what he is interested in. If e.g. the user is interested in the overall phrasing
+of the whole piece, it might be a good strategy to choose the reconstruction called "harmonic-reduction"
+and to play it with increased tempo, so that the user gets a feeling of what the 
+overall phrases sound like. If the user is interested in the melodic shape,
+you might choose the reconstruction "melodic-focus" and play it with some exaggeration
+of the dynamics. In general however, it is best to stick to the default reconstruction.
+
+Technically, output only valid JSON matching this shape:
 
 {
+  "reconstruction": <string>,
   "increase": {
     "tempo": <number>,
     "dynamics": <number>
@@ -62,11 +72,9 @@ From a natural language description, output only valid JSON matching this shape:
 Rules:
 - Output JSON only, no explanation or text.
 - Use numbers (floats or integers) for all values in the interval [-1, 1], where 0 means no modification.
-- If a parameter is not described, do not set it.
 
 Mapping examples (non-exhaustive):
-- "swing", "inegalité", "inégalité" -> "exaggerate.rubato"
-`,
+- "swing", "inegalité", "inégalité" -> "exaggerate.rubato"`,
 });
 
 function extractJson(raw: string): string {
@@ -77,10 +85,14 @@ function extractJson(raw: string): string {
     return s;
 }
 
-export async function modify(message: string): Promise<ModifyParams | null> {
+export async function understandAspect(message: string): Promise<ModifyParams | null> {
     if (message.length === 0) return null
 
-    const res = await run(modifyAgent, [user(message)]);
+    const res = await run(aspectAgent, [
+        system(`Available reconstructions are:
+${listAvailableReconstructions().map(({ id, label, description }) => `- ID: "${id}", Label: "${label}", Description: "${description}"`).join('\n')}`),
+        user(message)
+    ]);
     const raw = (res.finalOutput ?? "").trim();
     const jsonText = extractJson(raw);
 
@@ -91,6 +103,8 @@ export async function modify(message: string): Promise<ModifyParams | null> {
         const preview = jsonText.slice(0, 500);
         throw new Error(`Model did not return valid JSON. Preview:\n${preview}`);
     }
+
+    // console.log('parsed=', parsed)
 
     const result = ModifyParamsSchema.safeParse(parsed);
     if (!result.success) {

@@ -210,7 +210,6 @@ request as the given JSON format.`,
 
     let messageToServerStr
     if (messageToServer) {
-        console.log('messageToServer', messageToServer)
         try {
             messageToServerStr = Object
                 .values(messageToServer)
@@ -221,14 +220,18 @@ request as the given JSON format.`,
         catch { }
     }
 
-    console.log('messageToServerStr', messageToServerStr)
-
     return (
         <>
             <Box
                 component="form"
+                width="80%"
+                style={{
+                    marginLeft: 'auto',
+                    marginRight: 'auto',
+                }}
                 onSubmit={(e) => {
                     e.preventDefault();
+                    setMessageToServer(inputText)
                     handlePlay(inputText)
                 }}
                 sx={{ display: 'flex', gap: 1 }}
@@ -236,7 +239,7 @@ request as the given JSON format.`,
                 <TextField
                     fullWidth
                     variant="outlined"
-                    placeholder="Sprechen Sie mit Alfred Grünfeld..."
+                    placeholder="Sprechen Sie mit Alfred Grünfeld ..."
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     disabled={isLoading}

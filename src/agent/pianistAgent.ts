@@ -57,12 +57,15 @@ export class PianistAgent {
 
     const labels = loadLabels(reconstruction);
     if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
-    const ids: string[] = await extractIDsFromMessage(mei, message, labels);
+
+    const [ids, modifiers] = await Promise.all([
+      extractIDsFromMessage(mei, message, labels),
+      modify(message)
+    ]);
 
     let mpmPath = this.getDefaultMPMPath();
 
     // Apply modifiers if present
-    const modifiers = await modify(message)
     if (modifiers && Object.keys(modifiers).length > 0) {
       this.context.modifiers = modifiers;
 
@@ -103,8 +106,6 @@ export class PianistAgent {
       } catch (error) {
         console.error('Error parsing ranges JSON:', error);
       }
-
-      console.log('generated observations', observations, 'from', allObservations)
     }
 
     return {
@@ -115,7 +116,7 @@ export class PianistAgent {
       highlight: ids,
       reconstruction,
       observations
-    };
+    }
   }
 
   /**

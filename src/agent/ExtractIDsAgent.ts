@@ -154,7 +154,6 @@ export function createIdsAgent(meta: any) {
         instructions: [
             'Du bist spezialisiert auf MEI-XML, XPath und polyphone Klaviernotation.',
             'Ziel: Korrekter XPath-Ausdruck, der die *xml:ids der <note>-Elemente* zurückgibt, die abgespielt werden sollen. Der finale Ausdruck muss /@xml:id enthalten, pure Nodes sind nicht erlaubt.',
-            `Dokument-Überblick: ${JSON.stringify(meta)}`,
             '   Vorgehen:',
             '    1) Finde zuerst alle vordefinierten Labels (listLabels), die für die Anfrage relevant sind. Dann:',
             '     Idealer Pfad:',

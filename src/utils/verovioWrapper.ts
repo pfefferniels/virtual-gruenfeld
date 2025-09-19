@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import path from 'path';
 import { loadVerovio } from '../loadVerovio.mjs';
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
-import { Belief, Transformer } from 'mpmify'
 
 export const loadMEI = async (reconstruction: string): Promise<string> => {
   const meiPath = path.join(process.cwd(), 'assets', reconstruction, 'score.mei');

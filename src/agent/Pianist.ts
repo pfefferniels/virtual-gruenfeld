@@ -166,7 +166,7 @@ export class Pianist {
       }
     }
 
-    return {
+    const result: ChatResponse = {
       reply: await reply,
       audio: {
         url: `/renders/${mp3Path.split('/').pop()}`,
@@ -175,6 +175,16 @@ export class Pianist {
       reconstruction,
       observations
     }
+
+    this.history.push({
+      selection,
+      selectionComprehension: ids,
+      aspect,
+      aspectComprehension,
+      finalResult: result
+    })
+
+    return result;
   }
 
   /**

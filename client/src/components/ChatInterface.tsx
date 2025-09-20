@@ -52,6 +52,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 playAudio(response.audio.url);
             }
 
+            if (response.reply) {
+                setConversationalReply(response.reply);
+            }
+
         } catch (error) {
             console.error('Chat error:', error);
         } finally {

@@ -1,7 +1,7 @@
 // Core types for Virtual Grünfeld application
 // Based on specification.md
 
-import { ModifyParams } from "./agent/ModifyAgent";
+import { ModifyParams } from "./agent/AspectAgent";
 import { BeliefMap } from "./utils/observations";
 
 export type ReconId = string;
@@ -19,13 +19,6 @@ export interface ListReconstructionsOutput {
 
 export interface NLInput {
   text: string;
-}
-
-export interface ParsedNL {
-  reconstruction?: ReconId;
-  notes?: string[];
-  modifiers?: ModifyParams;
-  intent?: 'play' | 'stop'
 }
 
 export interface ApplyMPMInput {

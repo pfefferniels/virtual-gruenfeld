@@ -1,11 +1,11 @@
 import express from 'express';
 import { ChatRequest } from '../types';
-import { PianistAgent } from '../agent/PianistAgent';
+import { Pianist } from '../agent/Pianist';
 
 export const chatRouter = express.Router();
 
-// Simple in-memory conversation contexts (in production, use proper session management)
-const conversations = new Map<string, PianistAgent>();
+// Conversation contexts per session
+const conversations = new Map<string, Pianist>();
 
 /**
  * POST /api/chat
@@ -22,9 +22,7 @@ chatRouter.post('/', async (req, res) => {
     
     // Get or create conversation context
     const sessionId = req.headers['x-session-id'] as string || 'default';
-    const context = conversations.get(sessionId) || new PianistAgent({
-      reconstruction: 'reconstruction',
-    })
+    const context = conversations.get(sessionId) || new Pianist([])
         
     // Process the message
     const response = await context.processMessage(message);

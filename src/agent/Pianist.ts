@@ -1,6 +1,5 @@
 import {
   ChatResponse,
-  ParsedNL,
   Ranges,
 } from '../types';
 import { generateMP3 } from '../tools/applyMPM';
@@ -10,7 +9,9 @@ import { understandSelection, LabelEntry } from './SelectionAgent';
 import path from 'path';
 import * as fs from 'fs';
 import { BeliefMap, beliefsBasedOn, loadObservations } from '../utils/observations';
-import { understandAspect } from './AspectAgent';
+import { ModifyParams, understandAspect } from './AspectAgent';
+import { summarize } from './SummaryAgent';
+import { listAvailableReconstructions } from '../utils/fileSystem';
 
 function overlap(a: [number, number], b: [number, number]): boolean {
   const [start1, end1] = a;
@@ -29,17 +30,25 @@ const loadLabels = (reconstruction: string): LabelEntry[] => {
   return labels;
 }
 
-/**
- * PianistAgent - Main agent for processing user requests
- * Role: "Alfred Grünfeld" who can play whole piece or specific places, 
- * exaggerate for demonstration, and play harmonic reductions.
- * Style: brief, precise; return audio ASAP, a one-liner only when something went wrong.
- */
-export class PianistAgent {
-  private context: ParsedNL;
+export interface HistoryEntry {
+  selection: string
+  selectionComprehension: string[]
 
-  constructor(context: ParsedNL) {
-    this.context = { ...context };
+  aspect: string
+  aspectComprehension: ModifyParams
+
+  finalResult: ChatResponse
+}
+
+/**
+ * The pianist does everything what the user asks for.
+ */
+export class Pianist {
+  // This is basically a fast cache
+  private history: HistoryEntry[];
+
+  constructor(history: HistoryEntry[] = []) {
+    this.history = [...history];
   }
 
   /**
@@ -50,15 +59,30 @@ export class PianistAgent {
     if (!('aspect' in json) || !('selection' in json)) {
       return { reply: 'Invalid message format.' };
     }
+    const { aspect, selection } = json;
 
-    const aspectComprehension = await understandAspect(json.aspect);
-    if (!aspectComprehension) {
-      return { reply: `Sorry, I cannot understand the aspect "${json.aspect}".` }
+    const fullEquivalent = this.history.find(h => h.aspect === aspect && h.selection === selection)
+    if (fullEquivalent) {
+      return fullEquivalent.finalResult;
     }
 
-    const { reconstruction, increase, exaggerate } = aspectComprehension
+    let aspectComprehension: ModifyParams | null
+
+    const lastSameAspect = this.history.find(h => h.aspect === aspect);
+    if (lastSameAspect) {
+      aspectComprehension = lastSameAspect.aspectComprehension
+    }
+    else {
+      aspectComprehension = await understandAspect(aspect);
+    }
+
+    if (!aspectComprehension) {
+      return { reply: `Sorry, I cannot understand the aspect "${aspect}".` }
+    }
+
+    let { reconstruction, increase, exaggerate } = aspectComprehension
     if (!reconstruction) {
-      return { reply: `Sorry, I cannot determine the reconstruction for the aspect "${json.aspect}".` }
+      return { reply: `Sorry, I cannot determine the reconstruction for the aspect "${aspect}".` }
     }
 
     const mei = await loadMEI(reconstruction)
@@ -69,17 +93,45 @@ export class PianistAgent {
     const labels = loadLabels(reconstruction);
     if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
 
-    const ids = await understandSelection(mei, message, labels)
-
-    let mpmPath = this.getDefaultMPMPath();
-
-    // Apply modifiers if present
-    if (increase || exaggerate) {
-      mpmPath = await modifyMPM({
-        mpmPath,
-        modifiers: { increase, exaggerate }
-      });
+    let ids: string[]
+    const lastSameSelection = this.history.find(h => h.selection === selection);
+    if (lastSameSelection) {
+      ids = lastSameSelection.selectionComprehension
     }
+    else {
+      ids = await understandSelection(mei, selection, labels)
+    }
+
+    let mpmPath = this.getMPMPath(reconstruction);
+
+    if (!increase && !exaggerate) {
+      // Always apply some slight variation, 
+      // if the user asked for it or not.
+      exaggerate = {
+        dynamics: Math.random() / 2,
+        rubato: Math.random() / 2,
+        tempo: Math.random() / 2,
+        temporalSpread: Math.random() / 2,
+        dynamicsGradient: Math.random() / 2,
+        relativeVelocity: Math.random() / 2,
+        relativeDuration: Math.random() / 2,
+      }
+    }
+
+    const reply = summarize({
+      appliedModifications: {
+        increase,
+        exaggerate,
+        usedVariant: listAvailableReconstructions().find(r => r.id === reconstruction),
+      },
+      // xpath
+    })
+
+    // Apply modifiers
+    mpmPath = await modifyMPM({
+      mpmPath,
+      modifiers: { increase, exaggerate }
+    });
 
     // Generate MP3
     const { mp3Path, rangesPath } = await generateMP3({
@@ -115,7 +167,7 @@ export class PianistAgent {
     }
 
     return {
-      reply: this.generatePlayResponse(),
+      reply: await reply,
       audio: {
         url: `/renders/${mp3Path.split('/').pop()}`,
       },
@@ -128,16 +180,7 @@ export class PianistAgent {
   /**
    * Get default MPM path for current reconstruction
    */
-  private getDefaultMPMPath(): string {
-    return `assets/${this.context.reconstruction}/performance.mpm`;
-  }
-
-  /**
-   * Generate a brief play response
-   */
-  private generatePlayResponse(): string {
-    // TODO: use AI to generate a natural response
-    // of what we are playing based on context
-    return 'Playing now.';
+  private getMPMPath(reconstruction: string): string {
+    return `assets/${reconstruction}/performance.mpm`;
   }
 }

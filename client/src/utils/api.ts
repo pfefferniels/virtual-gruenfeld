@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { BeliefMap, Reconstruction } from '../types';
+import { BeliefMap } from '../types';
 
 const API_BASE = '/api';
 
@@ -18,25 +18,11 @@ export interface ChatResponse {
   observations?: BeliefMap;
 }
 
-export const fetchReconstructions = async (): Promise<Reconstruction[]> => {
-  const response = await axios.get(`${API_BASE}/reconstructions`);
-  return response.data.reconstructions;
-};
-
 export const sendChatMessage = async (request: ChatRequest): Promise<ChatResponse> => {
   const response = await axios.post(`${API_BASE}/chat`, request, {
     headers: {
       'Content-Type': 'application/json',
       'x-session-id': generateSessionId()
-    }
-  });
-  return response.data;
-};
-
-export const fetchMEI = async (reconId: string): Promise<string> => {
-  const response = await axios.get(`${API_BASE}/mei/${reconId}`, {
-    headers: {
-      'Accept': 'application/xml'
     }
   });
   return response.data;

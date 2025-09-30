@@ -54,7 +54,7 @@ export class Pianist {
   /**
    * Process a user message and return appropriate response
    */
-  async processMessage(message: string): Promise<ChatResponse> {
+  async processMessage(message: string, selectedNotes: string[]): Promise<ChatResponse> {
     const json = JSON.parse(message);
     if (!('aspect' in json) || !('selection' in json)) {
       return { reply: 'Invalid message format.' };
@@ -85,6 +85,7 @@ export class Pianist {
       return { reply: `Sorry, I cannot determine the reconstruction for the aspect "${aspect}".` }
     }
 
+    console.log('reconstruction=', reconstruction)
     const mei = await loadMEI(reconstruction)
     if (mei.length === 0 || mei === "[empty]") {
       return { reply: `Sorry, I cannot find the reconstruction "${reconstruction}".` }
@@ -93,13 +94,15 @@ export class Pianist {
     const labels = loadLabels(reconstruction);
     if (labels.length === 0) return { reply: `Sorry, I cannot find labels for the reconstruction "${reconstruction}".` }
 
-    let ids: string[]
-    const lastSameSelection = this.history.find(h => h.selection === selection);
-    if (lastSameSelection) {
-      ids = lastSameSelection.selectionComprehension
-    }
-    else {
-      ids = await understandSelection(mei, selection, labels)
+    let ids: string[] = selectedNotes
+    if (ids.length === 0) {
+      const lastSameSelection = this.history.find(h => h.selection === selection);
+      if (lastSameSelection) {
+        ids = lastSameSelection.selectionComprehension
+      }
+      else {
+        ids = await understandSelection(mei, selection, labels)
+      }
     }
 
     let mpmPath = this.getMPMPath(reconstruction);

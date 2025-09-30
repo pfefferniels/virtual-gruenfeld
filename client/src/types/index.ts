@@ -1,10 +1,7 @@
+import { Belief } from "doubtful/inverse"
+
 export type BeliefMap = {
-    belief: {
-        about: {
-            note: string
-        };
-        cert: string
-    },
+    belief: Belief,
     range: [number, number]
 }[]
 

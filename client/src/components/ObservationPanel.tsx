@@ -37,8 +37,8 @@ export const ObservationPanel = ({ observations, audioRef }: ObservationPanelPro
             {currentObservations
                 .map((o, i) => (
                     <Paper key={i} sx={{ padding: 2 }}>
-                        <b>{o.belief.about.note}</b><br/>
-                        <small color="gray">{o.belief.cert}</small>
+                        <b>{o.belief.that.assigned}</b><br/>
+                        <small color="gray">{o.belief.certainty}</small>
                     </Paper>
                 ))}
         </div>

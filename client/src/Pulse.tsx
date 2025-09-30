@@ -1,6 +1,5 @@
 import { styled } from "@mui/material/styles";
 import { keyframes } from "@mui/system";
-import Mic from "@mui/icons-material/Mic";
 
 const pulse = keyframes`
   0% {
@@ -19,6 +18,6 @@ export const Pulsing = styled("div")({
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  transformOrigin: "center center", // 🔑 keeps it from shifting
-  willChange: "transform",          // smooth GPU rendering
+  transformOrigin: "center center",
+  willChange: "transform",
 });

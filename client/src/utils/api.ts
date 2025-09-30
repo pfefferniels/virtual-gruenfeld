@@ -5,6 +5,7 @@ const API_BASE = '/api';
 
 export interface ChatRequest {
   message: string;
+  selection: string[]
 }
 
 export interface ChatResponse {

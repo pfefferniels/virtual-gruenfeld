@@ -43,9 +43,9 @@ export interface ModifyMPMOutput {
   mpmPath: string;
 }
 
-// REST API types
 export interface ChatRequest {
   message: string;
+  selection: string[];
 }
 
 export interface ChatResponse {

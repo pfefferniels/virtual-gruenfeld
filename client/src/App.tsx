@@ -8,6 +8,7 @@ import { ObservationPanel } from './components/ObservationPanel';
 function App() {
   const [lastResponse, setLastResponse] = useState<ChatResponse>()
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [noteIds, setNoteIds] = useState<string[]>([])
 
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -42,7 +43,8 @@ function App() {
         }}>
           <ScorePanel
             highlights={lastResponse?.highlight || []}
-            reconstruction={lastResponse?.reconstruction || 'reconstruction'}
+            reconstruction={'reconstruction'}
+            onSelect={setNoteIds}
           />
         </Box>
 
@@ -58,6 +60,7 @@ function App() {
         <ChatInterface
           onResponse={resp => setLastResponse(resp)}
           audioRef={audioRef}
+          noteIds={noteIds}
         />
       </Container>
     </Box>

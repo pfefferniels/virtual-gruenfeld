@@ -14,7 +14,7 @@ const conversations = new Map<string, Pianist>();
 chatRouter.post('/', async (req, res) => {
   try {
     const chatRequest: ChatRequest = req.body;
-    const { message } = chatRequest;
+    const { message, selection } = chatRequest;
     
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'Message is required' });
@@ -25,7 +25,7 @@ chatRouter.post('/', async (req, res) => {
     const context = conversations.get(sessionId) || new Pianist([])
         
     // Process the message
-    const response = await context.processMessage(message);
+    const response = await context.processMessage(message, selection);
     res.json(response);
     
   } catch (error) {

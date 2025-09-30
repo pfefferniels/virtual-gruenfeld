@@ -1,6 +1,7 @@
-import { Belief, importWork, Transformer } from "mpmify";
+import { importWork, Transformer } from "mpmify";
 import path from "path";
 import * as fs from "fs";
+import { Belief } from "doubtful/inverse";
 
 export type BeliefMap = {
     belief: Belief,

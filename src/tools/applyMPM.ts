@@ -11,8 +11,6 @@ import { execSync } from 'child_process';
 export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput> {
   const { reconstruction, ids, mpmPath } = input;
 
-  console.log('generate mp3')
-
   const paths = getReconstructionPaths(reconstruction);
   const effectiveMpmPath = mpmPath || paths.performance;
 
@@ -53,9 +51,11 @@ export async function generateMP3(input: ApplyMPMInput): Promise<ApplyMPMOutput>
   console.log('Running: ', command);
   execSync(command, { stdio: 'inherit' });
 
+  /*
   command = `${pianoteqBin} --midi ${midiPath}.mid --mp3 ${mp3Path} --preset "J.B. Streicher"`;
   console.log('Running: ', command);
   execSync(command, { stdio: 'inherit' });
+  */
 
-  return { mp3Path, rangesPath };
+  return { mp3Path: midiPath, rangesPath };
 }

@@ -125,9 +125,9 @@ export class Pianist {
       appliedModifications: {
         increase,
         exaggerate,
-        usedVariant: listAvailableReconstructions().find(r => r.id === reconstruction),
       },
-      // xpath
+      usedVariant: listAvailableReconstructions().find(r => r.id === reconstruction),
+      // ids: ids.length
     })
 
     // Apply modifiers

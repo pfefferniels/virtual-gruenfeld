@@ -85,8 +85,18 @@ function extractJson(raw: string): string {
     return s;
 }
 
-export async function understandAspect(message: string): Promise<ModifyParams | null> {
-    if (message.length === 0) return null
+const neutral: ModifyParams = {
+    reconstruction: 'reconstruction',
+    increase: {
+        tempo: 0
+    },
+    exaggerate: {
+        tempo: 0
+    }
+}
+
+export async function understandAspect(message: string): Promise<ModifyParams> {
+    if (message.length === 0) return neutral
 
     const res = await run(aspectAgent, [
         system(`Available reconstructions are:
@@ -112,7 +122,7 @@ ${listAvailableReconstructions().map(({ id, label, description }) => `- ID: "${i
         console.log(
             `Output failed schema validation: ${result.error.message}\nPreview:\n${preview}`
         );
-        return null
+        return neutral
     }
     return result.data;
 }

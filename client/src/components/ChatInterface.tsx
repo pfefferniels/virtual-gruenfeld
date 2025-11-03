@@ -1,9 +1,12 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useContext } from 'react';
 import { Box, IconButton, Snackbar } from '@mui/material';
 import { ChatResponse, sendChatMessage } from '../utils/api';
 import { Error, Mic, Stop } from '@mui/icons-material';
 import LoadingOverlay from './LoadingOverlay';
 import { Pulsing } from '../Pulse';
+import { usePiano } from 'react-pianosound';
+import { read } from 'midifile-ts'
+//import { PianoContext } from 'react-pianosound';
 
 interface ChatInterfaceProps {
   onResponse: (reply: ChatResponse) => void;
@@ -18,9 +21,12 @@ const ChatInterface = ({ audioRef, onResponse, noteIds }: ChatInterfaceProps) =>
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const { play, stop } = usePiano()
+  //const ctx = useContext(PianoContext)
+  // console.log('piano=', ctx)
+
   const dcRef = useRef<RTCDataChannel>();
 
-  // --- REF FIXES FOR STALE CLOSURES ---
   // Always keep the latest noteIds available to event handlers
   const noteIdsRef = useRef<string[]>(noteIds);
   useEffect(() => {
@@ -30,21 +36,21 @@ const ChatInterface = ({ audioRef, onResponse, noteIds }: ChatInterfaceProps) =>
   // We'll store the latest handlePlay implementation in a ref so the RTC onmessage uses fresh state
   const handlePlayRef = useRef<(message: string) => void>();
 
-  const playAudio = useCallback((url: string) => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-    const audio = new Audio(url);
-    audio.play().catch(console.error);
-    audioRef.current = audio;
-  }, [audioRef]);
+  const playAudio = useCallback(async (url: string) => {
+    // console.log('playing', url)
+    const response = await fetch(`${url}.mid`)
+    const buf = await response.arrayBuffer()
+    const midi = read(buf)
+    console.log('playing', midi)
+    play(midi as any)
+  }, [audioRef, play]);
 
   const dampAudio = useCallback(() => {
+    stop()
     if (audioRef.current) {
       audioRef.current.volume = 0.2;
     }
-  }, [audioRef]);
+  }, [audioRef, stop]);
 
   const resumeAudio = useCallback(() => {
     if (audioRef.current) {
@@ -53,12 +59,14 @@ const ChatInterface = ({ audioRef, onResponse, noteIds }: ChatInterfaceProps) =>
   }, [audioRef]);
 
   const stopAudio = useCallback(() => {
+    stop()
+
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       audioRef.current = null;
     }
-  }, [audioRef]);
+  }, [audioRef, stop]);
 
   // Keep the latest version of the play handler in a ref
   useEffect(() => {
@@ -143,10 +151,10 @@ const ChatInterface = ({ audioRef, onResponse, noteIds }: ChatInterfaceProps) =>
                 instructions: `
 When the user says 'stop', 'wait', 'hold on' etc., call the "stopPlayback" tool and reply "Stopping".
 Otherwise, you must respond ONLY with valid JSON in the following format:
-    {"selection": "<Which places in the music does the user want to hear? E.g. b. 1-4, first phrase, only left hand, etc.>",
-     "aspect": "<Which aspect is the user interested in? E.g. exaggerated dynamics, phrasing, inegalité, melodic shaping, etc.>",
-If you can guess at least one field, return JSON with empty string for the other.
-If no field can be reasonably extracted, return "I do not understand".`,
+    {"selection": "<Which places in the music does the user want to hear? E.g. "the selection", "b. 1-4", "first phrase", "only left hand", ... Can be empty string>",
+     "aspect": "<If the user is interested in a particular aspect, which is it? E.g. exaggerated dynamics, phrasing, inegalité, melodic shaping, etc. Can be empty string>
+    }",
+If the message seems completly unrelated, do not react at all.`,
                 output_modalities: ['text'],
                 tools: [
                   {
@@ -167,6 +175,8 @@ If no field can be reasonably extracted, return "I do not understand".`,
 
         dc.onmessage = async (ev) => {
           const msg = JSON.parse(ev.data);
+
+          console.log('message type', msg.type);
 
           if (msg.type === 'input_audio_buffer.speech_started') {
             dampAudio();
@@ -212,7 +222,7 @@ If no field can be reasonably extracted, return "I do not understand".`,
         .filter((v) => typeof v === 'string')
         .filter((v) => v.length > 0)
         .join(' – ');
-    } catch {}
+    } catch { }
   }
 
   return (

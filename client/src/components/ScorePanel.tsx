@@ -3,20 +3,24 @@ import { Box, Typography, Alert } from '@mui/material';
 import createVerovioModule from 'verovio/wasm';
 import { VerovioToolkit } from 'verovio/esm';
 import { FreehandSVGDrawer } from './FreehandCircle'
+import { SelectionCircle } from './SelectionCircle';
+import { PlayControl } from './PlayControl';
 
 interface ScorePanelProps {
   highlights: string[];
-  reconstruction: string;
   onSelect: (noteIds: string[]) => void
 }
 
-const ScorePanel = ({ highlights, reconstruction, onSelect }: ScorePanelProps) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const verovioSvgRef = useRef<SVGSVGElement | null>(null);
+const ScorePanel = ({ highlights, onSelect }: ScorePanelProps) => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [vrvToolkit, setVrvToolkit] = useState<VerovioToolkit | null>(null);
   const [hasSvg, setHasSvg] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<Element | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const verovioSvgRef = useRef<SVGSVGElement | null>(null);
+
 
   useEffect(() => {
     createVerovioModule().then(VerovioModule => {
@@ -34,7 +38,7 @@ const ScorePanel = ({ highlights, reconstruction, onSelect }: ScorePanelProps) =
         setError(null);
         setHasSvg(false);
 
-        const response = await fetch(`/api/mei/${reconstruction}`);
+        const response = await fetch(`/api/mei/reconstruction`);
         const mei = await response.text();
 
         vrvToolkit.setOptions({
@@ -69,24 +73,12 @@ const ScorePanel = ({ highlights, reconstruction, onSelect }: ScorePanelProps) =
     };
 
     loadScore();
-  }, [reconstruction, vrvToolkit]);
+  }, [vrvToolkit]);
 
   useEffect(() => {
-    if (highlights.length > 0 && !isLoading) {
-      const container = containerRef.current;
-      if (!container) return;
-
-      const prev = container.querySelectorAll('.vrv-highlight');
-      prev.forEach(el => el.classList.remove('vrv-highlight'));
-
-      highlights.forEach((id, i) => {
-        const el = container.querySelector<SVGElement>(`#${id}`);
-        if (!el) return;
-        if (i === 0) el.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'center' });
-        el.classList.add('vrv-highlight');
-      });
-    }
-  }, [highlights, isLoading]);
+    if (highlights.length === 0) return
+    setAnchorEl(document.querySelector<SVGGraphicsElement>(`#${highlights[highlights.length - 1]}`))
+  }, [highlights]);
 
   if (error) {
     return (
@@ -104,6 +96,10 @@ const ScorePanel = ({ highlights, reconstruction, onSelect }: ScorePanelProps) =
         </Box>
       )}
 
+      {highlights.length > 0 && (
+        <PlayControl anchorEl={anchorEl} selection={highlights} />
+      )}
+
       <div ref={containerRef} style={{ height: '100%', minHeight: '400px' }} />
 
       {/* Mount once the Verovio SVG is present */}
@@ -118,7 +114,23 @@ const ScorePanel = ({ highlights, reconstruction, onSelect }: ScorePanelProps) =
             onNoteSelected={onSelect}
           />
 
-
+          {highlights && (
+            <>
+              <SelectionCircle
+                elements={
+                  Array
+                    .from(
+                      highlights
+                        .map(id => document.querySelector<SVGGraphicsElement>(`#${id}`))
+                    )
+                    .filter(el => !!el)}
+                onClick={(e) => {
+                  // e.stopPropagation();
+                  // setAnchorEl(e.currentTarget);
+                }}
+              />
+            </>
+          )}
         </>
       )}
     </Box>

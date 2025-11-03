@@ -1,7 +1,6 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Options as RoughOptions } from "roughjs/bin/core"
-import { SelectionCircle } from "./SelectionCircle";
 
 type Pt = { x: number; y: number };
 
@@ -82,7 +81,7 @@ export type FreehandSVGDrawerProps = {
     previewClassName?: string;
 
     /** Callback when a path is finished */
-    onNoteSelected?: (selectedNotes: string[]) => void;
+    onNoteSelected: (selectedNotes: string[]) => void;
 };
 
 export function FreehandSVGDrawer({
@@ -94,7 +93,10 @@ export function FreehandSVGDrawer({
     onNoteSelected,
 }: FreehandSVGDrawerProps) {
     const [currentPath, setCurrentPath] = useState<string>()
-    const [selectedNotes, setSelectedNotes] = useState<SVGGraphicsElement[]>([]);
+
+    const updateSelection = useCallback((selectedNotes: string[]) => {
+        onNoteSelected(selectedNotes);
+    }, [onNoteSelected]);
 
     // Ensure a layering group for our content
     useEffect(() => {
@@ -138,7 +140,7 @@ export function FreehandSVGDrawer({
             svgEl.setPointerCapture(e.pointerId);
             drawingRef.current.isDrawing = true;
             drawingRef.current.points = [clientToSvg(svgEl, e.clientX, e.clientY)];
-            setSelectedNotes([]);
+            updateSelection([]);
         };
 
         const onPointerMove = (e: PointerEvent) => {
@@ -190,22 +192,15 @@ export function FreehandSVGDrawer({
 
             path.remove();
 
-            console.log('selected notes=', selectedNotes
-                .map(n => {
-                    const note = n.closest<SVGGElement>('.note')
-                    if (!note) return
-                    return note.getAttribute('id') || ''
-                })
-                .filter(n => n !== undefined))
-            onNoteSelected?.(selectedNotes
-                .map(n => {
-                    const note = n.closest<SVGGElement>('.note')
-                    if (!note) return
-                    return note.getAttribute('id') || ''
-                })
-                .filter(n => n !== undefined)
+            updateSelection(
+                selectedNotes
+                    .map(n => {
+                        const note = n.closest<SVGGElement>('.note')
+                        if (!note) return
+                        return note.getAttribute('id') || ''
+                    })
+                    .filter(n => n !== undefined)
             )
-            setSelectedNotes(selectedNotes)
             setCurrentPath(undefined);
         };
 
@@ -218,22 +213,7 @@ export function FreehandSVGDrawer({
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", onPointerUp);
         };
-    }, [svgRef, minPointDistance, smoothIterations, previewClassName, roughOptions, onNoteSelected, setCurrentPath, setSelectedNotes]);
-
-    console.log('selected notes', selectedNotes)
-
-    if (selectedNotes.length > 0 && svgRef) {
-        return (
-            <SelectionCircle
-                elements={selectedNotes}
-                stroke="black"
-                strokeWidth={30}
-                strokeDasharray={"80 40"}
-                fill='oklch(70% 0.1 255)'
-            />
-        )
-    }
-
+    }, [svgRef, minPointDistance, smoothIterations, previewClassName, roughOptions, updateSelection, setCurrentPath]);
 
     if (currentPath) {
         return createPortal(

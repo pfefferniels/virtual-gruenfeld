@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Container, Box, Paper } from '@mui/material';
 import ChatInterface from './components/ChatInterface';
 import ScorePanel from './components/ScorePanel';
@@ -9,6 +9,12 @@ function App() {
   const [lastResponse, setLastResponse] = useState<ChatResponse>()
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [noteIds, setNoteIds] = useState<string[]>([])
+
+  useEffect(() => {
+    if (lastResponse?.highlight) {
+      setNoteIds(lastResponse.highlight)
+    }
+  }, [lastResponse])
 
   return (
     <Box sx={{ flexGrow: 1, height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -42,26 +48,27 @@ function App() {
           overflow: 'hidden'
         }}>
           <ScorePanel
-            highlights={lastResponse?.highlight || []}
-            reconstruction={'reconstruction'}
-            onSelect={setNoteIds}
+            highlights={noteIds}
+            onSelect={(ids) => {
+              console.log('on select', ids)
+              setNoteIds(ids)
+            }}
           />
         </Box>
 
         {lastResponse?.observations && (
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
             <ObservationPanel
-              audioRef={audioRef}
               observations={lastResponse?.observations}
             />
-            </Box>
+          </Box>
         )}
 
-        <ChatInterface
+        {/*<ChatInterface
           onResponse={resp => setLastResponse(resp)}
           audioRef={audioRef}
           noteIds={noteIds}
-        />
+        />*/}
       </Container>
     </Box>
   );

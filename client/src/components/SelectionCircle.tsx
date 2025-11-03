@@ -1,4 +1,4 @@
-import { SVGProps, useEffect, useState } from "react";
+import { Ref, SVGProps, useEffect, useState } from "react";
 import concaveman from 'concaveman';
 import { createPortal } from "react-dom";
 
@@ -71,9 +71,10 @@ export const getBoundingBox = (points: [number, number][]): BBox => {
 
 type SelectionCircleProps = {
     elements: SVGGraphicsElement[]
+    //ref: Ref<SVGPathElement>
 } & SVGProps<SVGPathElement>
 
-export const SelectionCircle = ({ elements, ...svgProps }: SelectionCircleProps) => {
+export const SelectionCircle = ({ elements, ref, ...svgProps }: SelectionCircleProps) => {
     const [path, setPath] = useState<string>('')
 
     useEffect(() => {
@@ -90,6 +91,8 @@ export const SelectionCircle = ({ elements, ...svgProps }: SelectionCircleProps)
             return bbox
         })
 
+        console.log('bboxes', bboxes)
+
         const points = getPointsForRects(bboxes)
         const concaveHull = concaveman(points, 2)
         const smoothPoints = chaikin(concaveHull, 14);
@@ -102,8 +105,11 @@ export const SelectionCircle = ({ elements, ...svgProps }: SelectionCircleProps)
         )
     }, [elements])
 
+    console.log('drawing', elements.length, 'elements into', elements[0]?.closest('g.system'))
+
     return createPortal(
         <path
+            ref={ref}
             className="hull"
             d={path}
             fill='oklch(70% 0.1 145)'
@@ -111,6 +117,6 @@ export const SelectionCircle = ({ elements, ...svgProps }: SelectionCircleProps)
             strokeWidth={2}
             {...svgProps}
         />,
-        elements[0]?.closest('g') || document.body
+        elements[0]?.closest('g.system') || document.body
     )
 }

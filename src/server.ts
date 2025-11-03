@@ -7,6 +7,7 @@ import { reconstructionsRouter } from './api/reconstructions';
 import { rendersRouter } from './api/renders';
 import { meiRouter } from './api/mei';
 import { tokenRouter } from './api/token';
+import { lessonRouter } from './api/lesson';
 
 // Load environment variables
 dotenv.config();
@@ -25,11 +26,12 @@ app.use('/api/reconstructions', reconstructionsRouter);
 app.use('/api/mei', meiRouter);
 app.use('/renders', rendersRouter);
 app.use('/token', tokenRouter);
+app.use('/lesson', lessonRouter)
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -43,7 +45,7 @@ app.get('*', (req, res) => {
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });

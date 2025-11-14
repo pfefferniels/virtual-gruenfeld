@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import 'dotenv/config';
 import path from 'path';
 import { chatRouter } from './api/chat';
 import { reconstructionsRouter } from './api/reconstructions';
@@ -8,9 +8,6 @@ import { rendersRouter } from './api/renders';
 import { meiRouter } from './api/mei';
 import { tokenRouter } from './api/token';
 import { lessonRouter } from './api/lesson';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;

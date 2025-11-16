@@ -59,12 +59,22 @@ export function extractInfo(doc: Document): ExtractedInfo {
 }
 
 /**
- * Compute measure number for a given date and return
- * "n" or "n (repetition)" if it's inside a repeat section.
+ * Compute measure + beat for a given date and return
+ * { measure, beat, inRepeat } where:
+ *  - measure: 1-based global measure index
+ *  - beat: 1-based beat index within the bar (1..numerator)
+ *  - inRepeat: true if inside a repeat section
  */
-export function getMeasureForDate(info: ExtractedInfo, date: number): string {
+export function getMeasureForDate(
+  info: ExtractedInfo,
+  date: number
+): { measure: number; beat: number; inRepeat: boolean } {
   const { ppq, timeSignatures, sections } = info;
-  if (!Number.isFinite(date)) throw new Error("date must be a number.");
+  if (!Number.isFinite(date)) throw new Error("date must be a number. Received " + date);
+
+  if (!timeSignatures.length) {
+    throw new Error("timeSignatures must contain at least one entry.");
+  }
 
   // ---- find active time signature ----
   let ts = timeSignatures[0];
@@ -73,8 +83,9 @@ export function getMeasureForDate(info: ExtractedInfo, date: number): string {
     else break;
   }
 
-  // ---- compute measure duration ----
-  const measureDur = ts.numerator * ppq * (4 / ts.denominator);
+  // ---- compute beat & measure duration ----
+  const beatDur = ppq * (4 / ts.denominator);         // duration of one beat
+  const measureDur = ts.numerator * beatDur;          // duration of one measure
 
   // ---- sum measures before current TS segment ----
   let measuresBefore = 0;
@@ -83,7 +94,8 @@ export function getMeasureForDate(info: ExtractedInfo, date: number): string {
     const next = timeSignatures[i + 1];
     if (next && next.date <= date) {
       const segDur = next.date - t.date;
-      const segMeasureDur = t.numerator * ppq * (4 / t.denominator);
+      const segBeatDur = ppq * (4 / t.denominator);
+      const segMeasureDur = t.numerator * segBeatDur;
       measuresBefore += Math.floor(segDur / segMeasureDur);
     } else {
       break;
@@ -92,10 +104,18 @@ export function getMeasureForDate(info: ExtractedInfo, date: number): string {
 
   // ---- measure index in current TS ----
   const offset = date - ts.date;
-  const measureInSegment = Math.floor(offset / measureDur) + 1;
-  const measureNumber = measuresBefore + measureInSegment;
+  const measureInSegment = Math.floor(offset / measureDur); // 0-based within segment
+  const measureNumber = measuresBefore + measureInSegment + 1; // 1-based global
+
+  // ---- beat index within current measure ----
+  const offsetWithinMeasure = offset - measureInSegment * measureDur; // same as offset % measureDur
+  const beatInMeasure = Math.floor(offsetWithinMeasure / beatDur);    // 0-based
+  const beat = beatInMeasure + 1;                                     // 1-based: 1..ts.numerator
 
   // ---- repetition check ----
-  const inRepeat = sections.some((s) => s.isRepeat && date >= s.start && date < s.end);
-  return inRepeat ? `${measureNumber} (repetition)` : `${measureNumber}`;
+  const inRepeat = sections.some(
+    (s) => s.isRepeat && date >= s.start && date < s.end
+  );
+
+  return { measure: measureNumber, beat, inRepeat };
 }

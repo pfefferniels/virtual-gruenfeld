@@ -1,6 +1,7 @@
 import { usePiano } from "react-pianosound";
 import { read } from "midifile-ts";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { PianoRounded, RecordVoiceOver } from "@mui/icons-material";
 
 type Play = {
     type: "play";
@@ -95,15 +96,17 @@ async function sendAck(
 
 
 export const App = () => {
+    const [currentStep, setCurrentStep] = useState<Step | null>(null);
     const { play } = usePiano();
 
     const sessionId = useRef<string>()
     const scheduler = useRef<Scheduler<Step>>(new Scheduler())
+    const eventSource = useRef<EventSource>()
 
     const onStep = async (step: Step) => {
         if (!sessionId.current) return
 
-        console.log('dealing with', step)
+        setCurrentStep(step);
 
         if (step.type === "explanation" && step.audio) {
             const audio = new Audio("data:audio/mpeg;base64," + step.audio);
@@ -127,20 +130,26 @@ export const App = () => {
         }
 
         if (step.type === "play" && step.midi) {
-            // Decode base64 → ArrayBuffer
             const binary = atob(step.midi);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             const midiBuf = bytes.buffer;
 
-            // Parse and estimate duration
             const file = read(midiBuf);
             sendAck(sessionId.current, step.stepId, "started");
 
+            const totalTracks = file.tracks.length;
+            let tracksEnded = 0;
+
             await new Promise<void>((resolve) => {
                 play(file as any, (e) => {
+                    // console.log('event', e);
                     if (e.type === 'meta' && e.subtype === 'endOfTrack') {
-                        resolve()
+                        tracksEnded++;
+                        // console.log(`end of track ${tracksEnded}/${totalTracks}`);
+                        if (tracksEnded === totalTracks) {
+                            resolve();
+                        }
                     }
                 });
             })
@@ -151,11 +160,16 @@ export const App = () => {
     }
 
     const start = () => {
+        if (eventSource.current) {
+            eventSource.current.close();
+        }
+
         if (!scheduler.current.onStep) {
             scheduler.current.onStep = onStep;
         }
 
-        const evtSource = new EventSource(`/lesson`, { withCredentials: true });
+        eventSource.current = new EventSource(`/lesson`, { withCredentials: true });
+        const evtSource = eventSource.current;
 
         evtSource.addEventListener("session", (e) => {
             const data = JSON.parse((e as MessageEvent).data);
@@ -165,7 +179,6 @@ export const App = () => {
 
         evtSource.addEventListener("step", (e) => {
             const step: Step = JSON.parse((e as MessageEvent).data);
-            console.log('pushing', step);
             scheduler.current.push(step);
         });
 
@@ -178,11 +191,16 @@ export const App = () => {
     };
 
     const ask = async () => {
+        if (eventSource.current) {
+            eventSource.current.close();
+        }
+
         if (!scheduler.current.onStep) {
             scheduler.current.onStep = onStep;
         }
 
-        const evtSource = new EventSource(`/lesson?question=Moment,+das+verstehe+ich+nicht&at=b.-5`, { withCredentials: true });
+        eventSource.current = new EventSource(`/lesson?question=Moment,+das+verstehe+ich+nicht&at=b.-5`, { withCredentials: true });
+        const evtSource = eventSource.current;
 
         evtSource.addEventListener("session", (e) => {
             const data = JSON.parse((e as MessageEvent).data);
@@ -210,6 +228,16 @@ export const App = () => {
 
     return (
         <div>
+            {currentStep && (
+                <div>
+                    {currentStep.type === "explanation" && (
+                        <RecordVoiceOver />
+                    )}
+                    {currentStep.type === "play" && (
+                        <PianoRounded />
+                    )}
+                </div>
+            )}
             <button onClick={start}>Start Lesson</button>
             <button onClick={ask}>Ask</button>
             <button onClick={pause}>Pause</button>

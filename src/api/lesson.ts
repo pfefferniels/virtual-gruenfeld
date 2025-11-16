@@ -7,10 +7,15 @@ import { importMPM } from "mpm-ts";
 import { asMSM, extractInfo, getMeasureForDate } from "../utils/asMSM";
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
-const scorePath = path.join(process.cwd(), 'assets', 'reconstruction', 'score.mei');
-const meiContent = fs.readFileSync(scorePath, 'utf8');
+const scores = new Map<PlayMode, string>();
 
-const mpmPath = path.join(process.cwd(), 'assets', 'reconstruction', 'performance.mpm');
+for (const mode of ['all', 'harmony-only', 'melody-only'] as PlayMode[]) {
+    const scorePath = path.join(process.cwd(), 'assets', mode === 'melody-only' ? 'harmony-only' : mode, 'score.mei');
+    const meiContent = fs.readFileSync(scorePath, 'utf8');
+    scores.set(mode, meiContent);
+}
+
+const mpmPath = path.join(process.cwd(), 'assets', 'all', 'performance.mpm');
 const mpmContent = fs.readFileSync(mpmPath, 'utf8');
 
 const sessions = new Map<string, {
@@ -29,7 +34,7 @@ function getOrCreateSession(id: string) {
 
 export const lessonRouter = express.Router();
 
-const MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+const MODEL = process.env.OPENAI_MODEL || "gpt-5.1";
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
@@ -50,17 +55,17 @@ type Decision = {
 
 const readDecisions = async (): Promise<Decision[] | undefined> => {
     // Construct path to MEI file
-    const infoPath = path.join(process.cwd(), 'assets', 'reconstruction', 'info.json');
+    const infoPath = path.join(process.cwd(), 'assets', 'all', 'info.json');
 
     // Check if file exists
-    if (!fs.existsSync(infoPath) || !fs.existsSync(scorePath) || !fs.existsSync(mpmPath)) {
+    if (!fs.existsSync(infoPath) || /*!fs.existsSync(scorePath) ||*/ !fs.existsSync(mpmPath)) {
         return
     }
 
     const info = fs.readFileSync(infoPath, 'utf8');
     const json = JSON.parse(info)
 
-    const msm = await asMSM(meiContent)
+    const msm = await asMSM(scores.get('all') || '')
     const msmInfo = extractInfo(msm)
 
     const mpm = importMPM(mpmContent)
@@ -70,16 +75,26 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
         if (arg.conclusion.that.assigned.length === 0) continue
 
         const mpmIDs: Set<string> = new Set(arg.calls.map(c => c.created).flat())
-        let measures_ = Array.from(msm.querySelectorAll('note'))
-        let measures = measures_
+        const dates = Array
+            .from(msm.querySelectorAll('note'))
             .filter(note => {
                 const effective = new Set(mpm.instructionsEffectiveAtDate(+(note.getAttribute('date') || 0)).map(i => i["xml:id"]));
                 return effective.intersection(mpmIDs).size > 0
             })
-            .map(note => getMeasureForDate(msmInfo, +(note.getAttribute('date') || 0)))
-            .filter(m => !!m)
+            .map(note => {
+                const date = note.getAttribute('date')
+                if (date) return +date
+                else return null
+            })
+            .filter(d => d !== null)
 
-        measures = Array.from(new Set(measures))
+        if (dates.length === 0) continue
+
+        const min = Math.min(...dates)
+        const max = Math.max(...dates)
+        const minInfo = getMeasureForDate(msmInfo, min)
+        const maxInfo = getMeasureForDate(msmInfo, max)
+        const range = `T. ${minInfo.measure}/${minInfo.beat}-${maxInfo}/${maxInfo.beat}${maxInfo.inRepeat ? ' (Wdh.)' : ''}`
 
         const instructions = mpm.getInstructions().filter(i => mpmIDs.has(i["xml:id"]))
         const aspects = new Set<string>(instructions.map(i => i.type))
@@ -87,7 +102,7 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
         decisions.push({
             id: arg.id,
             summary: arg.conclusion.that.assigned,
-            measures: `b. ${measures.join(',')}`,
+            measures: range,
             aspects,
             details: {
                 elements: instructions
@@ -106,11 +121,15 @@ async function retrieveInfo(decisionId: string): Promise<DecisionDetails | { fou
     return decisions.find((d) => d.id === decisionId)?.details || { found: false };
 }
 
+type PlayMode = "all" | "harmony-only" | "melody-only";
+
 type Play = {
     type: "play";
-    decisions: string[];
-    mode: "all" | "harmony-only" | "melody-only";
+    decision: string | null;
+    mode: PlayMode;
     exaggeration: number;
+    sketchiness: number;
+    extent: 'pick' | 'contextualize' | null;
 }
 
 type Explanation = {
@@ -125,10 +144,10 @@ type Step = {
 
 const speakExplanation = async (explanation: Explanation): Promise<string | undefined> => {
     const { message, emotion } = explanation;
-    const instructions = `
-You are an Austrian from 19th century, old and noble, you speak very deep,
-but hurried and very quitely, unclearly, often swallowing some syllables.
-Current emotion: ${emotion}`;
+    const instructions = `You speak German, the year is 1905 and you are
+52 years old. You speak in a slightly aristocratic tone, but since you
+are an artist, often somewhat unclearly and with many pauses for thinking.
+You current emotion: ${emotion}`;
 
     try {
         const response = await openai.audio.speech.create({
@@ -170,45 +189,68 @@ const speakExplanation2 = async (explanation: Explanation): Promise<string | und
     return buffer.toString('base64');
 }
 
-const performInIsolation = async (mpmIds: string[], exaggerate: number): Promise<string> => {
+const performInIsolation = async (step: Play, decisions: Decision[]): Promise<string> => {
+    const mpmIds = decisions.find((d) => d.id === step.decision)?.mpmIDs || [];
+    console.log('performing MPM IDs', mpmIds);
+
     const response = await fetch('http://localhost:8080/perform', {
         method: 'POST',
         body: JSON.stringify({
             mpm: mpmContent,
-            mei: meiContent,
+            mei: scores.get(step.mode),
             mpmIds,
-            exaggerate
+            exaggerate: step.exaggeration,
+            sketchiness: step.sketchiness,
+            extent: step.extent
         })
     });
-    const payload = await response.json();
-    return payload?.midi_b64;
+    try {
+        const text = await response.text();
+        const payload = JSON.parse(text);
+        return payload?.midi_b64;
+    } catch (e) {
+        console.error('Error parsing perform response', e);
+        throw e;
+    }
 }
 
 function systemPrompt(decisions: Decision[]) {
     const list = decisions.map((d) => `- "${d.id}" — ${d.measures}: ${d.summary} (${Array.from(d.aspects).join(',')})`).join("\n");
     return `
-You are Alfred Grünfeld, the renowned pianist. The year is 1905 and you speak in
+You are Alfred Grünfeld, a pianist. The year is 1905 and you speak in
 the period-appropriate German style. You are performing "Träumerei" by Robert
-Schumann. You have made the following interpretative decisions:
+Schumann. Your role is to teach these decision to a student.
 
-${list}
+# Rules:
+- Produce the lesson by calling \`push_step\` repeatedly. You can emit two kinds of steps:
+  to demonstrate ('play') and to speak ('explanation').
 
-Your role is to teach these decision to a student. 
+# General style:
+- Speak *very* briefly, only hinting, around 2 to 10 words per explanation. Use the given
+  wording. Unfinished utterances are fine.
+- Use repetition, e.g. by playing the same thing multiple times. You must modify it
+  every time by changing either the exaggeration or sketchiness or both.
+- Multiple decisions are structured in the same way. In that case demonstrate only one instance and
+  mention, that there are more instances (e.g. "Nachschlag schattieren").
+  use the given wording. Even make it shorter. Unfinished utterances are good.
 
-Produce the lesson by calling \`push_step\` repeatedly. You can emit two kinds of steps:
-
-- { "type": "play", "decisions": ["..."], "mode": "all" | "harmony-only" | "melody-only", "exaggeration": [-1, 1], "overlap": true | false }
-- { "type": "explanation", "message": "...", "emotion": "...", "overlap": true | false }
-
-General style:
-- When playing, you should exaggerate certain decisions to communicate their character (use "exaggeration").
+# Parameter descriptions:
+- If you pass no decision, the whole piece will be played (useful e.g. to show a harmonic reduction).
+- When playing, exaggerate your decision to communicate its character (use "exaggeration").
 - You may choose to speak while playing. When "overlap" is set to true, the step will be executed
-  at the same time like the previous step.
-- It is a common strategy to sometimes say and play things twice - so you may repeat the same decision 
-  and e.g. exaggerate it more the second time.
-- You do not need many words, you use (more or less) the given wording.
-- Sometimes you interrupt yourself to demonstrate something immediately (i.e., quick change of 
-  "explanation" and "play" objects).
+  at the same time as the previous step. Be aware that there may not be multiple overlaps in a row
+  and that only explanations can overlap with plays.
+- Use "sketchiness" if you want to show something in a more hasting, fleeting manner. In particular 
+  when playing a harmonic reduction, you must always increase the sketchiness significantly (i.e. > 2.0).
+  A value of 1.0 means "normal". Do *not* reflect about sketchiness in your speech.
+- For "exaggaration", values less than 1.0 will flatten the expressivity, values greater than 1.0 will exaggerate it.
+- Set the "extent" to "pick" when the decision spans a long passage, i.e. you pick a representative portion to exemplify.
+  Set it to "contextualize" when the decision is very short, i.e. include some musical context before and after the decision.
+  Otherwise, set it to null.
+
+# Decisions
+You have made the following interpretative decisions:
+${list}
 `.trim();
 }
 
@@ -243,12 +285,25 @@ const tools: OpenAI.Responses.Tool[] = [
                             additionalProperties: false,
                             properties: {
                                 type: { type: "string", enum: ["play"] },
-                                decisions: { type: "array", items: { type: "string" } },
+                                decision: { type: ["string", "null"] },
                                 mode: { type: "string", enum: ["all", "harmony-only", "melody-only"] },
                                 exaggeration: { type: "number" },
-                                overlap: { type: "boolean" }
+                                sketchiness: { type: "number" },
+                                overlap: { type: "boolean" },
+                                extent: {
+                                    type: ["string", "null"],
+                                    enum: ["pick", "contextualize", null],
+                                }
                             },
-                            required: ["type", "decisions", "mode", "exaggeration", "overlap"],
+                            required: [
+                                "type",
+                                "decision",
+                                "mode",
+                                "exaggeration",
+                                "sketchiness",
+                                "overlap",
+                                "extent"
+                            ],
                         },
                         {
                             type: "object",
@@ -303,27 +358,20 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
 The student asks: "${userRequest}"\nWe were interrupted in m. ${currentMeasure}.
 Your job:
 1) Find out, which decision(s) the student was talking about. 
-2) You can get more details about how your decision works internally by calling retrieve_info(decision_id).
+2) Get more details about how your decision works internally by calling retrieve_info(decision_id).
 3) Understand the detailed info and communicate the answer both musically and verbally with clear "play"
 and "explanation" steps.`
         : `
-- You come up with a good order of explaining things.
-You could give e.g. first a rough overview using a harmonic reduction,
-and explaining it, or you could to start from the beginning or with some
-decision you consider to be central throughout the piece.
-- Completeness: Unless you are being interrupted by the student, you go ahead until all 
-decisions are explained.
-- You are purely presenting. Do not ask the student questions.
-- If you want to go into deep detail about a particular decision, call retrieve_info(decision_id).
-- Do not go into detail too often.`;
+- Give an overview over the decisions.
+- You may choose to start with giving a harmonic reduction (mode: "harmony-only") of the whole piece.
+- Also for decisions encompassing many measures, you may play a harmonic reduction.
+`;
 
     // Helper: run a single streamed turn, and if it makes tool calls, resolve them and recurse.
     async function run(args: {
         previous_response_id?: string;
         input: any[];
     }) {
-        console.log('running with', args)
-
         const stream = await openai.responses.create({
             model: MODEL,
             stream: true,
@@ -345,16 +393,19 @@ decisions are explained.
 
             // Accumulate arguments as they stream in
             if (ev.type === "response.function_call_arguments.done") {
+                // console.log('function call args done', ev, toolName, callId);
                 if (!toolName || !callId) continue; // should not happen
 
                 let toolOutput: any = { ok: true };
                 const args = JSON.parse(ev.arguments);
                 const stepId = crypto.randomUUID();
+                // console.log('args', args);
 
                 if (toolName === "push_step") {
                     const step: Step = args.step;
+                    // console.log('step.type=', step.type);
                     if (step.type === "explanation") {
-                        const audio = await speakExplanation2(args.step);
+                        const audio = await speakExplanation(args.step);
                         send("step", {
                             ...step,
                             audio,
@@ -362,13 +413,7 @@ decisions are explained.
                         });
                     }
                     else {
-                        const mpmIDs = step.decisions
-                            .map((id) => {
-                                const d = decisions?.find((d) => d.id === id);
-                                return d ? d.mpmIDs : [];
-                            })
-                            .flat();
-                        const midi = await performInIsolation(mpmIDs, step.exaggeration);
+                        const midi = await performInIsolation(step, decisions || []);
                         send("step", {
                             ...step,
                             midi,

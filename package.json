@@ -4,6 +4,7 @@
   "description": "AI web app for conversing with Alfred Grünfeld's historical piano rendition",
   "main": "dist/server.js",
   "scripts": {
+    "java:dev": "java -jar ~/Projects/mpm-renderer/server/build/libs/server-all.jar",
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
     "server:dev": "nodemon --ignore ./renders --watch ./src --exec tsx src/server.ts",
     "client:dev": "cd client && npm run dev",

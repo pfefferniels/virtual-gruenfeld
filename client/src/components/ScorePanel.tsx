@@ -38,7 +38,7 @@ const ScorePanel = ({ highlights, onSelect }: ScorePanelProps) => {
         setError(null);
         setHasSvg(false);
 
-        const response = await fetch(`/api/mei/reconstruction`);
+        const response = await fetch(`/api/mei/all`);
         const mei = await response.text();
 
         vrvToolkit.setOptions({
@@ -94,10 +94,6 @@ const ScorePanel = ({ highlights, onSelect }: ScorePanelProps) => {
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
           <Typography>Loading Score ...</Typography>
         </Box>
-      )}
-
-      {highlights.length > 0 && (
-        <PlayControl anchorEl={anchorEl} selection={highlights} />
       )}
 
       <div ref={containerRef} style={{ height: '100%', minHeight: '400px' }} />

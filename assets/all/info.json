@@ -64,14 +64,19 @@
         ]
       },
       {
-        "note": "Schattierung ist lokales, dynamisches Phänomen (<metricalAccentuation>).\nDa die Dynamik vermutlich unterhalb des Welte-Spektrums liegt, wurden die Werte manuell verringert.",
+        "type": "simpleArgumentation",
+        "id": "arg_029a8e58",
         "conclusion": {
+          "id": "concl_b1f64673-9757-40b1-aefe-a921d0491225",
           "that": {
-            "assigned": "Nachschläge schattieren"
+            "id": "that_2fa3d0ab-5c9a-4248-a431-55ddf7532200",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "nachschlagenden Akkord schattieren"
           },
-          "certainty": "likely"
+          "type": "belief",
+          "certainty": "possible"
         },
-        "id": "decision-df243d0d",
         "calls": [
           {
             "id": "9f8b5d24-4423-431f-80dc-5178e79af043",
@@ -86,27 +91,19 @@
             }
           },
           {
-            "id": "0b186337-6944-4fa8-bf31-e1eded2d538a",
-            "created": [],
-            "name": "Modify",
+            "id": "6ef57f83-aa7b-4a97-a3fe-a65d1a429515",
+            "created": [
+              "dynamics_0"
+            ],
+            "name": "InsertDynamicsInstructions",
             "options": {
-              "from": 20160,
-              "to": 20160,
               "scope": "global",
-              "aspect": "velocity",
-              "change": -1
-            }
-          },
-          {
-            "id": "4576e759-d534-4c2e-a0d3-8e31b07b73e9",
-            "created": [],
-            "name": "Modify",
-            "options": {
-              "from": 43200,
-              "to": 43200,
-              "scope": "global",
-              "aspect": "velocity",
-              "change": -2
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": []
+              },
+              "from": 0,
+              "to": 2520
             }
           },
           {
@@ -126,236 +123,14 @@
             }
           },
           {
-            "id": "3a2ce775-4c80-40cc-bfa2-7f3ea829847e",
+            "id": "0d04499f-9c3d-4e44-8749-18f5f2a1a8d9",
             "created": [
-              "accentuationPattern_12240"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 12240,
-              "to": 14040,
-              "beatLength": 0.125,
-              "name": "pattern-2c41ccf7",
-              "scaleTolerance": 0,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "2e6c150e-05ca-49d3-b705-4616b728223f",
-            "created": [
-              "accentuationPattern_19440"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 19440,
-              "to": 20520,
-              "beatLength": 0.125,
-              "name": "pattern-87f71655",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "7a1153de-13cb-4a3a-91f3-6ea342ccc024",
-            "created": [
-              "accentuationPattern_23760"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 23760,
-              "to": 25560,
-              "beatLength": 0.125,
-              "name": "pattern-f60f34c6",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "4d88bab0-f3a8-46ae-8d0d-032a180360b4",
-            "created": [
-              "accentuationPattern_35280"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 35280,
-              "to": 37080,
-              "beatLength": 0.125,
-              "name": "pattern-7de81602",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "96ad69ad-3975-4535-81c9-e25704710142",
-            "created": [
-              "accentuationPattern_42480"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 42480,
-              "to": 43560,
-              "beatLength": 0.125,
-              "name": "pattern-ca5ec607",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "4211747d-93ee-4e79-b7d1-de13ad18f0fc",
-            "created": [
-              "accentuationPattern_46800"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 46800,
-              "to": 48600,
-              "beatLength": 0.125,
-              "name": "pattern-fa782e30",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "a6d0cd0c-55b9-4ff6-9f10-fddb901500ea",
-            "created": [
-              "accentuationPattern_54000"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 54000,
-              "to": 55080,
-              "beatLength": 0.125,
-              "name": "pattern-060874e9",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "d05b3df0-de9f-45fe-9abe-f1e0f9406444",
-            "created": [
-              "accentuationPattern_58320"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 58320,
-              "to": 60120,
-              "beatLength": 0.125,
-              "name": "pattern-4658f790",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "8609e938-df9d-4c43-8795-5e81749c3af0",
-            "created": [
-              "accentuationPattern_65520"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 65520,
-              "to": 66600,
-              "beatLength": 0.125,
-              "name": "pattern-785c1aab",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "52bc8e32-0f9e-467a-9459-364d7fa80703",
-            "created": [
-              "accentuationPattern_66960"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 66960,
-              "to": 68040,
-              "beatLength": 0.125,
-              "name": "pattern-92c767fe",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "94b47d84-f911-477a-bc68-64d7d6149733",
-            "created": [
-              "accentuationPattern_69840"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 69840,
-              "to": 71640,
-              "beatLength": 0.125,
-              "name": "pattern-c7ecda3c",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          },
-          {
-            "id": "57b254ce-97e8-4892-b0a0-3028ce599569",
-            "created": [],
-            "name": "MergeMetricalAccentuations",
-            "options": {
-              "names": [
-                "pattern-ca5ec607",
-                "pattern-060874e9",
-                "pattern-785c1aab",
-                "pattern-92c767fe",
-                "pattern-87f71655"
-              ],
-              "into": "shadow-eight-notes",
-              "scope": "global"
-            }
-          },
-          {
-            "id": "2072a83e-4728-489e-a9dc-a242c373a607",
-            "created": [
-              "sustain-12960_start",
-              "sustain-12960_moveDown"
+              "sustain-1440_start",
+              "sustain-1440_moveDown"
             ],
             "name": "InsertPedal",
             "options": {
-              "pedal": "sustain-12960",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
-          },
-          {
-            "id": "cb08d3e2-7aa2-4aa2-a527-cbea127a796b",
-            "created": [
-              "sustain-24480_start",
-              "sustain-24480_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-24480",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
-          },
-          {
-            "id": "3baf870c-595a-43e1-a45b-ab70b32cc497",
-            "created": [
-              "sustain-36000_start",
-              "sustain-36000_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-36000",
+              "pedal": "sustain-1440",
               "start": -100,
               "duration": 200,
               "depth": 1,
@@ -367,7 +142,7 @@
       {
         "conclusion": {
           "that": {
-            "assigned": "Ab- und Anschwellen, hin zum Quartsextakkord"
+            "assigned": "Bewegung zum d-Moll hin stark zurücknehmen"
           },
           "certainty": "possible"
         },
@@ -418,77 +193,6 @@
               "from": 15120,
               "to": 18000
             }
-          },
-          {
-            "id": "be6033a7-ef99-4694-88c7-b08638c83209",
-            "created": [
-              "dynamics_18000"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    18000,
-                    31
-                  ]
-                ]
-              },
-              "from": 18000,
-              "to": 19440
-            }
-          },
-          {
-            "id": "e621b56b-adc8-4002-8aba-9a85593912ec",
-            "created": [
-              "dynamics_38880"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    41040,
-                    34
-                  ],
-                  [
-                    46800,
-                    46
-                  ]
-                ]
-              },
-              "from": 38880,
-              "to": 41040
-            }
-          },
-          {
-            "id": "bdf2ec51-cd4f-459f-be72-7ccf778a281a",
-            "created": [
-              "dynamics_41040"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    41040,
-                    34
-                  ],
-                  [
-                    46800,
-                    46
-                  ]
-                ]
-              },
-              "from": 41040,
-              "to": 42480
-            }
           }
         ]
       },
@@ -498,7 +202,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Arpeggio schattieren",
             "type": "crm:P17_was_motivated_by",
             "id": "act-1eb91789"
           },
@@ -519,21 +223,61 @@
               "aspect": "velocity",
               "change": -3
             }
+          },
+          {
+            "id": "2e6c150e-05ca-49d3-b705-4616b728223f",
+            "created": [
+              "accentuationPattern_19440"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 19440,
+              "to": 20520,
+              "beatLength": 0.125,
+              "name": "pattern-87f71655",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "note": "Schattierung ist lokales, dynamisches Phänomen (<metricalAccentuation>).\nDa die Dynamik vermutlich unterhalb des Welte-Spektrums liegt, wurden die Werte manuell verringert.",
+        "conclusion": {
+          "that": {
+            "assigned": "Nachschläge schattieren"
+          },
+          "certainty": "likely"
+        },
+        "id": "decision-df243d0d",
+        "calls": [
+          {
+            "id": "0b186337-6944-4fa8-bf31-e1eded2d538a",
+            "created": [],
+            "name": "Modify",
+            "options": {
+              "from": 20160,
+              "to": 20160,
+              "scope": "global",
+              "aspect": "velocity",
+              "change": -1
+            }
           }
         ]
       },
       {
         "note": "",
-        "id": "argumentation-5f506e1f",
+        "id": "argumentation-7d78344f",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Gut-schlecht Akzente",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-c25118ea"
+            "id": "act-2daab34c"
           },
           "certainty": "likely",
-          "id": "belief-c34844af",
+          "id": "belief-5ce0a185",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -549,6 +293,38 @@
               "aspect": "velocity",
               "change": -1
             }
+          },
+          {
+            "id": "2bffa36f-8c91-4c29-99ca-12b3b117e5ae",
+            "created": [
+              "accentuationPattern_28800"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 28800,
+              "to": 30240,
+              "beatLength": 0.125,
+              "name": "pattern-107d8637",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "52af6e83-b0bb-4ecf-9ff5-7fdc8d57d452",
+            "created": [
+              "accentuationPattern_30240"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 30240,
+              "to": 31680,
+              "beatLength": 0.125,
+              "name": "good-bad-4x(2)",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
           }
         ]
       },
@@ -558,7 +334,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Nachschlag schattieren",
             "type": "crm:P17_was_motivated_by",
             "id": "act-21af9d6b"
           },
@@ -578,6 +354,37 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -1
+            }
+          },
+          {
+            "id": "4d88bab0-f3a8-46ae-8d0d-032a180360b4",
+            "created": [
+              "accentuationPattern_35280"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 35280,
+              "to": 37080,
+              "beatLength": 0.125,
+              "name": "pattern-7de81602",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "3baf870c-595a-43e1-a45b-ab70b32cc497",
+            "created": [
+              "sustain-36000_start",
+              "sustain-36000_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-36000",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
             }
           }
         ]
@@ -613,6 +420,51 @@
         ]
       },
       {
+        "type": "simpleArgumentation",
+        "id": "arg_4d03627d",
+        "conclusion": {
+          "id": "concl_506a2eb8-13e7-4c60-9499-91864f2fde3c",
+          "that": {
+            "id": "that_2f0a45ad-a21b-4da3-9156-f7199cd23e0d",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "nachschlagende Akkordbrechung schattieren"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "4576e759-d534-4c2e-a0d3-8e31b07b73e9",
+            "created": [],
+            "name": "Modify",
+            "options": {
+              "from": 43200,
+              "to": 43200,
+              "scope": "global",
+              "aspect": "velocity",
+              "change": -2
+            }
+          },
+          {
+            "id": "96ad69ad-3975-4535-81c9-e25704710142",
+            "created": [
+              "accentuationPattern_42480"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 42480,
+              "to": 43560,
+              "beatLength": 0.125,
+              "name": "pattern-ca5ec607",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
         "note": "Der Zweck des durchgängigen Crescendos zum hohen f in der früheren Fassung dürfte sein, die Begleitung dynamisch besser differenzieren zu können.  ",
         "id": "argumentation-2a105a46",
         "conclusion": {
@@ -636,7 +488,7 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -3,
-              "noteids": [
+              "noteIDs": [
                 "ntu78d0"
               ]
             }
@@ -649,7 +501,7 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -2,
-              "noteids": [
+              "noteIDs": [
                 "nh71je6"
               ]
             }
@@ -680,7 +532,7 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -2,
-              "noteids": [
+              "noteIDs": [
                 "n1rj5zce-rend2"
               ]
             }
@@ -718,16 +570,16 @@
       },
       {
         "note": "",
-        "id": "argumentation-5b39a539",
+        "id": "argumentation-a4601531",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Gut-schlecht (paarweise)",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-210340d7"
+            "id": "act-69aa6975"
           },
           "certainty": "likely",
-          "id": "belief-706c78f0",
+          "id": "belief-2be5fd8b",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -742,6 +594,23 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -1
+            }
+          },
+          {
+            "id": "1ee98dff-af94-4f23-89c0-05e64041fe79",
+            "created": [
+              "accentuationPattern_43920",
+              "accentuationPattern_45360"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 43920,
+              "to": 44640,
+              "beatLength": 0.125,
+              "name": "pattern-06132e0c",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
             }
           }
         ]
@@ -939,20 +808,19 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-b1602bf8",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-e24dc2d7"
-          },
-          "certainty": "likely",
-          "id": "belief-30dde8bf",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_f042db2c",
+        "conclusion": {
+          "id": "concl_e9b969ad-6261-4dae-925a-cd01c54c8592",
+          "that": {
+            "id": "that_82a5ccd7-8438-4a17-a669-b1d530dba30b",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Nachschlag schattieren"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
             "id": "920476c1-6e5c-481e-8137-fd900bc0c1fa",
@@ -965,25 +833,7 @@
               "aspect": "velocity",
               "change": -2
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-967aee7b",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-f70d2b50"
           },
-          "certainty": "likely",
-          "id": "belief-4cd407ba",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "70d2a454-eaff-45e2-b79a-bd202f3f147e",
             "created": [],
@@ -995,21 +845,37 @@
               "aspect": "velocity",
               "change": -1
             }
+          },
+          {
+            "id": "52bc8e32-0f9e-467a-9459-364d7fa80703",
+            "created": [
+              "accentuationPattern_66960"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 66960,
+              "to": 68040,
+              "beatLength": 0.125,
+              "name": "pattern-92c767fe",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
           }
         ]
       },
       {
         "note": "",
-        "id": "argumentation-61482e19",
+        "id": "argumentation-b17617ae",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
             "assigned": "",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-d3dff817"
+            "id": "act-99288672"
           },
           "certainty": "likely",
-          "id": "belief-c5f57310",
+          "id": "belief-af62adaa",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -1024,6 +890,43 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -1
+            }
+          },
+          {
+            "id": "7ecfe4f8-4487-439f-9809-b79e37bbce9b",
+            "created": [
+              "dynamics_68040"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    46800,
+                    43
+                  ],
+                  [
+                    48960,
+                    48
+                  ],
+                  [
+                    54360,
+                    44
+                  ],
+                  [
+                    54720,
+                    43
+                  ],
+                  [
+                    78840,
+                    41
+                  ]
+                ]
+              },
+              "from": 68040,
+              "to": 69480
             }
           }
         ]
@@ -1055,24 +958,60 @@
               "aspect": "velocity",
               "change": -1
             }
+          },
+          {
+            "id": "27fc7dbb-0133-4288-ac60-067dcf3d9064",
+            "created": [
+              "dynamics_69480"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    46800,
+                    43
+                  ],
+                  [
+                    48960,
+                    48
+                  ],
+                  [
+                    54360,
+                    44
+                  ],
+                  [
+                    54720,
+                    43
+                  ],
+                  [
+                    78840,
+                    41
+                  ]
+                ]
+              },
+              "from": 69480,
+              "to": 69840
+            }
           }
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-50eb9e9d",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-c9fed5bf"
-          },
-          "certainty": "likely",
-          "id": "belief-f2c204e3",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_5a60f53a",
+        "conclusion": {
+          "id": "concl_5402984d-b370-46c5-8708-55f217bbca8c",
+          "that": {
+            "id": "that_bdc8d951-8666-4c95-8948-3766298985e5",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Nachschlag schattieren"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
             "id": "5fb48c60-c4d2-4c43-90b6-1894ffd9d846",
@@ -1085,24 +1024,39 @@
               "aspect": "velocity",
               "change": -2
             }
+          },
+          {
+            "id": "94b47d84-f911-477a-bc68-64d7d6149733",
+            "created": [
+              "accentuationPattern_69840"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 69840,
+              "to": 71640,
+              "beatLength": 0.125,
+              "name": "pattern-c7ecda3c",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
           }
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-725dea44",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-3752b9f7"
-          },
-          "certainty": "likely",
-          "id": "belief-6d20f083",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_5e26e496",
+        "conclusion": {
+          "id": "concl_c5f4b467-5da3-488e-8827-0a10fbd651d2",
+          "that": {
+            "id": "that_30b5235a-8f5b-4860-a416-fc0bbc0b581b",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Inegalité"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
             "id": "180918f3-54d4-4eb5-9842-66de04ba6f70",
@@ -1114,6 +1068,34 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -1
+            }
+          },
+          {
+            "id": "a3f2f783-a426-4943-b730-083c71bfffc9",
+            "created": [
+              "rubato_76320"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 76320,
+              "length": 720
+            }
+          },
+          {
+            "id": "b6a6f38a-601a-415d-8842-560ae19758b1",
+            "created": [
+              "accentuationPattern_76320"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 76320,
+              "to": 77040,
+              "beatLength": 0.125,
+              "name": "pattern-f1438c65",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
             }
           }
         ]
@@ -1149,17 +1131,17 @@
         ]
       },
       {
-        "note": "[todo: lässt sich das belegen?]",
-        "id": "argumentation-b850f684",
+        "note": "",
+        "id": "argumentation-36604f19",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Gut-schlecht Akzente",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-e653de3f"
+            "id": "act-b44009f7"
           },
           "certainty": "likely",
-          "id": "belief-2bf9c972",
+          "id": "belief-7ae2ed27",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -1175,21 +1157,69 @@
               "aspect": "velocity",
               "change": -2
             }
+          },
+          {
+            "id": "4838d841-464a-4ef5-a98f-6950c3cffc5f",
+            "created": [
+              "accentuationPattern_79200"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 79200,
+              "to": 79920,
+              "beatLength": 0.125,
+              "name": "pattern-6e194991",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "dde72113-75d6-4770-b715-4611960a7fb0",
+            "created": [
+              "accentuationPattern_79920"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 79920,
+              "to": 80640,
+              "beatLength": 0.125,
+              "name": "pattern-0ee467df",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "9434c909-c8ba-47ef-933c-ee15c4ef666e",
+            "created": [
+              "accentuationPattern_80640"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 80640,
+              "to": 81360,
+              "beatLength": 0.125,
+              "name": "pattern-9a97ba78",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
           }
         ]
       },
       {
         "note": "",
-        "id": "argumentation-7a55ce79",
+        "id": "argumentation-4e456c1e",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Nachschlag schattieren",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-8277843e"
+            "id": "act-2db5c1ab"
           },
           "certainty": "likely",
-          "id": "belief-dc7a0d9a",
+          "id": "belief-f85fbe5b",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -1205,21 +1235,37 @@
               "aspect": "velocity",
               "change": -2
             }
+          },
+          {
+            "id": "5f90ca8a-d74e-4249-ad11-07401ff2d730",
+            "created": [
+              "accentuationPattern_81360"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 81360,
+              "to": 83160,
+              "beatLength": 0.125,
+              "name": "pattern-e0e283b4",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
           }
         ]
       },
       {
         "note": "",
-        "id": "argumentation-6818cafc",
+        "id": "argumentation-e2c6579a",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Gut-schlecht Akzente",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-39173ec6"
+            "id": "act-3412742d"
           },
           "certainty": "likely",
-          "id": "belief-16680568",
+          "id": "belief-b818a1c9",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -1234,6 +1280,55 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -2
+            }
+          },
+          {
+            "id": "8d6c95d2-d93d-45c9-9fcd-443c62e9a29d",
+            "created": [
+              "accentuationPattern_86400",
+              "accentuationPattern_87840"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 86400,
+              "to": 87120,
+              "beatLength": 0.125,
+              "name": "pattern-d332a90a",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "9baf6778-ce20-46cb-93b1-7d90a0994fa8",
+            "created": [
+              "accentuationPattern_87120"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 87120,
+              "to": 87840,
+              "beatLength": 0.125,
+              "name": "pattern-56dabc45",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "d2b2f397-ff52-43d3-9915-649b2386a2f9",
+            "created": [
+              "accentuationPattern_88560"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 88560,
+              "to": 89280,
+              "beatLength": 0.125,
+              "name": "pattern-c976b7d3",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
             }
           }
         ]
@@ -1322,7 +1417,7 @@
               "scope": "global",
               "aspect": "velocity",
               "change": -1,
-              "noteids": [
+              "noteIDs": [
                 "negi5d2"
               ]
             }
@@ -1355,7 +1450,6 @@
               "ornament_9360",
               "ornament_10080",
               "ornament_11520",
-              "ornament_12240",
               "ornament_12960",
               "ornament_15840",
               "ornament_18000",
@@ -1378,7 +1472,6 @@
               "ornament_32400",
               "ornament_33120",
               "ornament_34560",
-              "ornament_35280",
               "ornament_36000",
               "ornament_38880",
               "ornament_41040",
@@ -1389,7 +1482,6 @@
               "ornament_44640",
               "ornament_45360",
               "ornament_46440",
-              "ornament_46800",
               "ornament_47520",
               "ornament_50040",
               "ornament_50400",
@@ -1415,7 +1507,6 @@
               "ornament_68040",
               "ornament_68400",
               "ornament_69120",
-              "ornament_69840",
               "ornament_70560",
               "ornament_73440",
               "ornament_74880",
@@ -1428,7 +1519,6 @@
               "ornament_78480",
               "ornament_79200",
               "ornament_80640",
-              "ornament_81360",
               "ornament_82080",
               "ornament_84960",
               "ornament_87120",
@@ -1464,7 +1554,6 @@
               "ornament_9360_1",
               "ornament_10080_1",
               "ornament_11520_1",
-              "ornament_12240_1",
               "ornament_12960_1",
               "ornament_15840_1",
               "ornament_18000_1",
@@ -1487,7 +1576,6 @@
               "ornament_32400_1",
               "ornament_33120_1",
               "ornament_34560_1",
-              "ornament_35280_1",
               "ornament_38880_1",
               "ornament_41040_1",
               "ornament_42120_1",
@@ -1497,7 +1585,6 @@
               "ornament_44640_1",
               "ornament_45360_1",
               "ornament_46440_1",
-              "ornament_46800_1",
               "ornament_47520_1",
               "ornament_50040_1",
               "ornament_50400_1",
@@ -1519,7 +1606,6 @@
               "ornament_66960_1",
               "ornament_68040_1",
               "ornament_68400_1",
-              "ornament_69840_1",
               "ornament_73440_1",
               "ornament_74880_1",
               "ornament_75600_1",
@@ -1530,7 +1616,6 @@
               "ornament_78480_1",
               "ornament_79200_1",
               "ornament_80640_1",
-              "ornament_81360_1",
               "ornament_84960_1",
               "ornament_87120_1",
               "ornament_87840_1",
@@ -1557,142 +1642,92 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-3381b7fd",
+        "note": "(auf Halben)",
+        "id": "argumentation-151c7966",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "Träumen",
+            "assigned": "Stabiles Tempo",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-baf6084d"
+            "id": "act-60ce9ce9"
           },
           "certainty": "likely",
-          "id": "belief-c1090664",
+          "id": "belief-792c6202",
           "type": "belief"
         },
         "type": "simpleArgumentation",
         "calls": [
           {
-            "id": "95eeba16-0668-4acd-a9a6-65a338481e1c",
+            "id": "41c1e559-8646-4d1a-930a-b2bf557c2f43",
             "created": [
               "tempo_0",
-              "tempo_c3d9d23b-5597-4c3d-9ec5-f89e00c4bca6"
+              "tempo_917403ec-bd57-40d4-bbe8-d5fc15af249f"
             ],
             "options": {
               "from": 0,
-              "to": 2160,
+              "to": 720,
               "beatLength": 0.25,
               "scope": "global",
               "silentOnsets": [
                 {
                   "date": 2160,
-                  "onset": 3.0939226519337018
+                  "onset": 2.9
                 },
                 {
                   "date": 5040,
-                  "onset": 7.513812154696133
+                  "onset": 7.7
                 }
               ]
             },
             "name": "ApproximateLogarithmicTempo"
           },
           {
-            "id": "6ef57f83-aa7b-4a97-a3fe-a65d1a429515",
+            "id": "0ead8bfe-86a3-446e-ad8b-08b9d0c55117",
             "created": [
-              "dynamics_0"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": []
-              },
-              "from": 0,
-              "to": 2520
-            }
-          }
-        ]
-      },
-      {
-        "note": "Auftaktgeste durch Crescendo und zeitliche Stauchung hin zum c im folgenden Takt. Dieses unterbricht die Geste, da es gedehnt ist. Dynamik und Agogik laufen hier parallel.",
-        "id": "decision-9bb1a3aa",
-        "conclusion": {
-          "that": {
-            "assigned": "Hinspielen zur nächsten 1"
-          },
-          "certainty": "possible"
-        },
-        "calls": [
-          {
-            "id": "280b8c83-c89c-476a-a0ef-784f4ca6d25d",
-            "created": [
-              "tempo_2160",
-              "tempo_f83784b1-d9d1-45db-b29a-826165020ccc"
+              "tempo_720",
+              "tempo_3de5f44f-775a-4abb-bd80-f037db239878"
             ],
             "options": {
-              "from": 2160,
+              "from": 720,
               "to": 3600,
-              "beatLength": 0.25,
+              "beatLength": 0.5,
               "scope": "global",
               "silentOnsets": [
                 {
                   "date": 2160,
-                  "onset": 3.0939226519337018
+                  "onset": 2.9
                 },
                 {
                   "date": 5040,
-                  "onset": 7.513812154696133
+                  "onset": 7.7
                 }
               ]
             },
             "name": "ApproximateLogarithmicTempo"
-          },
-          {
-            "id": "890151e0-47a5-42d7-abb9-99997995ce19",
-            "created": [
-              "rubato_3600"
-            ],
-            "name": "InsertRubato",
-            "options": {
-              "scope": "global",
-              "date": 3600,
-              "length": 720
-            }
-          },
-          {
-            "id": "68d087ca-7297-4d29-a359-9659af1016cc",
-            "created": [
-              "dynamics_2520"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "from": 2520,
-              "to": 3600,
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": []
-              },
-              "scope": "global"
-            }
           }
         ]
       },
       {
-        "note": "...",
+        "note": "",
+        "id": "argumentation-2076f0fc",
         "conclusion": {
           "that": {
-            "assigned": "Seufzen: betonter Auftakt zum B-Dur-Akkord."
+            "subject": "[F31 Performance]",
+            "assigned": "im Tempo dranbleiben",
+            "type": "crm:P17_was_motivated_by",
+            "id": "act-3d676e78"
           },
-          "certainty": "possible"
+          "certainty": "likely",
+          "id": "belief-d3d5fbb2",
+          "type": "belief"
         },
-        "id": "decision-99868135",
+        "type": "simpleArgumentation",
         "calls": [
           {
-            "id": "f4769cbe-4fbd-447f-93cb-9957f41303b7",
+            "id": "c66cd6b7-bc88-406b-a2ed-1401a2ecb2f9",
             "created": [
               "tempo_3600",
-              "tempo_fb78607b-8932-470d-a02d-a2c446ed7035"
+              "tempo_c6fc675e-00ca-4dc6-8868-2038352ee8ec"
             ],
             "options": {
               "from": 3600,
@@ -1702,11 +1737,11 @@
               "silentOnsets": [
                 {
                   "date": 2160,
-                  "onset": 3.0939226519337018
+                  "onset": 2.9
                 },
                 {
                   "date": 5040,
-                  "onset": 7.513812154696133
+                  "onset": 7.7
                 }
               ]
             },
@@ -1718,7 +1753,7 @@
         "note": "Verlängerung der Phase durch erneutes, überlagerndes Ritardando. Betonungsschema erfolgt wieder auf regulärer Zeit.",
         "conclusion": {
           "that": {
-            "assigned": "Erneutes Entspannen \"von Kopf\""
+            "assigned": "Figur \"von Kopf\" entspannen"
           },
           "certainty": "possible"
         },
@@ -1728,7 +1763,7 @@
             "id": "c8d6a3a9-79de-4481-91fc-273f775150c5",
             "created": [
               "tempo_5760",
-              "tempo_e79cf456-632d-4e54-b458-20aeb101f66c"
+              "tempo_d6d16965-9e4b-45c0-9c9f-67489fbcf1a5"
             ],
             "options": {
               "from": 5760,
@@ -1793,7 +1828,7 @@
             "id": "515ad657-b2a6-45e4-8992-b2249d6cfc1e",
             "created": [
               "tempo_7200",
-              "tempo_1acdc7a3-4987-4f75-ae85-76da5bd41838"
+              "tempo_1654b720-d0fa-4811-8e8b-77e271711089"
             ],
             "options": {
               "from": 7200,
@@ -1819,7 +1854,7 @@
         "note": "",
         "conclusion": {
           "that": {
-            "assigned": ""
+            "assigned": "entspannen"
           },
           "certainty": "possible"
         },
@@ -1829,7 +1864,7 @@
             "id": "81e01299-23db-4a93-a463-f866f113e850",
             "created": [
               "tempo_9360",
-              "tempo_ef197173-bc5d-48f3-9b5a-87d0bcbb4808"
+              "tempo_01c08e34-08d3-4539-9981-6200d61776bd"
             ],
             "options": {
               "from": 9360,
@@ -1873,7 +1908,7 @@
             "id": "75fa5901-9846-462b-97fd-767c4581fe36",
             "created": [
               "tempo_10800",
-              "tempo_a5f80566-4723-4112-9602-dc41f2560341"
+              "tempo_61e427f5-c76d-4be5-84a0-b4643b5ff096"
             ],
             "options": {
               "from": 10800,
@@ -1917,7 +1952,7 @@
             "id": "d7187bbc-b557-4193-99bb-639be4f24b6e",
             "created": [
               "tempo_15120",
-              "tempo_8bc11700-6483-41d3-994d-0fa571e2de0f"
+              "tempo_3bc83cce-063c-44bf-a258-716c8a45dd80"
             ],
             "options": {
               "from": 15120,
@@ -1948,6 +1983,21 @@
               ]
             },
             "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "ddefba0d-a901-42d9-bfc0-6e62dc469585",
+            "created": [
+              "sustain-16920_start",
+              "sustain-16920_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-16920",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
+            }
           }
         ]
       },
@@ -1971,7 +2021,7 @@
             "id": "b2086836-ca34-495c-b315-403f090771c6",
             "created": [
               "tempo_17280",
-              "tempo_29820fe5-1a2a-4625-b86d-89ce6c52a4cb"
+              "tempo_c9eb17ad-74e5-4890-85dc-17e2a6394273"
             ],
             "options": {
               "from": 17280,
@@ -1991,7 +2041,7 @@
             "id": "f2fb9e08-31be-432e-8aba-9aaf74e402db",
             "created": [
               "tempo_18720",
-              "tempo_1fbdf8b9-3de3-4773-8afc-dc82b989b75f"
+              "tempo_07506c6c-2164-4ff4-a540-5f38c4494aa7"
             ],
             "options": {
               "from": 18720,
@@ -2011,7 +2061,7 @@
             "id": "790923cc-47a9-4086-9249-3b2d11da2331",
             "created": [
               "tempo_20880",
-              "tempo_1b2fb9a3-712d-4f9f-acea-81961262e06c"
+              "tempo_85131ba3-fd8d-4117-8e26-74d0f01ad3eb"
             ],
             "options": {
               "from": 20880,
@@ -2031,7 +2081,7 @@
             "id": "9576beb9-e83b-4018-8604-3cbece5cd1a9",
             "created": [
               "tempo_22320",
-              "tempo_8a2bb9da-7fe3-4727-951d-396170eceda4"
+              "tempo_d855c22f-9f97-479f-8d92-fc72288704ab"
             ],
             "options": {
               "from": 22320,
@@ -2051,7 +2101,7 @@
             "id": "029cb9a7-3fc2-4307-9ce3-e657f0658930",
             "created": [
               "tempo_23760",
-              "tempo_6dffa729-cb20-44c9-930a-3169dce74b09"
+              "tempo_3f2a3c22-9624-454b-912a-ff28b65783ba"
             ],
             "options": {
               "from": 23760,
@@ -2079,7 +2129,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Ganz leicht rit.",
             "type": "crm:P17_was_motivated_by",
             "id": "act-fcd49ce6"
           },
@@ -2093,7 +2143,7 @@
             "id": "7e82f348-b708-4c11-89c4-34879a709b0d",
             "created": [
               "tempo_26640",
-              "tempo_996d04bf-366c-42de-871e-caac42d5fdd4"
+              "tempo_36ff0e41-ae06-4ec8-ac80-850a914f6853"
             ],
             "options": {
               "from": 26640,
@@ -2135,7 +2185,7 @@
             "id": "40de476a-10e6-463c-80ca-98edb6ea2001",
             "created": [
               "tempo_28800",
-              "tempo_8cec1512-ded0-4e53-a3ea-8dc6eef450c3"
+              "tempo_f5202be4-27d2-4c75-88fd-adb348d04b8a"
             ],
             "options": {
               "from": 28800,
@@ -2197,7 +2247,7 @@
             "id": "0dce6fe2-b6f4-458c-8b68-799c3d6db014",
             "created": [
               "tempo_30240",
-              "tempo_c2386369-0e31-436e-93c3-b861f2d9bd5b"
+              "tempo_1b2d7eff-a6c7-4d27-bd19-3776aab29625"
             ],
             "options": {
               "from": 30240,
@@ -2245,7 +2295,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Spannung aufbauen",
             "type": "crm:P17_was_motivated_by",
             "id": "act-4afb3321"
           },
@@ -2259,7 +2309,7 @@
             "id": "b5b56eed-2ea3-4c2b-b05b-debcfca46ba6",
             "created": [
               "tempo_31680",
-              "tempo_a3426979-f276-4afc-8f77-3422ef835bc7"
+              "tempo_ee114794-fa51-4bce-b38d-036f9766db14"
             ],
             "options": {
               "from": 31680,
@@ -2303,16 +2353,16 @@
       },
       {
         "note": "",
-        "id": "argumentation-b6e09f62",
+        "id": "argumentation-7c2bf10b",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Hinspielen auf nächste 1",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-ea0dca9a"
+            "id": "act-0969f9f9"
           },
           "certainty": "likely",
-          "id": "belief-3c09516e",
+          "id": "belief-72f5bb5b",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -2321,7 +2371,7 @@
             "id": "e8685ac5-f168-4103-8c9e-26cd04686d52",
             "created": [
               "tempo_33120",
-              "tempo_081806d1-9d59-4dfd-a0c4-3874ce99ecf5"
+              "tempo_77bce86a-e4ff-4b7c-a8b4-4872776e733f"
             ],
             "options": {
               "from": 33120,
@@ -2331,6 +2381,27 @@
               "silentOnsets": []
             },
             "name": "ApproximateLogarithmicTempo"
+          },
+          {
+            "id": "c854a1c3-47e9-4d67-b0f7-24ef413361d4",
+            "created": [
+              "dynamics_34200"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    41040,
+                    38
+                  ]
+                ]
+              },
+              "from": 34200,
+              "to": 35280
+            }
           }
         ]
       },
@@ -2354,7 +2425,7 @@
             "id": "ccf405db-1c33-4a16-8b43-e1e6c28ace5c",
             "created": [
               "tempo_38160",
-              "tempo_dd0dce0c-65dc-49ce-9cba-7ba1e1ff6a84"
+              "tempo_ebde6956-f0c5-4bcf-85f1-2855f9e68fd9"
             ],
             "options": {
               "from": 38160,
@@ -2404,7 +2475,7 @@
             "id": "02683161-c2ee-4a48-a76c-399c61750764",
             "created": [
               "tempo_40320",
-              "tempo_bcc4c1ee-4e1a-4c86-b3ae-82b616c7bfa2"
+              "tempo_15f20a81-b0e7-465e-a8ae-04821d7e2c8b"
             ],
             "options": {
               "from": 40320,
@@ -2450,7 +2521,7 @@
             "id": "e94f2b2f-18ca-42d8-b5df-e76a82564304",
             "created": [
               "tempo_43920",
-              "tempo_602d8a00-5b69-4493-afe9-ec16063c1e95"
+              "tempo_e3882f78-15d9-43f5-81c7-08e3693caf85"
             ],
             "options": {
               "from": 43920,
@@ -2496,7 +2567,7 @@
             "id": "e963a214-4843-4d06-b753-825d58846f1c",
             "created": [
               "tempo_45360",
-              "tempo_f36932a8-7c23-43af-9aab-ebc1f06ee0a3"
+              "tempo_03906272-36e1-403c-90f2-8dd5cc1c27e7"
             ],
             "options": {
               "from": 45360,
@@ -2542,7 +2613,7 @@
             "id": "ca315943-13ef-493e-8634-8f36b518ae7b",
             "created": [
               "tempo_46800",
-              "tempo_322e88ab-8b13-45bf-a944-3d25d7a6ee05"
+              "tempo_21a884b8-4249-4935-9d67-0470996ab6b7"
             ],
             "options": {
               "from": 46800,
@@ -2588,7 +2659,7 @@
             "id": "9f691c02-59e5-4eae-b05c-762ef83156eb",
             "created": [
               "tempo_49680",
-              "tempo_e1c90e5d-fc0f-46ec-98d7-164ae51b348f"
+              "tempo_77c6630e-c085-4c99-820d-6c05ff4b640a"
             ],
             "options": {
               "from": 49680,
@@ -2633,8 +2704,8 @@
           {
             "id": "a3378fc9-69df-4ced-8773-25361fbce4ab",
             "created": [
-              "tempo_51120",
-              "tempo_a77edc0b-193b-4695-b5cb-4ed9acd90e32"
+              "tempo_51840",
+              "tempo_19c1f04e-4153-4bbc-9558-2a88d77639e2"
             ],
             "options": {
               "from": 51120,
@@ -2680,7 +2751,7 @@
             "id": "7ced5bfc-0520-4cb2-a81f-2eb502bff092",
             "created": [
               "tempo_52560",
-              "tempo_a60ce08e-af5c-41c7-b9c1-f5879e0120fe"
+              "tempo_2b54a8e2-e1ff-4c48-86af-b253f4bbd0d3"
             ],
             "options": {
               "from": 52560,
@@ -2726,7 +2797,7 @@
             "id": "502563f9-3513-4e0f-8a80-179cb13c2539",
             "created": [
               "tempo_54720",
-              "tempo_ef0a98bf-019e-43d9-bbbf-f1b24f018118"
+              "tempo_3cfce7f1-78f6-4689-905b-ec23ca64cdbe"
             ],
             "options": {
               "from": 54720,
@@ -2772,7 +2843,7 @@
             "id": "d26f80bd-0026-4214-bac8-7b01de71b831",
             "created": [
               "tempo_56880",
-              "tempo_ad383447-a4be-45ab-86d9-10488714d2e6"
+              "tempo_70c20326-6973-434d-9381-4d12feb60c2d"
             ],
             "options": {
               "from": 56880,
@@ -2818,7 +2889,7 @@
             "id": "37d37df8-5e5c-4670-a634-09bb746e7033",
             "created": [
               "tempo_58320",
-              "tempo_682adaad-4a14-4f8e-b2cc-ab2d0cd9ae02"
+              "tempo_983e32fb-e067-49c5-bc67-499cb50334d8"
             ],
             "options": {
               "from": 58320,
@@ -2856,7 +2927,7 @@
             "id": "6f10d400-fbfc-4ba6-9db1-a3813f60b441",
             "created": [
               "tempo_59760",
-              "tempo_f0a60ef0-819f-4106-be20-8de69201cb48"
+              "tempo_b8447b2c-ef79-4b52-8e68-00bf074b6365"
             ],
             "options": {
               "from": 59760,
@@ -2893,8 +2964,8 @@
           {
             "id": "28f3c0d9-ad13-494c-846b-94b67296e56f",
             "created": [
-              "tempo_61200",
-              "tempo_636cab55-a27e-48f5-a367-d63dc21cb181"
+              "tempo_61920",
+              "tempo_feb6c891-7e54-4029-9889-e76a84eb62ac"
             ],
             "options": {
               "from": 61200,
@@ -2932,7 +3003,7 @@
             "id": "d7a15666-6099-4458-996e-a9176815ad29",
             "created": [
               "tempo_63360",
-              "tempo_60fba90e-8dd2-4c80-a175-69392786afa2"
+              "tempo_09ffcaf4-cf65-4c14-bb6d-6fa5340eee31"
             ],
             "options": {
               "from": 63360,
@@ -2970,7 +3041,7 @@
             "id": "c10e32f6-ff59-47b8-87bf-1942071bf428",
             "created": [
               "tempo_64800",
-              "tempo_bd6366d9-f03f-4fd5-b141-975958432fd1"
+              "tempo_9e57a431-0962-47b3-a890-f3276db0c4eb"
             ],
             "options": {
               "from": 64800,
@@ -3008,7 +3079,7 @@
             "id": "5669c228-da12-4c9d-88f2-e3e4081a768e",
             "created": [
               "tempo_66960",
-              "tempo_d81e9632-9d3d-4fd4-9bf9-c55e2aadd558"
+              "tempo_32e232e6-47b6-456c-9ff1-b80db2a203bf"
             ],
             "options": {
               "from": 66960,
@@ -3046,7 +3117,7 @@
             "id": "329f78bf-f42e-4d57-8ed8-1e10c530f2c4",
             "created": [
               "tempo_69840",
-              "tempo_897f1661-43c3-4326-9d27-09c73b1f5267"
+              "tempo_60690981-1761-4b4e-8c29-feddbbcf939c"
             ],
             "options": {
               "from": 69840,
@@ -3100,7 +3171,7 @@
             "id": "3b280844-7d84-4c61-ad67-e64bfdfa8132",
             "created": [
               "tempo_72000",
-              "tempo_b1cec3da-505b-4100-949d-d9388e31479f"
+              "tempo_905441ba-264a-4e98-8b9b-69df4f9de997"
             ],
             "options": {
               "from": 72000,
@@ -3154,7 +3225,7 @@
             "id": "0e0b0bba-1ef7-4d12-8b16-9216498dc95e",
             "created": [
               "tempo_73440",
-              "tempo_a43fa037-41bf-4483-b15e-8aa21a0d4bf8"
+              "tempo_da0f59c2-1e87-490d-9bc4-29ccbffa9612"
             ],
             "options": {
               "from": 73440,
@@ -3208,7 +3279,7 @@
             "id": "792e34cd-a7d5-4a70-9436-3e88436d2c7a",
             "created": [
               "tempo_77760",
-              "tempo_1179ebc5-05c9-418e-8ba7-1ec742b95db9"
+              "tempo_43152288-a630-439b-8c19-8c56c2b59a1c"
             ],
             "options": {
               "from": 77760,
@@ -3262,7 +3333,7 @@
             "id": "2a2d5082-a6f0-4393-b224-21d894450684",
             "created": [
               "tempo_79200",
-              "tempo_8239e908-cc37-4dff-a54e-39c3a20a93ac"
+              "tempo_7f6ffb4a-9bef-4dc4-930f-3bbffb2ff725"
             ],
             "options": {
               "from": 79200,
@@ -3316,7 +3387,7 @@
             "id": "1501418e-909c-4b74-8539-e943f215f6ba",
             "created": [
               "tempo_80640",
-              "tempo_9c584faa-3c1f-46d6-b2af-00f657183a80"
+              "tempo_80a5bba2-0481-404a-8347-ed1c938d1ed1"
             ],
             "options": {
               "from": 80640,
@@ -3370,7 +3441,7 @@
             "id": "be3b3007-4863-439d-934e-f2de8d045726",
             "created": [
               "tempo_83520",
-              "tempo_727a74e1-e353-4e5b-b0f5-b0994882e7bf"
+              "tempo_d330cbe9-6527-48cd-9767-9b7a98c446f4"
             ],
             "options": {
               "from": 83520,
@@ -3424,7 +3495,7 @@
             "id": "79e13017-ba98-4271-9330-34df8ffa5a6b",
             "created": [
               "tempo_86400",
-              "tempo_16d8e706-1dec-4744-843a-5152644c2a4b"
+              "tempo_fe105e46-585e-43cb-bebe-cd3476982dd9"
             ],
             "options": {
               "from": 86400,
@@ -3507,6 +3578,59 @@
         ]
       },
       {
+        "note": "...",
+        "conclusion": {
+          "that": {
+            "assigned": "etwas gedehnter Auftakt zum B-Dur-Akkord"
+          },
+          "certainty": "possible"
+        },
+        "id": "decision-99868135",
+        "calls": [
+          {
+            "id": "890151e0-47a5-42d7-abb9-99997995ce19",
+            "created": [
+              "rubato_3600"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 3600,
+              "length": 720
+            }
+          },
+          {
+            "id": "b1044649-9f03-4066-93a2-22b5a479712c",
+            "created": [
+              "dynamics_3600"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    5760,
+                    39
+                  ],
+                  [
+                    7200,
+                    37
+                  ],
+                  [
+                    6480,
+                    37
+                  ]
+                ]
+              },
+              "from": 3600,
+              "to": 5760
+            }
+          }
+        ]
+      },
+      {
         "note": "Inegalité – hier auf Achtelebene – gehört zu den typischen Kennzeichen einer älteren Spielpraxis.\nIn dieser Form wird die unbetonte Note an die betonte gebunden.",
         "id": "argumentation-39c649d0",
         "conclusion": {
@@ -3522,18 +3646,6 @@
         },
         "type": "simpleArgumentation",
         "calls": [
-          {
-            "id": "6171f418-4932-45a1-92f3-e2d789412f5a",
-            "created": [
-              "rubato_2160"
-            ],
-            "name": "InsertRubato",
-            "options": {
-              "scope": "global",
-              "date": 2160,
-              "length": 720
-            }
-          },
           {
             "id": "ba8df537-bb70-482a-95c8-e235a686fc3d",
             "created": [
@@ -3843,6 +3955,30 @@
             "options": {
               "scope": "global",
               "date": 50400,
+              "length": 720
+            }
+          },
+          {
+            "id": "a57850c6-9351-46d1-a7e7-8b9e4caa2803",
+            "created": [
+              "rubato_28800"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 28800,
+              "length": 720
+            }
+          },
+          {
+            "id": "fd162907-5c7c-4727-984d-4222c3666ad2",
+            "created": [
+              "rubato_39600"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 39600,
               "length": 720
             }
           }
@@ -4231,34 +4367,16 @@
               "date": 75600,
               "length": 720
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-cc55a53d",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-80318052"
           },
-          "certainty": "likely",
-          "id": "belief-619475df",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
-            "id": "a3f2f783-a426-4943-b730-083c71bfffc9",
+            "id": "cd8e0954-75ea-4886-9878-722875bba794",
             "created": [
-              "rubato_76320"
+              "rubato_77760"
             ],
             "name": "InsertRubato",
             "options": {
               "scope": "global",
-              "date": 76320,
+              "date": 77760,
               "length": 720
             }
           }
@@ -4266,16 +4384,16 @@
       },
       {
         "note": "",
-        "id": "argumentation-e83a7ccb",
+        "id": "argumentation-524ce4cd",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Inegalité",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-f6dfa8a0"
+            "id": "act-330bd1c1"
           },
           "certainty": "likely",
-          "id": "belief-b8b0a7de",
+          "id": "belief-838fbbf1",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -4291,35 +4409,22 @@
               "date": 77040,
               "length": 720
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-ed24931c",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-bb946343"
           },
-          "certainty": "likely",
-          "id": "belief-90a627d7",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
-            "id": "cd8e0954-75ea-4886-9878-722875bba794",
+            "id": "43536979-6e54-40cc-819a-29162991001a",
             "created": [
-              "rubato_77760"
+              "accentuationPattern_77040",
+              "accentuationPattern_78480"
             ],
-            "name": "InsertRubato",
+            "name": "InsertMetricalAccentuation",
             "options": {
-              "scope": "global",
-              "date": 77760,
-              "length": 720
+              "from": 77040,
+              "to": 77760,
+              "beatLength": 0.125,
+              "name": "pattern-9d33a97d",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
             }
           }
         ]
@@ -4385,20 +4490,19 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-95cbd4ef",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-08019d78"
-          },
-          "certainty": "likely",
-          "id": "belief-d02c02b9",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_d06bbcb0",
+        "conclusion": {
+          "id": "concl_108a554e-8f9f-4b6c-b27e-fc3f0674d442",
+          "that": {
+            "id": "that_ff570832-07f0-4119-aca9-e65addb3e3ea",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Verkürzung"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
             "id": "7b6ae727-44d6-46b3-8df7-129ba9830de9",
@@ -4536,66 +4640,6 @@
       },
       {
         "note": "",
-        "id": "argumentation-19c670dc",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-206da127"
-          },
-          "certainty": "likely",
-          "id": "belief-295b6a01",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "a57850c6-9351-46d1-a7e7-8b9e4caa2803",
-            "created": [
-              "rubato_28800"
-            ],
-            "name": "InsertRubato",
-            "options": {
-              "scope": "global",
-              "date": 28800,
-              "length": 720
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-7c413727",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-1ee827f1"
-          },
-          "certainty": "likely",
-          "id": "belief-6469baca",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "fd162907-5c7c-4727-984d-4222c3666ad2",
-            "created": [
-              "rubato_39600"
-            ],
-            "name": "InsertRubato",
-            "options": {
-              "scope": "global",
-              "date": 39600,
-              "length": 720
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-27b23178",
         "conclusion": {
           "that": {
@@ -4626,47 +4670,58 @@
       },
       {
         "note": "",
-        "id": "argumentation-25fbfc66",
+        "id": "argumentation-ba00362e",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Auftaktgeste flüchtig, etwas gestaucht",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-b5318fa1"
+            "id": "act-2fc9d2b2"
           },
           "certainty": "likely",
-          "id": "belief-2e64e512",
+          "id": "belief-d7c7d37c",
           "type": "belief"
         },
         "type": "simpleArgumentation",
         "calls": [
           {
-            "id": "b1044649-9f03-4066-93a2-22b5a479712c",
+            "id": "3f487b6a-2ca1-46a1-84a2-02099e215333",
             "created": [
-              "dynamics_3600"
+              "rubato_2160"
+            ],
+            "name": "InsertRubato",
+            "options": {
+              "scope": "global",
+              "date": 2160,
+              "length": 1440
+            }
+          }
+        ]
+      },
+      {
+        "note": "Auftaktgeste durch Crescendo und zeitliche Stauchung hin zum c im folgenden Takt. Dieses unterbricht die Geste, da es gedehnt ist. Dynamik und Agogik laufen hier parallel.",
+        "id": "decision-9bb1a3aa",
+        "conclusion": {
+          "that": {
+            "assigned": "Hinspielen zur 1 von T. 2"
+          },
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "68d087ca-7297-4d29-a359-9659af1016cc",
+            "created": [
+              "dynamics_2520"
             ],
             "name": "InsertDynamicsInstructions",
             "options": {
-              "scope": "global",
+              "from": 2520,
+              "to": 3600,
               "phantomVelocities": {
                 "dataType": "Map",
-                "value": [
-                  [
-                    5760,
-                    39
-                  ],
-                  [
-                    7200,
-                    37
-                  ],
-                  [
-                    6480,
-                    37
-                  ]
-                ]
+                "value": []
               },
-              "from": 3600,
-              "to": 5760
+              "scope": "global"
             }
           }
         ]
@@ -4720,16 +4775,16 @@
       },
       {
         "note": "",
-        "id": "argumentation-31e327c9",
+        "id": "argumentation-4147a8a3",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "Ins Wort fallen",
+            "assigned": "Hinspielen zur neuen Phrase",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-5cfff702"
+            "id": "act-5c7904d4"
           },
           "certainty": "likely",
-          "id": "belief-2fbfea13",
+          "id": "belief-60719342",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -4755,40 +4810,6 @@
               "to": 10800
             }
           },
-          {
-            "id": "ec23afd2-f9b5-4462-912d-6a71979fb6cf",
-            "created": [
-              "accentuationPattern_10080"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 10080,
-              "to": 10800,
-              "beatLength": 0.125,
-              "name": "pattern-a56877aa",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-4147a8a3",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "Hinspielen zur neuen Phrase",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-5c7904d4"
-          },
-          "certainty": "likely",
-          "id": "belief-60719342",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "3d64acc0-116d-425b-a805-2cf23854fdac",
             "created": [
@@ -4818,7 +4839,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Hinspielen zum nächsten Takt",
             "type": "crm:P17_was_motivated_by",
             "id": "act-50b0826e"
           },
@@ -4847,17 +4868,55 @@
         ]
       },
       {
+        "type": "simpleArgumentation",
+        "id": "arg_8fead285",
+        "conclusion": {
+          "id": "concl_c79ddbbb-5373-437f-953f-e7728d98f2a6",
+          "that": {
+            "id": "that_2e6fb974-8b9a-4a23-83b4-34ae97b93a8b",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Hinspielen zum Quartsextakkord"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "be6033a7-ef99-4694-88c7-b08638c83209",
+            "created": [
+              "dynamics_18000"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    18000,
+                    31
+                  ]
+                ]
+              },
+              "from": 18000,
+              "to": 19440
+            }
+          }
+        ]
+      },
+      {
         "note": "",
-        "id": "argumentation-a70f1cd8",
+        "id": "argumentation-7f4000be",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "Zurück",
+            "assigned": "Hin zur Paenultima (Dominate + Sexte)",
             "type": "crm:P17_was_motivated_by",
-            "id": "act-85119f7c"
+            "id": "act-5a075604"
           },
           "certainty": "likely",
-          "id": "belief-2731cdf0",
+          "id": "belief-f17ca542",
           "type": "belief"
         },
         "type": "simpleArgumentation",
@@ -4877,25 +4936,7 @@
               "from": 19440,
               "to": 20520
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-7f4000be",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "Hin zum Auftakt (a-e)",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-5a075604"
           },
-          "certainty": "likely",
-          "id": "belief-f17ca542",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "aaa889ac-3c38-47d7-859f-a5cb45cb2e4a",
             "created": [
@@ -4988,11 +5029,11 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Minimal Ab- und Anschwellen, beinahe gleichbleibende Dynamik",
             "type": "crm:P17_was_motivated_by",
             "id": "act-e17a7b8c"
           },
-          "certainty": "likely",
+          "certainty": "possible",
           "id": "belief-9169b616",
           "type": "belief"
         },
@@ -5026,25 +5067,7 @@
               "from": 23760,
               "to": 26640
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-e3b8ea5d",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-88c63c93"
           },
-          "certainty": "likely",
-          "id": "belief-38d83d1f",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "793a3a74-c369-46a7-9c46-f090e7122ba5",
             "created": [
@@ -5078,50 +5101,11 @@
       },
       {
         "note": "",
-        "id": "argumentation-7c2bf10b",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-0969f9f9"
-          },
-          "certainty": "likely",
-          "id": "belief-72f5bb5b",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "c854a1c3-47e9-4d67-b0f7-24ef413361d4",
-            "created": [
-              "dynamics_34200"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    41040,
-                    38
-                  ]
-                ]
-              },
-              "from": 34200,
-              "to": 35280
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-c26be85d",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Dynamisch verharren",
             "type": "crm:P17_was_motivated_by",
             "id": "act-03e9d801"
           },
@@ -5155,7 +5139,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "als Dreiklang aufwärts entspannen",
             "type": "crm:P17_was_motivated_by",
             "id": "act-56eeb935"
           },
@@ -5189,11 +5173,11 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "\"Hineinfallen\"",
             "type": "crm:P17_was_motivated_by",
             "id": "act-72c795e3"
           },
-          "certainty": "likely",
+          "certainty": "unlikely",
           "id": "belief-2f7d3bfc",
           "type": "belief"
         },
@@ -5213,6 +5197,90 @@
               },
               "from": 38520,
               "to": 38880
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_6f71a264-0fe8-4ddf-aa98-705352547b06",
+        "conclusion": {
+          "id": "concl_98f2acc3-f1be-4005-aa50-8799d2dbf1e4",
+          "that": {
+            "id": "that_17707ca2-ff7b-4bc2-b36f-9c6c7075b353",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "e621b56b-adc8-4002-8aba-9a85593912ec",
+            "created": [
+              "dynamics_38880"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    41040,
+                    34
+                  ],
+                  [
+                    46800,
+                    46
+                  ]
+                ]
+              },
+              "from": 38880,
+              "to": 41040
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_6752f97a-b4b3-4e83-acdd-7d4f84745b61",
+        "conclusion": {
+          "id": "concl_2c4fadb9-5ca0-4892-9af8-8cc90254e1ae",
+          "that": {
+            "id": "that_3a09d094-3e92-4627-be50-66e0e3143701",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "bdf2ec51-cd4f-459f-be72-7ccf778a281a",
+            "created": [
+              "dynamics_41040"
+            ],
+            "name": "InsertDynamicsInstructions",
+            "options": {
+              "scope": "global",
+              "phantomVelocities": {
+                "dataType": "Map",
+                "value": [
+                  [
+                    41040,
+                    34
+                  ],
+                  [
+                    46800,
+                    46
+                  ]
+                ]
+              },
+              "from": 41040,
+              "to": 42480
             }
           }
         ]
@@ -5449,7 +5517,7 @@
         ]
       },
       {
-        "note": "",
+        "note": "der dynamische Verlauf folgt dem Tonhöhenverlauf",
         "id": "argumentation-10407ff0",
         "conclusion": {
           "that": {
@@ -5930,116 +5998,6 @@
       },
       {
         "note": "",
-        "id": "argumentation-b17617ae",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-99288672"
-          },
-          "certainty": "likely",
-          "id": "belief-af62adaa",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "7ecfe4f8-4487-439f-9809-b79e37bbce9b",
-            "created": [
-              "dynamics_68040"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    46800,
-                    43
-                  ],
-                  [
-                    48960,
-                    48
-                  ],
-                  [
-                    54360,
-                    44
-                  ],
-                  [
-                    54720,
-                    43
-                  ],
-                  [
-                    78840,
-                    41
-                  ]
-                ]
-              },
-              "from": 68040,
-              "to": 69480
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-8755cb1c",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-f0022eda"
-          },
-          "certainty": "likely",
-          "id": "belief-f3308ef3",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "27fc7dbb-0133-4288-ac60-067dcf3d9064",
-            "created": [
-              "dynamics_69480"
-            ],
-            "name": "InsertDynamicsInstructions",
-            "options": {
-              "scope": "global",
-              "phantomVelocities": {
-                "dataType": "Map",
-                "value": [
-                  [
-                    46800,
-                    43
-                  ],
-                  [
-                    48960,
-                    48
-                  ],
-                  [
-                    54360,
-                    44
-                  ],
-                  [
-                    54720,
-                    43
-                  ],
-                  [
-                    78840,
-                    41
-                  ]
-                ]
-              },
-              "from": 69480,
-              "to": 69840
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-330aa56e",
         "conclusion": {
           "that": {
@@ -6319,7 +6277,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "konstante Dynamik",
             "type": "crm:P17_was_motivated_by",
             "id": "act-02b4da36"
           },
@@ -6930,6 +6888,88 @@
       },
       {
         "note": "",
+        "id": "argumentation-31e327c9",
+        "conclusion": {
+          "that": {
+            "subject": "[F31 Performance]",
+            "assigned": "Ins Wort fallen",
+            "type": "crm:P17_was_motivated_by",
+            "id": "act-5cfff702"
+          },
+          "certainty": "likely",
+          "id": "belief-2fbfea13",
+          "type": "belief"
+        },
+        "type": "simpleArgumentation",
+        "calls": [
+          {
+            "id": "ec23afd2-f9b5-4462-912d-6a71979fb6cf",
+            "created": [
+              "accentuationPattern_10080"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 10080,
+              "to": 10800,
+              "beatLength": 0.125,
+              "name": "pattern-a56877aa",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_8c9fb33a-2056-4e0f-9188-1605e5675983",
+        "conclusion": {
+          "id": "concl_ec3ee6d3-259f-42c9-98dc-a227fee6aafe",
+          "that": {
+            "id": "that_e7249896-f090-4015-8ac1-c0c61487eb3f",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Nachschlag schattieren"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "3a2ce775-4c80-40cc-bfa2-7f3ea829847e",
+            "created": [
+              "accentuationPattern_12240"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 12240,
+              "to": 14040,
+              "beatLength": 0.125,
+              "name": "pattern-2c41ccf7",
+              "scaleTolerance": 0,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "2072a83e-4728-489e-a9dc-a242c373a607",
+            "created": [
+              "sustain-12960_start",
+              "sustain-12960_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-12960",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
+        "note": "",
         "id": "argumentation-f289af87",
         "conclusion": {
           "that": {
@@ -6964,32 +7004,31 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-7d78344f",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-2daab34c"
-          },
-          "certainty": "likely",
-          "id": "belief-5ce0a185",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_d56ba6b5-284e-493d-a394-071dcb3df020",
+        "conclusion": {
+          "id": "concl_095d3565-1cbf-4eab-81e8-1cfd6a5788dd",
+          "that": {
+            "id": "that_1878682a-1628-4a65-913e-97759ee7452c",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
-            "id": "2bffa36f-8c91-4c29-99ca-12b3b117e5ae",
+            "id": "7a1153de-13cb-4a3a-91f3-6ea342ccc024",
             "created": [
-              "accentuationPattern_28800"
+              "accentuationPattern_23760"
             ],
             "name": "InsertMetricalAccentuation",
             "options": {
-              "from": 28800,
-              "to": 30240,
+              "from": 23760,
+              "to": 25560,
               "beatLength": 0.125,
-              "name": "pattern-107d8637",
+              "name": "pattern-f60f34c6",
               "scaleTolerance": 1.5,
               "neutralEnd": true,
               "scope": "global"
@@ -6998,33 +7037,79 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-a4601531",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-69aa6975"
-          },
-          "certainty": "likely",
-          "id": "belief-2be5fd8b",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_a89283d0-6eb2-46ce-9b9a-1125b591c374",
+        "conclusion": {
+          "id": "concl_74f65bfc-c14a-4880-b6e2-d9c22776acda",
+          "that": {
+            "id": "that_c884e7a2-4609-4524-a185-a06bfd6102b1",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
-            "id": "1ee98dff-af94-4f23-89c0-05e64041fe79",
+            "id": "4211747d-93ee-4e79-b7d1-de13ad18f0fc",
             "created": [
-              "accentuationPattern_43920",
-              "accentuationPattern_45360"
+              "accentuationPattern_46800"
             ],
             "name": "InsertMetricalAccentuation",
             "options": {
-              "from": 43920,
-              "to": 44640,
+              "from": 46800,
+              "to": 48600,
               "beatLength": 0.125,
-              "name": "pattern-06132e0c",
+              "name": "pattern-fa782e30",
+              "scaleTolerance": 1.5,
+              "neutralEnd": true,
+              "scope": "global"
+            }
+          },
+          {
+            "id": "8e5082c5-b15d-4002-98c3-e73d2cb51658",
+            "created": [
+              "sustain-47520_start",
+              "sustain-47520_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-47520",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_311e8fd0-a9dc-4e8f-ab9a-cb21ceeb08c8",
+        "conclusion": {
+          "id": "concl_6e54b1f2-a88b-4b24-a746-e97b8c5dd4ce",
+          "that": {
+            "id": "that_ac508f11-0515-47f4-a50c-063e65d5a237",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "a6d0cd0c-55b9-4ff6-9f10-fddb901500ea",
+            "created": [
+              "accentuationPattern_54000"
+            ],
+            "name": "InsertMetricalAccentuation",
+            "options": {
+              "from": 54000,
+              "to": 55080,
+              "beatLength": 0.125,
+              "name": "pattern-060874e9",
               "scaleTolerance": 1.5,
               "neutralEnd": true,
               "scope": "global"
@@ -7033,32 +7118,31 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-524ce4cd",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-330bd1c1"
-          },
-          "certainty": "likely",
-          "id": "belief-838fbbf1",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_76caf28c-c77a-4d9f-8205-402ee443860e",
+        "conclusion": {
+          "id": "concl_f9416205-7e82-4dff-b184-16914fb8387c",
+          "that": {
+            "id": "that_1763c609-8c4f-4af8-9ab3-bdebd932165e",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
-            "id": "b6a6f38a-601a-415d-8842-560ae19758b1",
+            "id": "d05b3df0-de9f-45fe-9abe-f1e0f9406444",
             "created": [
-              "accentuationPattern_76320"
+              "accentuationPattern_58320"
             ],
             "name": "InsertMetricalAccentuation",
             "options": {
-              "from": 76320,
-              "to": 77040,
+              "from": 58320,
+              "to": 60120,
               "beatLength": 0.125,
-              "name": "pattern-f1438c65",
+              "name": "pattern-4658f790",
               "scaleTolerance": 1.5,
               "neutralEnd": true,
               "scope": "global"
@@ -7067,33 +7151,31 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-a0f1f18f",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-084689cf"
-          },
-          "certainty": "likely",
-          "id": "belief-dd16efab",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
+        "id": "arg_43ee7a5e",
+        "conclusion": {
+          "id": "concl_7a658505-3e3b-4d29-83cf-635c0c49c514",
+          "that": {
+            "id": "that_8b86a18c-0907-4f14-bd29-a59d926e3c95",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Nachschlag schattieren"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
         "calls": [
           {
-            "id": "43536979-6e54-40cc-819a-29162991001a",
+            "id": "8609e938-df9d-4c43-8795-5e81749c3af0",
             "created": [
-              "accentuationPattern_77040",
-              "accentuationPattern_78480"
+              "accentuationPattern_65520"
             ],
             "name": "InsertMetricalAccentuation",
             "options": {
-              "from": 77040,
-              "to": 77760,
+              "from": 65520,
+              "to": 66600,
               "beatLength": 0.125,
-              "name": "pattern-9d33a97d",
+              "name": "pattern-785c1aab",
               "scaleTolerance": 1.5,
               "neutralEnd": true,
               "scope": "global"
@@ -7137,147 +7219,11 @@
       },
       {
         "note": "",
-        "id": "argumentation-03f5994a",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-8dbae6e9"
-          },
-          "certainty": "likely",
-          "id": "belief-8659f702",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "4838d841-464a-4ef5-a98f-6950c3cffc5f",
-            "created": [
-              "accentuationPattern_79200"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 79200,
-              "to": 79920,
-              "beatLength": 0.125,
-              "name": "pattern-6e194991",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-b879d759",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-ef593e5b"
-          },
-          "certainty": "likely",
-          "id": "belief-511f2614",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "dde72113-75d6-4770-b715-4611960a7fb0",
-            "created": [
-              "accentuationPattern_79920"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 79920,
-              "to": 80640,
-              "beatLength": 0.125,
-              "name": "pattern-0ee467df",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-36604f19",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-b44009f7"
-          },
-          "certainty": "likely",
-          "id": "belief-7ae2ed27",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "9434c909-c8ba-47ef-933c-ee15c4ef666e",
-            "created": [
-              "accentuationPattern_80640"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 80640,
-              "to": 81360,
-              "beatLength": 0.125,
-              "name": "pattern-9a97ba78",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-4e456c1e",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-2db5c1ab"
-          },
-          "certainty": "likely",
-          "id": "belief-f85fbe5b",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "5f90ca8a-d74e-4249-ad11-07401ff2d730",
-            "created": [
-              "accentuationPattern_81360"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 81360,
-              "to": 83160,
-              "beatLength": 0.125,
-              "name": "pattern-e0e283b4",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-64b22ad0",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Gut-schlecht Akzente",
             "type": "crm:P17_was_motivated_by",
             "id": "act-f9b51f43"
           },
@@ -7302,25 +7248,7 @@
               "neutralEnd": true,
               "scope": "global"
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-5ee8c203",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-080cd375"
           },
-          "certainty": "likely",
-          "id": "belief-f311140d",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "f1e1f654-218a-47ac-be3b-901a5df09261",
             "created": [
@@ -7332,75 +7260,6 @@
               "to": 84960,
               "beatLength": 0.125,
               "name": "pattern-ffad3094",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-e2c6579a",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-3412742d"
-          },
-          "certainty": "likely",
-          "id": "belief-b818a1c9",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "8d6c95d2-d93d-45c9-9fcd-443c62e9a29d",
-            "created": [
-              "accentuationPattern_86400",
-              "accentuationPattern_87840"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 86400,
-              "to": 87120,
-              "beatLength": 0.125,
-              "name": "pattern-d332a90a",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-70e8282f",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-65f9200c"
-          },
-          "certainty": "likely",
-          "id": "belief-f36d48c4",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "9baf6778-ce20-46cb-93b1-7d90a0994fa8",
-            "created": [
-              "accentuationPattern_87120"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 87120,
-              "to": 87840,
-              "beatLength": 0.125,
-              "name": "pattern-56dabc45",
               "scaleTolerance": 1.5,
               "neutralEnd": true,
               "scope": "global"
@@ -7443,54 +7302,19 @@
         ]
       },
       {
-        "note": "",
-        "id": "argumentation-31228d53",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-5f41dd4e"
-          },
-          "certainty": "likely",
-          "id": "belief-c0859706",
-          "type": "belief"
-        },
         "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "d2b2f397-ff52-43d3-9915-649b2386a2f9",
-            "created": [
-              "accentuationPattern_88560"
-            ],
-            "name": "InsertMetricalAccentuation",
-            "options": {
-              "from": 88560,
-              "to": 89280,
-              "beatLength": 0.125,
-              "name": "pattern-c976b7d3",
-              "scaleTolerance": 1.5,
-              "neutralEnd": true,
-              "scope": "global"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-a97a44c0",
+        "id": "arg_b364f3d0",
         "conclusion": {
+          "id": "concl_b0c4e2d0-be13-42fc-9014-9ad52f33a36c",
           "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "Klang öffnen",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-2aff9b5c"
+            "id": "that_740e8f42-b93c-4cb8-bcbb-3d1aeb07740a",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Klang öffnen"
           },
-          "certainty": "likely",
-          "id": "belief-cbc53590",
-          "type": "belief"
+          "type": "belief",
+          "certainty": "possible"
         },
-        "type": "simpleArgumentation",
         "calls": [
           {
             "id": "dd4d687b-74f2-465f-aa82-452d6c543445",
@@ -7514,6 +7338,39 @@
             }
           },
           {
+            "id": "b374d476-071d-43bf-8bc1-2ff1d8de7d20",
+            "created": [
+              "sustain-6840_start",
+              "sustain-6840_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-6840",
+              "start": -100,
+              "duration": 200,
+              "depth": 0.7,
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_c48f79a0",
+        "conclusion": {
+          "id": "concl_3db32e52-49f6-44c6-b81f-d7a3cdce4ba7",
+          "that": {
+            "id": "that_4c36bbed-caa5-437f-a507-7f4621ff919c",
+            "subject": "",
+            "type": "assigned",
+            "assigned": "Klang öffnen"
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "note": "Oder verbinden?",
+        "calls": [
+          {
             "id": "26a3c15e-79a9-4643-be8f-8b3e175bc5d2",
             "created": [
               "articulation_9360"
@@ -7535,21 +7392,6 @@
             }
           },
           {
-            "id": "b374d476-071d-43bf-8bc1-2ff1d8de7d20",
-            "created": [
-              "sustain-6840_start",
-              "sustain-6840_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-6840",
-              "start": -100,
-              "duration": 200,
-              "depth": 0.7,
-              "direction": "down"
-            }
-          },
-          {
             "id": "a4d488ee-a086-4b12-8681-54feaacccab8",
             "created": [
               "sustain-8280_start",
@@ -7558,21 +7400,6 @@
             "name": "InsertPedal",
             "options": {
               "pedal": "sustain-8280",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
-          },
-          {
-            "id": "e1cfef4d-6f6e-4e6b-8208-7d2cfa795418",
-            "created": [
-              "sustain-9720_start",
-              "sustain-9720_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-9720",
               "start": -100,
               "duration": 200,
               "depth": 1,
@@ -7631,7 +7458,7 @@
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "Bass etwas überlegato, Tenor \"trocken\"",
+            "assigned": "Bass überlegato, Tenor mit Luft",
             "type": "crm:P17_was_motivated_by",
             "id": "act-a14df83a"
           },
@@ -7962,21 +7789,6 @@
               },
               "name": "77003174-2778-4560-955b-fc83f9e98541"
             }
-          },
-          {
-            "id": "0d04499f-9c3d-4e44-8749-18f5f2a1a8d9",
-            "created": [
-              "sustain-1440_start",
-              "sustain-1440_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-1440",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
           }
         ]
       },
@@ -8137,6 +7949,109 @@
         ]
       },
       {
+        "note": "",
+        "id": "argumentation-15bd43d9",
+        "conclusion": {
+          "that": {
+            "subject": "[F31 Performance]",
+            "assigned": "Betonter Auftakt",
+            "type": "crm:P17_was_motivated_by",
+            "id": "act-49c06192"
+          },
+          "certainty": "unlikely",
+          "id": "belief-a8ed7f42",
+          "type": "belief"
+        },
+        "type": "simpleArgumentation",
+        "calls": [
+          {
+            "id": "16cdb755-7651-46ea-bced-b4f65b434250",
+            "created": [
+              "articulation_34560"
+            ],
+            "name": "InsertArticulation",
+            "options": {
+              "scope": "global",
+              "noteIDs": [
+                "n3x6yrh-rend2"
+              ],
+              "aspects": {
+                "dataType": "Set",
+                "value": [
+                  "relativeVelocity"
+                ]
+              },
+              "name": "798fbd22-3395-4217-824b-f3ce752029ad"
+            }
+          }
+        ]
+      },
+      {
+        "type": "simpleArgumentation",
+        "id": "arg_b8bb770c-554c-4fac-ae9f-0213714d542a",
+        "conclusion": {
+          "id": "concl_f8f50f80-4f04-4b79-af37-9b9200b56ab5",
+          "that": {
+            "id": "that_6dd155f9-cc1e-42b4-8b71-7ff86050a82a",
+            "subject": "",
+            "type": "assigned",
+            "assigned": ""
+          },
+          "type": "belief",
+          "certainty": "possible"
+        },
+        "calls": [
+          {
+            "id": "cb08d3e2-7aa2-4aa2-a527-cbea127a796b",
+            "created": [
+              "sustain-24480_start",
+              "sustain-24480_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-24480",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
+        "note": "",
+        "id": "argumentation-a97a44c0",
+        "conclusion": {
+          "that": {
+            "subject": "[F31 Performance]",
+            "assigned": "Klang öffnen",
+            "type": "crm:P17_was_motivated_by",
+            "id": "act-2aff9b5c"
+          },
+          "certainty": "likely",
+          "id": "belief-cbc53590",
+          "type": "belief"
+        },
+        "type": "simpleArgumentation",
+        "calls": [
+          {
+            "id": "e1cfef4d-6f6e-4e6b-8208-7d2cfa795418",
+            "created": [
+              "sustain-9720_start",
+              "sustain-9720_moveDown"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-9720",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "down"
+            }
+          }
+        ]
+      },
+      {
         "note": "Verschiebung. Außerdem werden rechte Pedale im Piano so langsam wie möglich aufgehoben, um kein ungewolltes Geräusch zu erzeugen.",
         "id": "argumentation-4bb771df",
         "conclusion": {
@@ -8271,6 +8186,81 @@
               "depth": 1,
               "direction": "up"
             }
+          },
+          {
+            "id": "bfc888f9-9647-4b41-a6d2-c240b6e5d064",
+            "created": [
+              "sustain-16920_moveUp",
+              "sustain-16920_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-16920",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "up"
+            }
+          },
+          {
+            "id": "f1cae68c-b05f-46fc-9caa-2b4d2b735d0b",
+            "created": [
+              "sustain-18000_moveUp",
+              "sustain-18000_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-18000",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "up"
+            }
+          },
+          {
+            "id": "3e709c9e-2ec8-4740-9e77-39fb9b5a96d1",
+            "created": [
+              "sustain-18720_moveUp",
+              "sustain-18720_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-18720",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "up"
+            }
+          },
+          {
+            "id": "5da26b60-e16b-4e69-8249-63012e42754d",
+            "created": [
+              "sustain-21240_moveUp",
+              "sustain-21240_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-21240",
+              "start": -100,
+              "duration": 200,
+              "depth": 1,
+              "direction": "up"
+            }
+          },
+          {
+            "id": "0fd7ce35-f00f-4f0c-a3d5-04712f655411",
+            "created": [
+              "sustain-47520_moveUp",
+              "sustain-47520_end"
+            ],
+            "name": "InsertPedal",
+            "options": {
+              "pedal": "sustain-47520",
+              "start": -200,
+              "duration": 400,
+              "depth": 1,
+              "direction": "up"
+            }
           }
         ]
       },
@@ -8301,72 +8291,6 @@
               "pedal": "soft-0",
               "start": 200,
               "duration": 7000,
-              "depth": 1,
-              "direction": "up"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-e31fd18d",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-1b92ba1e"
-          },
-          "certainty": "likely",
-          "id": "belief-146ab25c",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "ddefba0d-a901-42d9-bfc0-6e62dc469585",
-            "created": [
-              "sustain-16920_start",
-              "sustain-16920_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-16920",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-7503c7da",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-1a90a0e8"
-          },
-          "certainty": "likely",
-          "id": "belief-32856fd6",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "bfc888f9-9647-4b41-a6d2-c240b6e5d064",
-            "created": [
-              "sustain-16920_moveUp",
-              "sustain-16920_end"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-16920",
-              "start": -100,
-              "duration": 200,
               "depth": 1,
               "direction": "up"
             }
@@ -8408,39 +8332,6 @@
       },
       {
         "note": "",
-        "id": "argumentation-e51c6047",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-6018d03e"
-          },
-          "certainty": "likely",
-          "id": "belief-b4770f41",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "f1cae68c-b05f-46fc-9caa-2b4d2b735d0b",
-            "created": [
-              "sustain-18000_moveUp",
-              "sustain-18000_end"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-18000",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "up"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-8203be0e",
         "conclusion": {
           "that": {
@@ -8474,44 +8365,11 @@
       },
       {
         "note": "",
-        "id": "argumentation-b3f86ac6",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-0575f873"
-          },
-          "certainty": "likely",
-          "id": "belief-675704e4",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "3e709c9e-2ec8-4740-9e77-39fb9b5a96d1",
-            "created": [
-              "sustain-18720_moveUp",
-              "sustain-18720_end"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-18720",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "up"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
         "id": "argumentation-2c3acc0a",
         "conclusion": {
           "that": {
             "subject": "[F31 Performance]",
-            "assigned": "",
+            "assigned": "Legato (Pedal)",
             "type": "crm:P17_was_motivated_by",
             "id": "act-5199351f"
           },
@@ -8535,58 +8393,7 @@
               "depth": 1,
               "direction": "down"
             }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-b262a62b",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-5f9b2ceb"
           },
-          "certainty": "likely",
-          "id": "belief-81931338",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "5da26b60-e16b-4e69-8249-63012e42754d",
-            "created": [
-              "sustain-21240_moveUp",
-              "sustain-21240_end"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-21240",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "up"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-d9161919",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-b436448d"
-          },
-          "certainty": "likely",
-          "id": "belief-fe65a12a",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
           {
             "id": "2d9e75f0-599a-4929-ac0d-a5f91a36fc21",
             "created": [
@@ -8680,72 +8487,6 @@
               "start": -400,
               "duration": 500,
               "depth": 0.55,
-              "direction": "up"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-25cfaa48",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-fc87d363"
-          },
-          "certainty": "likely",
-          "id": "belief-a0113c04",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "8e5082c5-b15d-4002-98c3-e73d2cb51658",
-            "created": [
-              "sustain-47520_start",
-              "sustain-47520_moveDown"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-47520",
-              "start": -100,
-              "duration": 200,
-              "depth": 1,
-              "direction": "down"
-            }
-          }
-        ]
-      },
-      {
-        "note": "",
-        "id": "argumentation-36830be1",
-        "conclusion": {
-          "that": {
-            "subject": "[F31 Performance]",
-            "assigned": "",
-            "type": "crm:P17_was_motivated_by",
-            "id": "act-fb9cf8a7"
-          },
-          "certainty": "likely",
-          "id": "belief-63b63478",
-          "type": "belief"
-        },
-        "type": "simpleArgumentation",
-        "calls": [
-          {
-            "id": "0fd7ce35-f00f-4f0c-a3d5-04712f655411",
-            "created": [
-              "sustain-47520_moveUp",
-              "sustain-47520_end"
-            ],
-            "name": "InsertPedal",
-            "options": {
-              "pedal": "sustain-47520",
-              "start": -200,
-              "duration": 400,
-              "depth": 1,
               "direction": "up"
             }
           }

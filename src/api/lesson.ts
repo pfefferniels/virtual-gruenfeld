@@ -3,14 +3,14 @@ import type { Request, Response } from "express";
 import OpenAI from "openai";
 import path from 'path';
 import fs from 'fs';
-import { importMPM } from "mpm-ts";
+import { AnyDefinition, AnyInstruction, importMPM } from "mpm-ts";
 import { asMSM, extractInfo, getMeasureForDate } from "../utils/asMSM";
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
 const scores = new Map<PlayMode, string>();
 
 for (const mode of ['all', 'harmony-only', 'melody-only'] as PlayMode[]) {
-    const scorePath = path.join(process.cwd(), 'assets', mode === 'melody-only' ? 'harmony-only' : mode, 'score.mei');
+    const scorePath = path.join(process.cwd(), 'assets', mode, 'score.mei');
     const meiContent = fs.readFileSync(scorePath, 'utf8');
     scores.set(mode, meiContent);
 }
@@ -43,15 +43,42 @@ const elevenlabs = new ElevenLabsClient({
     apiKey: process.env.ELEVENLABS_API_KEY
 });
 
-type DecisionDetails = { elements: any[] };
+type DecisionDetails = {
+    elements: AnyInstruction[],
+    definitions: AnyDefinition[],
+    affectedNotes: object,
+    note?: string
+};
+
 type Decision = {
     id: string;
     summary: string;
     measures: string;
-    aspects: Set<string>;
     details: DecisionDetails;
     mpmIDs: string[];
 };
+
+const rangeOfNotes = (notes: string[], msm: Document): string => {
+    const dates = notes.map(id => {
+        const el = Array.from(msm.querySelectorAll('note')).find(n => n.getAttribute('xml:id') === id);
+        if (el) {
+            return +(el.getAttribute('date') || 0);
+        } else {
+            return null;
+        }
+    }).filter(d => d !== null) as number[];
+
+    if (dates.length === 0) return '';
+
+    const min = Math.min(...dates);
+    const max = Math.max(...dates);
+
+    const info = extractInfo(msm);
+    const minInfo = getMeasureForDate(info, min);
+    const maxInfo = getMeasureForDate(info, max);
+
+    return `T. ${minInfo.measure}/${minInfo.beat} bis T. ${maxInfo.measure}/${maxInfo.beat}${maxInfo.inRepeat ? ' (Wdh.)' : ''}`;
+}
 
 const readDecisions = async (): Promise<Decision[] | undefined> => {
     // Construct path to MEI file
@@ -66,7 +93,6 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
     const json = JSON.parse(info)
 
     const msm = await asMSM(scores.get('all') || '')
-    const msmInfo = extractInfo(msm)
 
     const mpm = importMPM(mpmContent)
 
@@ -75,37 +101,47 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
         if (arg.conclusion.that.assigned.length === 0) continue
 
         const mpmIDs: Set<string> = new Set(arg.calls.map(c => c.created).flat())
-        const dates = Array
+        const notes = Array
             .from(msm.querySelectorAll('note'))
             .filter(note => {
                 const effective = new Set(mpm.instructionsEffectiveAtDate(+(note.getAttribute('date') || 0)).map(i => i["xml:id"]));
                 return effective.intersection(mpmIDs).size > 0
             })
-            .map(note => {
-                const date = note.getAttribute('date')
-                if (date) return +date
-                else return null
-            })
-            .filter(d => d !== null)
-
-        if (dates.length === 0) continue
-
-        const min = Math.min(...dates)
-        const max = Math.max(...dates)
-        const minInfo = getMeasureForDate(msmInfo, min)
-        const maxInfo = getMeasureForDate(msmInfo, max)
-        const range = `T. ${minInfo.measure}/${minInfo.beat}-${maxInfo}/${maxInfo.beat}${maxInfo.inRepeat ? ' (Wdh.)' : ''}`
+        const range = rangeOfNotes(notes.map(n => n.getAttribute('xml:id') || ''), msm)
 
         const instructions = mpm.getInstructions().filter(i => mpmIDs.has(i["xml:id"]))
-        const aspects = new Set<string>(instructions.map(i => i.type))
+        const definitions = instructions
+            .filter(i => i["name.ref"] !== undefined)
+            .map(i => {
+                return mpm.getAnyDefinition(i["name.ref"]!)
+            })
+            .filter(def => def !== null)
+
+        const readableNotes: object = {}
+        notes.forEach(n => {
+            const acc = n.getAttribute('accidentals') || ''
+            const readableAcc = acc === '-1.0' ? 'b' : acc === '1.0' ? '#' : acc === '2.0' ? 'x' : '';
+            const readable = `${n.getAttribute('pitchname') || ''}${readableAcc}`;
+            const date = n.getAttribute('date')
+            if (date === null) return;
+
+            if (Array.isArray(readableNotes[date])) {
+                (readableNotes[date] as string[]).push(readable);
+            }
+            else {
+                readableNotes[date] = [readable];
+            }
+        })
 
         decisions.push({
             id: arg.id,
             summary: arg.conclusion.that.assigned,
             measures: range,
-            aspects,
             details: {
-                elements: instructions
+                elements: instructions,
+                definitions,
+                note: arg.note,
+                affectedNotes: readableNotes
             },
             mpmIDs: instructions.map(i => i["xml:id"])
         })
@@ -114,39 +150,105 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
     return decisions
 }
 
-async function retrieveInfo(decisionId: string): Promise<DecisionDetails | { found: false }> {
+async function retrieveInfo(decisionIds: string[]): Promise<any[]> {
     const decisions = await readDecisions();
-    if (!decisions) return { found: false }
+    if (!decisions) return [];
 
-    return decisions.find((d) => d.id === decisionId)?.details || { found: false };
+    return decisions
+        .filter(d => decisionIds.includes(d.id))
+        .map(({ measures, details, ...info }) => {
+            const { affectedNotes, elements, definitions, note } = details
+
+            const elementStrings = elements.map(el => {
+                let str = `<${el.type}> `;
+                if ('endDate' in el) {
+                    str += `${el.date}-${el.endDate}`;
+                }
+                else {
+                    str += `${el.date}`;
+                }
+                str += ': ';
+                for (let [key, value] of Object.entries(el)) {
+                    if (key === 'xml:id' || key === 'type' || key === 'date' || key === 'endDate' || key === 'children' || key === 'corresp') continue;
+                    if (typeof value === 'number') {
+                        value = value.toFixed(1);
+                    }
+                    if (['boolean', 'number', 'string'].includes(typeof value)) {
+                        str += `${key}=${value} `;
+                    }
+                    else if (Array.isArray(value)) {
+                        str += `${key}=[${value.map(v => JSON.stringify(v)).join(', ')}] `;
+                    }
+                    else {
+                        str += `${key}=${JSON.stringify(value)} `;
+                    }
+                }
+                return str.trim();
+            })
+
+            const definitionStrings = definitions.map(def => {
+                let str = `${def.type} ${def.name}: `;
+                for (let [key, value] of Object.entries(def)) {
+                    if (key === 'xml:id' || key === 'type' || key === 'name') continue;
+                    if (key === 'children' && Array.isArray(value) && value.length === 0) continue
+
+                    if (typeof value === 'number') {
+                        value = value.toFixed(1);
+                    }
+                    if (['boolean', 'number', 'string'].includes(typeof value)) {
+                        str += `${key}=${value} `;
+                    }
+                    else if (Array.isArray(value)) {
+                        str += `${key}=[${value.map(v => JSON.stringify(v)).join(', ')}] `;
+                    }
+                    else {
+                        str += `${key}=${JSON.stringify(value)} `;
+                    }
+                }
+                return str.trim();
+            })
+
+            return {
+                id: info.id,
+                summary: info.summary,
+                instructions: elementStrings,
+                definitions: definitionStrings.length > 0 ? definitionStrings : undefined,
+                note: (note && note.length > 0) ? note : undefined
+            }
+        })
+}
+
+async function affectedNotes(decisionId: string): Promise<any> {
+    const decisions = await readDecisions();
+    if (!decisions) return [];
+
+    const decision = decisions.find(d => d.id === decisionId);
+    if (!decision) return [];
+
+    return decision.details.affectedNotes;
 }
 
 type PlayMode = "all" | "harmony-only" | "melody-only";
 
-type Play = {
-    type: "play";
-    decision: string | null;
+type Step = {
+    what: string | null | {
+        from: string;
+        to: string;
+    };
     mode: PlayMode;
     exaggeration: number;
     sketchiness: number;
-    extent: 'pick' | 'contextualize' | null;
-}
-
-type Explanation = {
-    type: "explanation";
+    exemplify: boolean;
+    context: number;
     message: string;
     emotion: string;
+    overlap: boolean
 }
 
-type Step = {
-    overlap: boolean
-} & (Play | Explanation);
-
-const speakExplanation = async (explanation: Explanation): Promise<string | undefined> => {
+const speakExplanation = async (explanation: Step): Promise<string | undefined> => {
     const { message, emotion } = explanation;
-    const instructions = `You speak German, the year is 1905 and you are
-52 years old. You speak in a slightly aristocratic tone, but since you
-are an artist, often somewhat unclearly and with many pauses for thinking.
+    const instructions = `
+You speak German, it's the early 1900s. You speak quietly and like a refined, well-educated pianist and pedagogue.
 You current emotion: ${emotion}`;
 
     try {
@@ -165,7 +267,7 @@ You current emotion: ${emotion}`;
     }
 }
 
-const speakExplanation2 = async (explanation: Explanation): Promise<string | undefined> => {
+const speakExplanation2 = async (explanation: Step): Promise<string | undefined> => {
     const audio = await elevenlabs.textToSpeech.convert(
         'a4oYSRgmiY0auDgVfso5', // voice_id
         {
@@ -189,9 +291,16 @@ const speakExplanation2 = async (explanation: Explanation): Promise<string | und
     return buffer.toString('base64');
 }
 
-const performInIsolation = async (step: Play, decisions: Decision[]): Promise<string> => {
-    const mpmIds = decisions.find((d) => d.id === step.decision)?.mpmIDs || [];
-    console.log('performing MPM IDs', mpmIds);
+const performInIsolation = async (step: Step, decisions: Decision[]): Promise<any> => {
+    // let ids: string[] = [];
+    let mpmIds: string[] = [];
+    let measures: string[] = [];
+    if (typeof step.what === 'string') {
+        mpmIds = decisions.find((d) => d.id === step.what)?.mpmIDs || [];
+    }
+    else if (step.what && typeof step.what === 'object') {
+        measures = [step.what.from, step.what.to];
+    }
 
     const response = await fetch('http://localhost:8080/perform', {
         method: 'POST',
@@ -199,15 +308,18 @@ const performInIsolation = async (step: Play, decisions: Decision[]): Promise<st
             mpm: mpmContent,
             mei: scores.get(step.mode),
             mpmIds,
+            measures,
             exaggerate: step.exaggeration,
             sketchiness: step.sketchiness,
-            extent: step.extent
+            exemplify: step.exemplify,
+            context: step.context
         })
     });
     try {
         const text = await response.text();
         const payload = JSON.parse(text);
-        return payload?.midi_b64;
+        // console.log('payload=', payload);
+        return payload;
     } catch (e) {
         console.error('Error parsing perform response', e);
         throw e;
@@ -215,41 +327,72 @@ const performInIsolation = async (step: Play, decisions: Decision[]): Promise<st
 }
 
 function systemPrompt(decisions: Decision[]) {
-    const list = decisions.map((d) => `- "${d.id}" — ${d.measures}: ${d.summary} (${Array.from(d.aspects).join(',')})`).join("\n");
+    const list = decisions.map((d) => `- ${d.measures}: "${d.id}"`).join("\n");
     return `
-You are Alfred Grünfeld, a pianist. The year is 1905 and you speak in
-the period-appropriate German style. You are performing "Träumerei" by Robert
-Schumann. Your role is to teach these decision to a student.
+You are Alfred Grünfeld, the pianist. You are performing "Träumerei" by Robert
+Schumann. Your role is to demonstrate these decision to a student.
+Produce the lesson by repeatedly calling \`play_and_explain\`.
 
-# Rules:
-- Produce the lesson by calling \`push_step\` repeatedly. You can emit two kinds of steps:
-  to demonstrate ('play') and to speak ('explanation').
+## Procedure
+- To retrieve information about a set of decisions, call \`retrieve_info\`.
+- To retrieve the chords and the notes affected by a particular decision, call \`affected_notes\`. 
+- Verbalize only the given information. Do not add anything (like poetic details etc.).
+- If you do not know something for sure, don't say anything about it.
+- Work from general to specific, e.g. start with playing the harmonic reduction and then dive into details
+  of specific decision(s).
+- The student can see what you are pointing at, there is no need to refer to bar numbers. You may
+  mention however, about which beat inside the bar you are talking.
+- Use repetition pedagogically, e.g. by playing the same thing three, four, five times.
+- When repeating, you may change e.g. the exaggeration, the sketchiness, by playing only the
+  melody for reference, or by giving it context, or all of these.
+- If you change something, reflect in two or three words about what you were changing
+  (e.g. "with a bit of context", when using context, "as written" when using mode 'all' after a harmonic reduction etc.)
+- After having demonstrated some decisions, you should summarize e.g. by playing the whole passage in which
+  they occur together.
+- When a decision's description is somewhat ambigious, you should reason about it by looking at 
+  the raw data, i.e. the associated instructions and definitions. You could e.g. first demonstrate and embrace
+  the ambiguity, then think about it more thoroughly and explain and demonstrate more concretely.
+- Many decisions are about the same kind of musical gesture (e.g. shading something dynamically).
+  Demonstrate only one instance and mention that (and where) there are more instances of the same.
 
-# General style:
-- Speak *very* briefly, only hinting, around 2 to 10 words per explanation. Use the given
-  wording. Unfinished utterances are fine.
-- Use repetition, e.g. by playing the same thing multiple times. You must modify it
-  every time by changing either the exaggeration or sketchiness or both.
-- Multiple decisions are structured in the same way. In that case demonstrate only one instance and
-  mention, that there are more instances (e.g. "Nachschlag schattieren").
-  use the given wording. Even make it shorter. Unfinished utterances are good.
-
-# Parameter descriptions:
-- If you pass no decision, the whole piece will be played (useful e.g. to show a harmonic reduction).
-- When playing, exaggerate your decision to communicate its character (use "exaggeration").
-- You may choose to speak while playing. When "overlap" is set to true, the step will be executed
-  at the same time as the previous step. Be aware that there may not be multiple overlaps in a row
-  and that only explanations can overlap with plays.
-- Use "sketchiness" if you want to show something in a more hasting, fleeting manner. In particular 
-  when playing a harmonic reduction, you must always increase the sketchiness significantly (i.e. > 2.0).
-  A value of 1.0 means "normal". Do *not* reflect about sketchiness in your speech.
+## Parameter descriptions
+- Use "mode" to define, what to play: this can be "all" (playing all notes, as written), "harmony-only"
+  playing a harmonic reduction, or "melody-only" (playing only the melody line).
+- Use "what" to define which portion to play. Possible values are:
+  - string (= decision ID): play only a specific decision
+  - from-to pair of measure numbers. Measures must be given as "[measure number][-rpt]", e.g. "1", "1-rpt".
+    Do not include beat information.
+  - null (= play everything, i.e. the whole piece, from first to the last measure)
+- When "overlap" is set to true, you speak while playing. Otherwise, you first explain and then demonstrate.
+  Do not use overlap when playing a harmonic reduction.
+- When playing, exaggerate your decision to communicate its character using "exaggeration".
+- Use "sketchiness" to play in a more hasting, fleeting manner. When playing a harmonic reduction,
+  you must always increase the sketchiness significantly (i.e. > 2.0).
+  Do not reduce sketchiness to less than 1.0.
 - For "exaggaration", values less than 1.0 will flatten the expressivity, values greater than 1.0 will exaggerate it.
-- Set the "extent" to "pick" when the decision spans a long passage, i.e. you pick a representative portion to exemplify.
-  Set it to "contextualize" when the decision is very short, i.e. include some musical context before and after the decision.
-  Otherwise, set it to null.
+- When the decision spans a long passage, e.g. many measures, or basically throughout the whole piece, you
+  should "exemplify", meaning that only a representative portion will be played. Do not use this option when "what" is a 
+  measure range. To know how long a passage is, you should consider the given bar numbers over which it spans.
+- When the decision is somewhat short, e.g. around three, four beats or less (NB: may cross measure boundary),
+  add "context" around it. Context is given as beat length, e.g. 0.25 = a quarter note before and after.
+- addition about "message": Never speak decision IDs.
 
-# Decisions
-You have made the following interpretative decisions:
+## Hints
+Some basic principles of MPM:
+* dates are in given ticks, PPQ = 720
+* \`<accentuationPattern>\` defines the dynamic accentuation patterns on top of the macro dynamics (given
+   with <dynamics>).
+* \`<ornament>\` is used to specify arpeggiations. @scale refers to how the associated dynamicsGradient should be scaled.
+* \`<rubato>\` defines micro-timing distortion on top of the macro <tempo> modifications.
+  Within each frame, the timing is stretched/compressed through the
+  @intensity parameter.
+
+## Decisions
+Measures are given as "T. [bar]/[beat]". Wdh. indicates that the decision occurs in a repeat. Measure 0 refers
+to the initial upbeat before bar 1.
+Format: "measures: "decision_id""
+
+Your decisions:
 ${list}
 `.trim();
 }
@@ -257,13 +400,16 @@ ${list}
 const tools: OpenAI.Responses.Tool[] = [
     {
         type: "function",
-        name: "retrieve_info",
-        description: "Get detailed rationale for a given interpretative decision.",
+        name: "affected_notes",
+        description: "Get the notes affected by a given decision ID.",
         parameters: {
             type: "object",
             additionalProperties: false,
             properties: {
-                decision_id: { type: "string", description: "Exact ID of decision to look up." },
+                decision_id: {
+                    type: "string",
+                    description: "Exact ID of decision to look up."
+                },
             },
             required: ["decision_id"],
         },
@@ -271,63 +417,95 @@ const tools: OpenAI.Responses.Tool[] = [
     },
     {
         type: "function",
-        name: "push_step",
-        description: "Emit a single teaching step.",
-        strict: true,
+        name: "retrieve_info",
+        description: "Get detailed info on a given set of decision IDs.",
         parameters: {
             type: "object",
             additionalProperties: false,
             properties: {
-                step: {
-                    anyOf: [
+                decision_ids: {
+                    type: "array",
+                    items: { type: "string" },
+                    description: "Exact IDs of decision to look up."
+                },
+            },
+            required: ["decision_ids"],
+        },
+        strict: true,
+    },
+    {
+        "type": "function",
+        "name": "play_and_explain",
+        "description": "Emit a single teaching step.",
+        "strict": true,
+        "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "what": {
+                    "anyOf": [
                         {
-                            type: "object",
-                            additionalProperties: false,
-                            properties: {
-                                type: { type: "string", enum: ["play"] },
-                                decision: { type: ["string", "null"] },
-                                mode: { type: "string", enum: ["all", "harmony-only", "melody-only"] },
-                                exaggeration: { type: "number" },
-                                sketchiness: { type: "number" },
-                                overlap: { type: "boolean" },
-                                extent: {
-                                    type: ["string", "null"],
-                                    enum: ["pick", "contextualize", null],
-                                }
-                            },
-                            required: [
-                                "type",
-                                "decision",
-                                "mode",
-                                "exaggeration",
-                                "sketchiness",
-                                "overlap",
-                                "extent"
-                            ],
+                            "type": "null"
                         },
                         {
-                            type: "object",
-                            additionalProperties: false,
-                            properties: {
-                                type: { type: "string", enum: ["explanation"] },
-                                message: { type: "string" },
-                                emotion: { type: "string" },
-                                overlap: { type: "boolean" }
-                            },
-                            required: ["type", "message", "emotion", "overlap"],
+                            "type": "string"
                         },
-                    ],
+                        {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "from": { "type": "string" },
+                                "to": { "type": "string" }
+                            },
+                            "required": ["from", "to"]
+                        }
+                    ]
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["all", "harmony-only", "melody-only"]
+                },
+                "exaggeration": {
+                    "type": "number"
+                },
+                "sketchiness": {
+                    "type": "number"
+                },
+                "overlap": {
+                    "type": "boolean"
+                },
+                "exemplify": {
+                    "type": "boolean"
+                },
+                "context": {
+                    "type": "number"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "emotion": {
+                    "type": "string"
                 }
             },
-            required: ["step"],
+            "required": [
+                "what",
+                "mode",
+                "exaggeration",
+                "sketchiness",
+                "overlap",
+                "exemplify",
+                "context",
+                "message",
+                "emotion"
+            ]
         }
     }
 ];
 
-type Query = { question?: string; at?: string, session?: string };
+type Query = { question: string; at?: string, session?: string };
 
 lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => {
-    const { question: userRequest, at: currentMeasure } = req.query;
+    const { question: userRequest, at } = req.query;
 
     const sessionId = (req.query.session as string) || crypto.randomUUID();
     const session = getOrCreateSession(sessionId);
@@ -352,20 +530,22 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
         res.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
     };
 
+    let selectedNotes: string | undefined = undefined;
+    if (at) {
+        const notes = at
+            .split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        if (notes.length > 0) {
+            const msm = await asMSM(scores.get('all') || '');
+            selectedNotes = rangeOfNotes(notes, msm);
+        }
+    }
+
     const system = systemPrompt(decisions);
-    const user = userRequest
-        ? `
-The student asks: "${userRequest}"\nWe were interrupted in m. ${currentMeasure}.
-Your job:
-1) Find out, which decision(s) the student was talking about. 
-2) Get more details about how your decision works internally by calling retrieve_info(decision_id).
-3) Understand the detailed info and communicate the answer both musically and verbally with clear "play"
-and "explanation" steps.`
-        : `
-- Give an overview over the decisions.
-- You may choose to start with giving a harmonic reduction (mode: "harmony-only") of the whole piece.
-- Also for decisions encompassing many measures, you may play a harmonic reduction.
-`;
+    const user = `${userRequest}
+${selectedNotes ? `User selection: ${selectedNotes}` : ''}`;
 
     // Helper: run a single streamed turn, and if it makes tool calls, resolve them and recurse.
     async function run(args: {
@@ -401,25 +581,20 @@ and "explanation" steps.`
                 const stepId = crypto.randomUUID();
                 // console.log('args', args);
 
-                if (toolName === "push_step") {
-                    const step: Step = args.step;
-                    // console.log('step.type=', step.type);
-                    if (step.type === "explanation") {
-                        const audio = await speakExplanation(args.step);
-                        send("step", {
-                            ...step,
-                            audio,
-                            stepId,
-                        });
-                    }
-                    else {
-                        const midi = await performInIsolation(step, decisions || []);
-                        send("step", {
-                            ...step,
-                            midi,
-                            stepId
-                        });
-                    }
+                if (toolName === "play_and_explain") {
+                    const step: Step = args;
+                    const [audio, performance] = await Promise.all([
+                        speakExplanation(step),
+                        performInIsolation(step, decisions || [])
+                    ]);
+                    const { midi_b64, noteIDs } = performance;
+                    send("step", {
+                        ...step,
+                        audio,
+                        midi: midi_b64,
+                        noteIDs,
+                        stepId
+                    });
 
                     const ack = await new Promise((resolve) => {
                         session.waiters.set(stepId, { resolve });
@@ -427,9 +602,12 @@ and "explanation" steps.`
 
                     toolOutput = ack;
                 } else if (toolName === "retrieve_info") {
-                    const info = await retrieveInfo(args.decision_id);
+                    const info = await retrieveInfo(args.decision_ids);
                     // console.log('info', info)
                     toolOutput = info;
+                } else if (toolName === "affected_notes") {
+                    const notes = await affectedNotes(args.decision_id);
+                    toolOutput = notes;
                 }
 
                 await run({

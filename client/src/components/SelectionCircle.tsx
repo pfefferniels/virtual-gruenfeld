@@ -94,8 +94,8 @@ export const SelectionCircle = ({ elements, ref, ...svgProps }: SelectionCircleP
         console.log('bboxes', bboxes)
 
         const points = getPointsForRects(bboxes)
-        const concaveHull = concaveman(points, 2)
-        const smoothPoints = chaikin(concaveHull, 14);
+        const concaveHull = concaveman(points, 3.5)
+        const smoothPoints = chaikin(concaveHull, 8);
 
         setPath(
             smoothPoints

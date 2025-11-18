@@ -117,5 +117,5 @@ export function getMeasureForDate(
     (s) => s.isRepeat && date >= s.start && date < s.end
   );
 
-  return { measure: measureNumber, beat, inRepeat };
+  return { measure: measureNumber - 1, beat, inRepeat };
 }

@@ -2,9 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 import path from 'path';
-import { chatRouter } from './api/chat';
-import { reconstructionsRouter } from './api/reconstructions';
-import { rendersRouter } from './api/renders';
 import { meiRouter } from './api/mei';
 import { tokenRouter } from './api/token';
 import { lessonRouter } from './api/lesson';
@@ -15,13 +12,10 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('client/build')); // Serve React build
+app.use(express.static('client/build'));
 
 // API Routes
-app.use('/api/chat', chatRouter);
-app.use('/api/reconstructions', reconstructionsRouter);
 app.use('/api/mei', meiRouter);
-app.use('/renders', rendersRouter);
 app.use('/token', tokenRouter);
 app.use('/lesson', lessonRouter)
 

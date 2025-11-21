@@ -43,22 +43,15 @@ const elevenlabs = new ElevenLabsClient({
     apiKey: process.env.ELEVENLABS_API_KEY
 });
 
-type DecisionDetails = {
-    elements: AnyInstruction[],
-    definitions: AnyDefinition[],
-    affectedNotes: object,
-    note?: string
-};
-
 type Decision = {
     id: string;
+    range: MeasureRange | null;
     summary: string;
-    measures: string;
-    details: DecisionDetails;
+    notes: string;
     mpmIDs: string[];
 };
 
-const rangeOfNotes = (notes: string[], msm: Document): string => {
+const rangeOfNotes = (notes: string[], msm: Document): MeasureRange | null => {
     const dates = notes.map(id => {
         const el = Array.from(msm.querySelectorAll('note')).find(n => n.getAttribute('xml:id') === id);
         if (el) {
@@ -68,16 +61,55 @@ const rangeOfNotes = (notes: string[], msm: Document): string => {
         }
     }).filter(d => d !== null) as number[];
 
-    if (dates.length === 0) return '';
+    if (dates.length === 0) return null;
 
     const min = Math.min(...dates);
     const max = Math.max(...dates);
 
     const info = extractInfo(msm);
-    const minInfo = getMeasureForDate(info, min);
-    const maxInfo = getMeasureForDate(info, max);
+    const from = getMeasureForDate(info, min);
+    const to = getMeasureForDate(info, max);
 
-    return `T. ${minInfo.measure}/${minInfo.beat} bis T. ${maxInfo.measure}/${maxInfo.beat}${maxInfo.inRepeat ? ' (Wdh.)' : ''}`;
+    return { from, to }
+}
+
+const stringify = (el: object, indent = 0) => {
+    let str = ''
+    if ('type' in el) {
+        str += `${el.type} `;
+    }
+    if ('date' in el) {
+        str += `${el.date}`;
+    }
+    if ('endDate' in el) {
+        str += `-${el.endDate}`;
+    }
+    str += ': ';
+
+    for (let [key, value] of Object.entries(el)) {
+        if (key === 'xml:id' || key === 'type' || key === 'date' || key === 'endDate' || key === 'corresp' || key === 'name.ref' || key === 'name') continue;
+        if (key === 'children') {
+            if (!Array.isArray(value)) continue
+            for (const child of value) {
+                str += `\n${' '.repeat(indent + 2)}`;
+                str += stringify(child, indent + 2);
+            }
+            continue
+        }
+        if (typeof value === 'number') {
+            value = value.toFixed(1);
+        }
+        if (['boolean', 'number', 'string'].includes(typeof value)) {
+            str += `${key}=${value} `;
+        }
+        else if (Array.isArray(value)) {
+            str += `${key}=[${value.map(v => JSON.stringify(v)).join(',')}]`;
+        }
+        else {
+            str += `${key}=${JSON.stringify(value)} `;
+        }
+    }
+    return str.trim();
 }
 
 const readDecisions = async (): Promise<Decision[] | undefined> => {
@@ -107,42 +139,48 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
                 const effective = new Set(mpm.instructionsEffectiveAtDate(+(note.getAttribute('date') || 0)).map(i => i["xml:id"]));
                 return effective.intersection(mpmIDs).size > 0
             })
+        if (notes.length === 0) continue;
+
+        const readableNotes = notes
+            .map(n => {
+                const acc = n.getAttribute('accidentals') || ''
+                const readableAcc = acc === '-1.0' ? 'b' : acc === '1.0' ? '#' : acc === '2.0' ? 'x' : '';
+                const readable = `${n.getAttribute('pitchname') || ''}${readableAcc}`;
+                const date = n.getAttribute('date')
+                return { date, readable };
+            })
+            .filter((n): n is { date: string, readable: string } => n.date !== null && n.readable.length > 0);
+
+        let notesStr = ''
+        {
+            const notesByDate = Map.groupBy(readableNotes, n => n.date)
+            for (const arr of notesByDate.values()) {
+                notesStr += arr.map(n => n.readable).join('/');
+                notesStr += ' ';
+            }
+        }
+
         const range = rangeOfNotes(notes.map(n => n.getAttribute('xml:id') || ''), msm)
 
-        const instructions = mpm.getInstructions().filter(i => mpmIDs.has(i["xml:id"]))
-        const definitions = instructions
-            .filter(i => i["name.ref"] !== undefined)
+        const instructions = mpm.getInstructions()
+            .filter(i => mpmIDs.has(i["xml:id"]))
             .map(i => {
-                return mpm.getAnyDefinition(i["name.ref"]!)
+                if ('name.ref' in i && i['name.ref']) {
+                    const def = mpm.getAnyDefinition(i['name.ref']);
+                    if (def) {
+                        return { ...i, ...def };
+                    }
+                }
+                return i;
             })
-            .filter(def => def !== null)
+            .filter(i => !!i)
 
-        const readableNotes: object = {}
-        notes.forEach(n => {
-            const acc = n.getAttribute('accidentals') || ''
-            const readableAcc = acc === '-1.0' ? 'b' : acc === '1.0' ? '#' : acc === '2.0' ? 'x' : '';
-            const readable = `${n.getAttribute('pitchname') || ''}${readableAcc}`;
-            const date = n.getAttribute('date')
-            if (date === null) return;
-
-            if (Array.isArray(readableNotes[date])) {
-                (readableNotes[date] as string[]).push(readable);
-            }
-            else {
-                readableNotes[date] = [readable];
-            }
-        })
 
         decisions.push({
             id: arg.id,
-            summary: arg.conclusion.that.assigned,
-            measures: range,
-            details: {
-                elements: instructions,
-                definitions,
-                note: arg.note,
-                affectedNotes: readableNotes
-            },
+            range,
+            summary: `${arg.conclusion.that.assigned}. ${arg.note ? `(${arg.note})` : ''}\n${instructions.map(stringify).join('\n')}`,
+            notes: notesStr,
             mpmIDs: instructions.map(i => i["xml:id"])
         })
     }
@@ -150,91 +188,105 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
     return decisions
 }
 
-async function retrieveInfo(decisionIds: string[]): Promise<any[]> {
+type EmbeddedDecision = Decision & {
+    embedding: number[];
+};
+
+async function embedDecisions(): Promise<EmbeddedDecision[]> {
     const decisions = await readDecisions();
     if (!decisions) return [];
 
-    return decisions
-        .filter(d => decisionIds.includes(d.id))
-        .map(({ measures, details, ...info }) => {
-            const { affectedNotes, elements, definitions, note } = details
+    const texts = decisions.map(({ summary }) => summary);
+    const embeddings = await openai.embeddings.create({
+        model: 'text-embedding-3-large',
+        input: texts
+    });
 
-            const elementStrings = elements.map(el => {
-                let str = `<${el.type}> `;
-                if ('endDate' in el) {
-                    str += `${el.date}-${el.endDate}`;
-                }
-                else {
-                    str += `${el.date}`;
-                }
-                str += ': ';
-                for (let [key, value] of Object.entries(el)) {
-                    if (key === 'xml:id' || key === 'type' || key === 'date' || key === 'endDate' || key === 'children' || key === 'corresp') continue;
-                    if (typeof value === 'number') {
-                        value = value.toFixed(1);
-                    }
-                    if (['boolean', 'number', 'string'].includes(typeof value)) {
-                        str += `${key}=${value} `;
-                    }
-                    else if (Array.isArray(value)) {
-                        str += `${key}=[${value.map(v => JSON.stringify(v)).join(', ')}] `;
-                    }
-                    else {
-                        str += `${key}=${JSON.stringify(value)} `;
-                    }
-                }
-                return str.trim();
-            })
-
-            const definitionStrings = definitions.map(def => {
-                let str = `${def.type} ${def.name}: `;
-                for (let [key, value] of Object.entries(def)) {
-                    if (key === 'xml:id' || key === 'type' || key === 'name') continue;
-                    if (key === 'children' && Array.isArray(value) && value.length === 0) continue
-
-                    if (typeof value === 'number') {
-                        value = value.toFixed(1);
-                    }
-                    if (['boolean', 'number', 'string'].includes(typeof value)) {
-                        str += `${key}=${value} `;
-                    }
-                    else if (Array.isArray(value)) {
-                        str += `${key}=[${value.map(v => JSON.stringify(v)).join(', ')}] `;
-                    }
-                    else {
-                        str += `${key}=${JSON.stringify(value)} `;
-                    }
-                }
-                return str.trim();
-            })
-
-            return {
-                id: info.id,
-                summary: info.summary,
-                instructions: elementStrings,
-                definitions: definitionStrings.length > 0 ? definitionStrings : undefined,
-                note: (note && note.length > 0) ? note : undefined
-            }
-        })
+    return embeddings.data.map((e, i) => ({
+        ...decisions[i],
+        embedding: normalize(e.embedding)
+    }));
 }
 
-async function affectedNotes(decisionId: string): Promise<any> {
-    const decisions = await readDecisions();
-    if (!decisions) return [];
+async function embedQuery(q: string): Promise<number[]> {
+    const res = await openai.embeddings.create({
+        model: "text-embedding-3-large",
+        input: q,
+    });
+    return normalize(res.data[0].embedding);
+}
 
-    const decision = decisions.find(d => d.id === decisionId);
-    if (!decision) return [];
+function normalize(v: number[]): number[] {
+    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    return v.map(x => x / norm);
+}
 
-    return decision.details.affectedNotes;
+function dot(a: number[], b: number[]): number {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+    return s;
+}
+
+async function retrieveInfo(query: string | null, range: MeasureRange | null, decisions: EmbeddedDecision[], k = 5): Promise<any[]> {
+    if (decisions.length === 0) return [];
+
+    const filtered = decisions
+        .filter(d => {
+            if (!d.range || !range) return true
+            return isWithin(d.range.from, range)
+        })
+
+    if (!query) return filtered
+        .map(d => ({
+            id: d.id,
+            summary: d.summary,
+            notes: d.notes,
+        }))
+        .slice(0, k)
+
+    const queryVector = await embedQuery(query);
+
+    return filtered
+        .map(d => ({
+            id: d.id,
+            summary: d.summary,
+            notes: d.notes,
+            score: dot(queryVector, d.embedding),
+        }))
+        .sort((x, y) => y.score - x.score)
+        .slice(0, k)
 }
 
 type PlayMode = "all" | "harmony-only" | "melody-only";
 
+export type Location = {
+    measure: number;
+    beat: number;
+    inRepeat: boolean;
+}
+
+type MeasureRange = {
+    from: Location;
+    to: Location;
+}
+
+const serializeLocation = (location: Location) => {
+    return `${location.measure}/${location.beat}${location.inRepeat ? '-rpt' : ''}`
+}
+
+const isWithin = (location: Location, range: MeasureRange) => {
+    const fromCmp = (a: Location, b: Location) => {
+        if (a.measure !== b.measure) return a.measure - b.measure;
+        if (a.beat !== b.beat) return a.beat - b.beat;
+        if (a.inRepeat !== b.inRepeat) return (a.inRepeat ? 1 : 0) - (b.inRepeat ? 1 : 0);
+        return 0;
+    }
+
+    return fromCmp(location, range.from) >= 0 && fromCmp(location, range.to) <= 0;
+}
+
 type Step = {
-    what: string | null | {
-        from: string;
-        to: string;
-    };
+    what: string | null | MeasureRange;
     mode: PlayMode;
     exaggeration: number;
     sketchiness: number;
@@ -297,9 +349,10 @@ const performInIsolation = async (step: Step, decisions: Decision[]): Promise<an
     let measures: string[] = [];
     if (typeof step.what === 'string') {
         mpmIds = decisions.find((d) => d.id === step.what)?.mpmIDs || [];
+        console.log('performing with MPM IDs:', mpmIds);
     }
     else if (step.what && typeof step.what === 'object') {
-        measures = [step.what.from, step.what.to];
+        measures = [serializeLocation(step.what.from), serializeLocation(step.what.to)];
     }
 
     const response = await fetch('http://localhost:8080/perform', {
@@ -326,22 +379,25 @@ const performInIsolation = async (step: Step, decisions: Decision[]): Promise<an
     }
 }
 
-function systemPrompt(decisions: Decision[]) {
-    const list = decisions.map((d) => `- ${d.measures}: "${d.id}"`).join("\n");
-    return `
-You are Alfred Grünfeld, the pianist. You are performing "Träumerei" by Robert
-Schumann. Your role is to demonstrate these decision to a student.
+const systemPrompt = `
+You are Alfred Grünfeld, the pianist.You are performing "Träumerei" by Robert
+Schumann.Your role is to demonstrate these decision to a student.
 Produce the lesson by repeatedly calling \`play_and_explain\`.
 
 ## Procedure
-- To retrieve information about a set of decisions, call \`retrieve_info\`.
-- To retrieve the chords and the notes affected by a particular decision, call \`affected_notes\`.
-  When talking about vertical units, i.e. chords, refer to chord names (e.g. "F major", etc.) instead
-  of single notes.
+- To retrieve information about your decisions, call \`retrieve_info\`. This function
+  performs semantic search on the decisions and returns detailed information about them.
+  semantic search is done over the short summary (e.g. "Überlegato", "Hinspielen auf ..."), 
+  the actual performance instructions (tempo, dynamics, rubato, ornamentation, ...) and
+  their associated attributes (e.g. @volume, @bpm, @intensity etc.)
+  The maximum number of returned decisions per call is 5. Call this function multiple times if needed.
+  Filter by measure ranges when appropriate.
 - Verbalize only the given information. Put them into context of an overarching narrative.
   If you do not know something for sure, do not say anything about it.
 - Work from general to specific, e.g. start with playing the harmonic reduction and then dive into details
   of specific decision(s), and from left to right.
+- When \`play_and_explain\`'s return value indicates that you were interrupted by the student,
+  stop generating your response immediately.
 - The student can see what you are pointing at, there is no need to refer to bar numbers. You may
   mention however, about which beat inside the bar you are talking.
 - Use repetition pedagogically, e.g. by playing the same thing three, four, five times.
@@ -383,57 +439,64 @@ Produce the lesson by repeatedly calling \`play_and_explain\`.
 
 ## Hints
 Some basic principles of MPM:
-* dates are in given ticks, PPQ = 720
+* The following instruction types are used: tempo, dynamics, accentuationPattern, ornament, rubato, articulation.
+* dates are in given ticks with PPQ = 720
 * \`<accentuationPattern>\` defines the dynamic accentuation patterns on top of the macro dynamics (given
    with <dynamics>).
 * \`<ornament>\` is used to specify arpeggiations. @scale refers to how the associated dynamicsGradient should be scaled.
 * \`<rubato>\` defines micro-timing distortion on top of the macro <tempo> modifications.
   Within each frame, the timing is stretched/compressed through the
   @intensity parameter.
-
-## Decisions
-Measures are given as "T. [bar]/[beat]". Wdh. indicates that the decision occurs in a repeat. Measure 0 refers
-to the initial upbeat before bar 1.
-Format: "measures: "decision_id""
-
-Your decisions:
-${list}
 `.trim();
-}
 
 const tools: OpenAI.Responses.Tool[] = [
     {
         type: "function",
-        name: "affected_notes",
-        description: "Get the notes affected by a given decision ID.",
-        parameters: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-                decision_id: {
-                    type: "string",
-                    description: "Exact ID of decision to look up."
-                },
-            },
-            required: ["decision_id"],
-        },
-        strict: true,
-    },
-    {
-        type: "function",
         name: "retrieve_info",
-        description: "Get detailed info on a given set of decision IDs.",
+        description: "Get detailed info about performance decisions.",
         parameters: {
             type: "object",
             additionalProperties: false,
             properties: {
-                decision_ids: {
-                    type: "array",
-                    items: { type: "string" },
-                    description: "Exact IDs of decision to look up."
+                range: {
+                    anyOf: [
+                        { type: "null" },
+                        {
+                            type: "object",
+                            additionalProperties: false,
+                            properties: {
+                                from: {
+                                    type: "object",
+                                    additionalProperties: false,
+                                    properties: {
+                                        measure: { type: "number" },
+                                        beat: { type: "number" },
+                                        inRepeat: { type: "boolean" }
+                                    },
+                                    required: ["measure", "beat", "inRepeat"]
+                                },
+                                to: {
+                                    type: "object",
+                                    additionalProperties: false,
+                                    properties: {
+                                        measure: { type: "number" },
+                                        beat: { type: "number" },
+                                        inRepeat: { type: "boolean" }
+                                    },
+                                    required: ["measure", "beat", "inRepeat"]
+                                },
+                            },
+                            required: ["from", "to"],
+                        }
+                    ],
+                    description: "Leave null to not apply any range filter."
+                },
+                query: {
+                    type: ["string", "null"],
+                    description: "Leave null to include everything."
                 },
             },
-            required: ["decision_ids"],
+            required: ["query", "range"],
         },
         strict: true,
     },
@@ -455,13 +518,31 @@ const tools: OpenAI.Responses.Tool[] = [
                             "type": "string"
                         },
                         {
-                            "type": "object",
-                            "additionalProperties": false,
-                            "properties": {
-                                "from": { "type": "string" },
-                                "to": { "type": "string" }
+                            type: "object",
+                            additionalProperties: false,
+                            properties: {
+                                from: {
+                                    type: "object",
+                                    additionalProperties: false,
+                                    properties: {
+                                        measure: { type: "number" },
+                                        beat: { type: "number" },
+                                        inRepeat: { type: "boolean" }
+                                    },
+                                    required: ["measure", "beat", "inRepeat"]
+                                },
+                                to: {
+                                    type: "object",
+                                    additionalProperties: false,
+                                    properties: {
+                                        measure: { type: "number" },
+                                        beat: { type: "number" },
+                                        inRepeat: { type: "boolean" }
+                                    },
+                                    required: ["measure", "beat", "inRepeat"]
+                                },
                             },
-                            "required": ["from", "to"]
+                            required: ["from", "to"],
                         }
                     ]
                 },
@@ -529,6 +610,8 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
         return;
     }
 
+    const embeddedDecisions = await embedDecisions();
+
     const send = (event: string, data: any) => {
         res.write(`event: ${event}\n`);
         res.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
@@ -543,13 +626,14 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
 
         if (notes.length > 0) {
             const msm = await asMSM(scores.get('all') || '');
-            selectedNotes = rangeOfNotes(notes, msm);
+            const range = rangeOfNotes(notes, msm);
+            if (range) {
+                selectedNotes = `T. ${serializeLocation(range.from)} bis T. ${serializeLocation(range.to)}`
+            }
         }
     }
 
-    const system = systemPrompt(decisions);
-    const user = `${userRequest}
-${selectedNotes ? `User selection: ${selectedNotes}` : ''}`;
+    const user = `${userRequest} ${selectedNotes ? `\nUser selection: ${selectedNotes}` : ''}`;
 
     // Helper: run a single streamed turn, and if it makes tool calls, resolve them and recurse.
     async function run(args: {
@@ -559,7 +643,7 @@ ${selectedNotes ? `User selection: ${selectedNotes}` : ''}`;
         const stream = await openai.responses.create({
             model: MODEL,
             stream: true,
-            instructions: system,
+            instructions: systemPrompt,
             tools,
             ...args,
             parallel_tool_calls: false
@@ -606,12 +690,8 @@ ${selectedNotes ? `User selection: ${selectedNotes}` : ''}`;
 
                     toolOutput = ack;
                 } else if (toolName === "retrieve_info") {
-                    const info = await retrieveInfo(args.decision_ids);
-                    // console.log('info', info)
+                    const info = await retrieveInfo(args.query, args.range, embeddedDecisions);
                     toolOutput = info;
-                } else if (toolName === "affected_notes") {
-                    const notes = await affectedNotes(args.decision_id);
-                    toolOutput = notes;
                 }
 
                 await run({

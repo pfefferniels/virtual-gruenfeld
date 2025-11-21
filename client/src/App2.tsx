@@ -55,6 +55,7 @@ class Scheduler {
     stop() {
         if (this.onCancel) this.onCancel();
         this.running = false;
+        this.buffer = [];
     }
 }
 

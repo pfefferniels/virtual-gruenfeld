@@ -1,4 +1,5 @@
 import { JSDOM } from 'jsdom'
+import { Location } from '../api/lesson';
 
 const DOMParser = new JSDOM().window.DOMParser;
 
@@ -68,7 +69,7 @@ export function extractInfo(doc: Document): ExtractedInfo {
 export function getMeasureForDate(
   info: ExtractedInfo,
   date: number
-): { measure: number; beat: number; inRepeat: boolean } {
+): Location {
   const { ppq, timeSignatures, sections } = info;
   if (!Number.isFinite(date)) throw new Error("date must be a number. Received " + date);
 

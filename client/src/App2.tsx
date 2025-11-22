@@ -82,10 +82,9 @@ async function sendAck(
 export const App = () => {
     const [currentStep, setCurrentStep] = useState<Step | null>(null);
     const [currentNoteIDs, setCurrentNoteIDs] = useState<string[]>([]);
-    const [question, setQuestion] = useState<string>("");
     const [status, setStatus] = useState<'thinking' | 'running' | 'idle'>('idle');
 
-    const { play, stop } = usePiano();
+    const { play, stop, playSingleNote } = usePiano();
 
     const sessionId = useRef<string>()
     const scheduler = useRef<Scheduler>(new Scheduler())
@@ -108,6 +107,8 @@ export const App = () => {
         const finished = new Promise<void>(resolve => {
             audio?.addEventListener("ended", () => resolve(), { once: true });
         });
+
+        await new Promise<void>(res => setTimeout(res, 1000)); // slight delay to improve naturalness
 
         audio.play().catch(e => console.error("Audio play error:", e));
 
@@ -183,6 +184,10 @@ export const App = () => {
         if (currentNoteIDs.length > 0) {
             url += `&at=${currentNoteIDs.join(',')}`;
         }
+        if (sessionId.current) {
+            url += `&session=${sessionId.current}`;
+        }
+
         eventSource.current = new EventSource(url, { withCredentials: true });
         const evtSource = eventSource.current;
 
@@ -222,6 +227,12 @@ export const App = () => {
                     setCurrentNoteIDs(noteIDs);
                 }}
             />
+
+            <button onClick={() => {
+                playSingleNote(41, 2000, 0.3)
+            }}>
+                Test Note
+            </button>
 
             <Chat
                 onAsk={ask}

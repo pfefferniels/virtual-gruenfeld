@@ -3,8 +3,8 @@ import type { Request, Response } from "express";
 import OpenAI from "openai";
 import path from 'path';
 import fs from 'fs';
-import { AnyDefinition, AnyInstruction, importMPM } from "mpm-ts";
-import { asMSM, extractInfo, getMeasureForDate } from "../utils/asMSM";
+import { AnyInstruction, ArticulationDef, importMPM, OrnamentDef } from "mpm-ts";
+import { asMSM, ExtractedInfo, extractInfo, getMeasureForDate } from "../utils/asMSM";
 import { ElevenLabsClient } from '@elevenlabs/elevenlabs-js';
 
 const scores = new Map<PlayMode, string>();
@@ -47,6 +47,7 @@ type Decision = {
     id: string;
     range: MeasureRange | null;
     summary: string;
+    elements: string[];
     notes: string;
     mpmIDs: string[];
 };
@@ -73,46 +74,69 @@ const rangeOfNotes = (notes: string[], msm: Document): MeasureRange | null => {
     return { from, to }
 }
 
-const stringify = (el: object, indent = 0) => {
+const stringify = <T extends AnyInstruction>(el: T, info: ExtractedInfo, indent = 0) => {
     let str = ''
-    if ('type' in el) {
-        str += `${el.type} `;
+    str += `${el.type} `;
+    if ('date' in el && typeof el.date === 'number') {
+        const location = getMeasureForDate(info, el.date)
+        str += `b.${serializeLocation(location)}`;
     }
-    if ('date' in el) {
-        str += `${el.date}`;
-    }
-    if ('endDate' in el) {
-        str += `-${el.endDate}`;
+    if ('endDate' in el && typeof el.endDate === 'number') {
+        const location = getMeasureForDate(info, el.endDate)
+        str += `-b. ${serializeLocation(location)} `;
     }
     str += ': ';
 
-    for (let [key, value] of Object.entries(el)) {
-        if (key === 'xml:id' || key === 'type' || key === 'date' || key === 'endDate' || key === 'corresp' || key === 'name.ref' || key === 'name') continue;
-        if (key === 'children') {
-            if (!Array.isArray(value)) continue
-            for (const child of value) {
-                str += `\n${' '.repeat(indent + 2)}`;
-                str += stringify(child, indent + 2);
-            }
-            continue
+    if (el.type === 'dynamics') {
+        if ('volume' in el)
+            str += `${(+el.volume).toFixed(0)} `;
+        if (el['transition.to']) {
+            str += `→${(+el['transition.to']).toFixed(0)}`;
         }
-        if (typeof value === 'number') {
-            value = value.toFixed(1);
+        return str
+    }
+    else if (el.type === 'tempo') {
+        str += `${el.bpm.toFixed(0)}bpm`
+        if (el["transition.to"]) {
+            str += `→${el['transition.to'].toFixed(0)}bpm`;
         }
-        if (['boolean', 'number', 'string'].includes(typeof value)) {
-            str += `${key}=${value} `;
-        }
-        else if (Array.isArray(value)) {
-            str += `${key}=[${value.map(v => JSON.stringify(v)).join(',')}]`;
-        }
-        else {
-            str += `${key}=${JSON.stringify(value)} `;
+        return str
+    }
+    else if (el.type === 'movement') {
+        str += `${el.controller} ${el.position.toFixed(1)}`;
+        if (el["transition.to"]) {
+            str += `→${el['transition.to'].toFixed(1)}`;
         }
     }
+    else if (el.type === 'ornament') {
+        const def = el as unknown as OrnamentDef;
+        if (def.temporalSpread) {
+            str += `temporalSpread=${def.temporalSpread.frameLength} ticks`;
+        }
+    }
+    else if (el.type === 'rubato') {
+        if (el.intensity !== undefined) {
+            str += `intensity=${el.intensity.toFixed(2)} `;
+        }
+        if (el.frameLength !== undefined) {
+            str += `length=${el.frameLength / 720 / 4}`;
+        }
+    }
+    else if (el.type === 'articulation') {
+        const def = el as unknown as ArticulationDef;
+        if (def.relativeDuration) {
+            str += `relativeDuration=${def.relativeDuration.toFixed(2)} `;
+        }
+    }
+
     return str.trim();
 }
 
+let decisions: Decision[] | null = null;
+
 const readDecisions = async (): Promise<Decision[] | undefined> => {
+    if (decisions) return decisions;
+
     // Construct path to MEI file
     const infoPath = path.join(process.cwd(), 'assets', 'all', 'info.json');
 
@@ -128,7 +152,7 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
 
     const mpm = importMPM(mpmContent)
 
-    const decisions: Decision[] = []
+    const result: Decision[] = []
     for (const arg of json.creation.argumentations) {
         if (arg.conclusion.that.assigned.length === 0) continue
 
@@ -161,6 +185,7 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
         }
 
         const range = rangeOfNotes(notes.map(n => n.getAttribute('xml:id') || ''), msm)
+        const extractedInfo = extractInfo(msm);
 
         const instructions = mpm.getInstructions()
             .filter(i => mpmIDs.has(i["xml:id"]))
@@ -168,7 +193,7 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
                 if ('name.ref' in i && i['name.ref']) {
                     const def = mpm.getAnyDefinition(i['name.ref']);
                     if (def) {
-                        return { ...i, ...def };
+                        return { ...def, ...i };
                     }
                 }
                 return i;
@@ -176,23 +201,30 @@ const readDecisions = async (): Promise<Decision[] | undefined> => {
             .filter(i => !!i)
 
 
-        decisions.push({
+        result.push({
             id: arg.id,
             range,
-            summary: `${arg.conclusion.that.assigned}. ${arg.note ? `(${arg.note})` : ''}\n${instructions.map(stringify).join('\n')}`,
+            summary: `${arg.conclusion.that.assigned}. ${arg.note ? `(${arg.note})` : ''}`,
+            elements: instructions.map(i => stringify(i, extractedInfo)),
             notes: notesStr,
             mpmIDs: instructions.map(i => i["xml:id"])
         })
     }
 
-    return decisions
+    // set cache
+    decisions = result;
+    return result
 }
 
 type EmbeddedDecision = Decision & {
     embedding: number[];
 };
 
+let embeddedDecisions: EmbeddedDecision[] | null = null
+
 async function embedDecisions(): Promise<EmbeddedDecision[]> {
+    if (embeddedDecisions) return embeddedDecisions;
+
     const decisions = await readDecisions();
     if (!decisions) return [];
 
@@ -202,10 +234,13 @@ async function embedDecisions(): Promise<EmbeddedDecision[]> {
         input: texts
     });
 
-    return embeddings.data.map((e, i) => ({
+    // set cache
+    embeddedDecisions = embeddings.data.map((e, i) => ({
         ...decisions[i],
         embedding: normalize(e.embedding)
     }));
+
+    return embeddedDecisions
 }
 
 async function embedQuery(q: string): Promise<number[]> {
@@ -233,13 +268,14 @@ async function retrieveInfo(query: string | null, range: MeasureRange | null, de
     const filtered = decisions
         .filter(d => {
             if (!d.range || !range) return true
-            return isWithin(d.range.from, range)
+            return overlaps(d.range, range)
         })
 
     if (!query) return filtered
         .map(d => ({
             id: d.id,
             summary: d.summary,
+            elements: d.elements,
             notes: d.notes,
         }))
         .slice(0, k)
@@ -250,6 +286,7 @@ async function retrieveInfo(query: string | null, range: MeasureRange | null, de
         .map(d => ({
             id: d.id,
             summary: d.summary,
+            elements: d.elements,
             notes: d.notes,
             score: dot(queryVector, d.embedding),
         }))
@@ -283,6 +320,17 @@ const isWithin = (location: Location, range: MeasureRange) => {
     }
 
     return fromCmp(location, range.from) >= 0 && fromCmp(location, range.to) <= 0;
+}
+
+const overlaps = (a: MeasureRange, b: MeasureRange) => {
+    const fromCmp = (locA: Location, locB: Location) => {
+        if (locA.measure !== locB.measure) return locA.measure - locB.measure;
+        if (locA.beat !== locB.beat) return locA.beat - locB.beat;
+        if (locA.inRepeat !== locB.inRepeat) return (locA.inRepeat ? 1 : 0) - (locB.inRepeat ? 1 : 0);
+        return 0;
+    }
+
+    return fromCmp(a.from, b.to) <= 0 && fromCmp(b.from, a.to) <= 0;
 }
 
 type Step = {
@@ -349,7 +397,7 @@ const performInIsolation = async (step: Step, decisions: Decision[]): Promise<an
     let measures: string[] = [];
     if (typeof step.what === 'string') {
         mpmIds = decisions.find((d) => d.id === step.what)?.mpmIDs || [];
-        console.log('performing with MPM IDs:', mpmIds);
+        // console.log('performing with MPM IDs:', mpmIds);
     }
     else if (step.what && typeof step.what === 'object') {
         measures = [serializeLocation(step.what.from), serializeLocation(step.what.to)];
@@ -385,57 +433,49 @@ Schumann.Your role is to demonstrate these decision to a student.
 Produce the lesson by repeatedly calling \`play_and_explain\`.
 
 ## Procedure
-- To retrieve information about your decisions, call \`retrieve_info\`. This function
-  performs semantic search on the decisions and returns detailed information about them.
-  semantic search is done over the short summary (e.g. "Überlegato", "Hinspielen auf ..."), 
-  the actual performance instructions (tempo, dynamics, rubato, ornamentation, ...) and
-  their associated attributes (e.g. @volume, @bpm, @intensity etc.)
-  The maximum number of returned decisions per call is 5. Call this function multiple times if needed.
-  Filter by measure ranges when appropriate.
-- Verbalize only the given information. Put them into context of an overarching narrative.
-  If you do not know something for sure, do not say anything about it.
-- Work from general to specific, e.g. start with playing the harmonic reduction and then dive into details
-  of specific decision(s), and from left to right.
+- Use \`retrieve_info\` to gather relevant musical decisions.
+  This command returns the top 5 decisions matching a specified query and
+  measure range. You may call it multiple times, refining parameters as needed.
+- Example queries:
+    - query: "direction towards", range: null
+      => retrieves all decisions about the musical direction towards something, throughout the whole piece
+    - query: "rubato with @intensity ca. 0.8", range: { from: { measure: 5, beat: 1, inRepeat: false }, to: { measure: 10, beat: 4, inRepeat: false } }
+      => retrieve all decisions about inegalité between measure 5 and 10
+    - query: null, range: { from: { measure: 0, beat: 1, inRepeat: false }, to: { measure: 4, beat: 4, inRepeat: false } }
+        => retrieve all decisions that occur between the upbeat measure and measure 4
+- Verbalize only the given information. Frame your explanations within an overarching narrative.
+  Omit uncertain information.
+- Work from general to specific elements (e.g., begin with harmonic reduction, then
+  dive into detailed decisions), moving left to right through the piece.
 - When \`play_and_explain\`'s return value indicates that you were interrupted by the student,
   stop generating your response immediately.
 - The student can see what you are pointing at, there is no need to refer to bar numbers. You may
   mention however, about which beat inside the bar you are talking.
-- Use repetition pedagogically, e.g. by playing the same thing three, four, five times.
-- When repeating, you may change e.g. the exaggeration, the sketchiness, by playing only the
-  melody for reference, or by giving it context, or all of these. However, you may also
-  repeat exactly as before.
-- If you change something, reflect in two or three words about what you were changing
-  (e.g. "with a bit of context", when using context, "as written" when using mode \`all\` after having 
-  played a harmonic reduction etc.)
-- After having demonstrated some decisions, you should summarize e.g. by playing the whole passage in which
-  they all occur.
-- When a decision's description is somewhat ambigious, you should reason about it by looking at 
-  the raw data, i.e. the associated instructions and definitions. You could e.g. first demonstrate and embrace
-  the ambiguity, then think about it more thoroughly and explain and demonstrate more concretely.
-- Many decisions are about the same kind of musical gesture (e.g. shading something dynamically, etc.).
-  Demonstrate only one instance and mention that (and where) there are more instances of the same gesture.
+- Always repeat your demonstrations 2-5 times. Sometimes, but not always, adjust exaggeration, sketchiness,
+  add melody isolation or context – when you consider it helpful.
+- When repeating differently, reflect briefly on what is different.
+- When you chose to speak while playing, slightly increase the sketchiness and always repeat
+  once more afterwards without speaking.
+- After demonstrating decisions, summarize with a performance of the whole relevant passage.
+- For ambiguous decision descriptions, use all available raw data, including instructions/definitions,
+  to model ambiguity for the student, then provide a concrete explanation.
+- When multiple decisions correspond to a single gesture (e.g., dynamic shading), demonstrate one instance
+  and mention where others occur.
 
 ## Parameter descriptions
-- Use "mode" to define, what to play: this can be "all" (playing all notes, as written), "harmony-only"
-  playing a harmonic reduction, or "melody-only" (playing only the melody line).
-- Use "what" to define which portion to play. Possible values are:
-  - string (= decision ID): play only a specific decision
-  - from-to pair of measure numbers. Measures must be given as "[measure number][-rpt]", e.g. "1", "1-rpt".
-    Do not include beat information.
-  - null (= play everything, i.e. the whole piece, from first to the last measure)
-- When "overlap" is set to true, you speak while playing. Otherwise, you first explain and then demonstrate.
-  Do not use overlap when playing a harmonic reduction.
-- When playing, exaggerate your decision to communicate its character using "exaggeration".
-- Use "sketchiness" to play in a more hasting, fleeting manner. When playing a harmonic reduction,
-  you must always increase the sketchiness significantly (i.e. > 2.0).
-  Do not reduce sketchiness to less than 1.0.
-- For "exaggaration", values less than 1.0 will flatten the expressivity, values greater than 1.0 will exaggerate it.
-- When the decision spans a long passage, e.g. many measures, or basically throughout the whole piece, you
-  should "exemplify", meaning that only a representative portion will be played. Do not use this option when "what" is a 
-  measure range. To know how long a passage is, you should consider the given bar numbers over which it spans.
-- When the decision is somewhat short, e.g. around three, four beats or less (NB: may cross measure boundary),
-  add "context" around it. Context is given as beat length, e.g. 0.25 = a quarter note before and after.
-- addition about "message": Never speak decision IDs.
+- "mode": what to play; options: "all" (complete score), "harmony-only" (harmonic structure), or "melody-only" (melodic line).
+- "what": portion to play; may be:
+- a string (decision ID): a specific decision
+- an array specifying a measure range (using "[measure number][-rpt]")
+- null: the full piece
+- "overlap": if true, narrate while playing; if false, explain first, then demonstrate.
+- "exaggeration": controls how strongly a decision is expressed.
+- "sketchiness": increases fleetingness of the playing. For harmonic reductions always set sketchiness > 1.8.
+  Sketchiness < 1.0 is not allowed.
+- Exaggeration < 1.0 flattens expressivity; >1.0 enhances it.
+- When a decision spans many measures, exemplify with a short segment. Do not use this when specifying a range as "what". Use bar numbers only to determine passage length.
+- For very short decisions (~3–4 beats or less, even across measures), add context (as beat length, e.g., 0.25 = a quarter note before/after).
+- Never mention decision IDs in the spoken/described output.
 
 ## Hints
 Some basic principles of MPM:
@@ -445,7 +485,7 @@ Some basic principles of MPM:
    with <dynamics>).
 * \`<ornament>\` is used to specify arpeggiations. @scale refers to how the associated dynamicsGradient should be scaled.
 * \`<rubato>\` defines micro-timing distortion on top of the macro <tempo> modifications.
-  Within each frame, the timing is stretched/compressed through the
+  Within each frame, the timing is stretched or compressed through the
   @intensity parameter.
 `.trim();
 
@@ -589,11 +629,18 @@ const tools: OpenAI.Responses.Tool[] = [
 
 type Query = { question: string; at?: string, session?: string };
 
+const msms = new Map<PlayMode, Document>();
+
 lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => {
     const { question: userRequest, at } = req.query;
 
     const sessionId = (req.query.session as string) || crypto.randomUUID();
     const session = getOrCreateSession(sessionId);
+
+    for (const waiter of session.waiters.values()) {
+        waiter.resolve({ status: "interrupted" });
+    }
+    session.waiters.clear();
 
     // SSE headers
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -601,8 +648,10 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
     res.setHeader("Connection", "keep-alive");
 
     // send sessionId to client right away (so client knows where to ack)
-    res.write(`event: session\n`);
-    res.write(`data: ${JSON.stringify({ sessionId })}\n\n`);
+    if (!req.query.session) {
+        res.write(`event: session\n`);
+        res.write(`data: ${JSON.stringify({ sessionId })}\n\n`);
+    }
 
     const decisions = await readDecisions();
     if (!decisions) {
@@ -625,7 +674,12 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
             .filter(s => s.length > 0);
 
         if (notes.length > 0) {
-            const msm = await asMSM(scores.get('all') || '');
+            let msm = msms.get('all');
+            if (!msm) {
+                msm = await asMSM(scores.get('all') || '');
+                msms.set('all', msm);
+            }
+
             const range = rangeOfNotes(notes, msm);
             if (range) {
                 selectedNotes = `T. ${serializeLocation(range.from)} bis T. ${serializeLocation(range.to)}`
@@ -640,10 +694,16 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
         previous_response_id?: string;
         input: any[];
     }) {
+        if (!args.previous_response_id) {
+            args.input.push({
+                role: "system",
+                content: systemPrompt
+            })
+        }
+
         const stream = await openai.responses.create({
             model: MODEL,
             stream: true,
-            instructions: systemPrompt,
             tools,
             ...args,
             parallel_tool_calls: false

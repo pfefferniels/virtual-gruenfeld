@@ -18,15 +18,17 @@ for (const mode of ['all', 'harmony-only', 'melody-only'] as PlayMode[]) {
 const mpmPath = path.join(process.cwd(), 'assets', 'all', 'performance.mpm');
 const mpmContent = fs.readFileSync(mpmPath, 'utf8');
 
-const sessions = new Map<string, {
-    waiters: Map<string, { resolve: (v: any) => void }>,
+type Session = {
+    pendingCalls: Map<string, { resolve: (v: any) => void } | null>,
     responseId?: string
-}>();
+}
 
-function getOrCreateSession(id: string) {
+const sessions = new Map<string, Session>();
+
+function getOrCreateSession(id: string): Session {
     let s = sessions.get(id);
     if (!s) {
-        s = { waiters: new Map() };
+        s = { pendingCalls: new Map() };
         sessions.set(id, s);
     }
     return s;
@@ -337,8 +339,8 @@ type Step = {
     what: string | null | MeasureRange;
     mode: PlayMode;
     exaggeration: number;
-    sketchiness: number;
-    exemplify: boolean;
+    flightiness: number;
+    cap: boolean;
     context: number;
     message: string;
     emotion: string;
@@ -411,8 +413,8 @@ const performInIsolation = async (step: Step, decisions: Decision[]): Promise<an
             mpmIds,
             measures,
             exaggerate: step.exaggeration,
-            sketchiness: step.sketchiness,
-            exemplify: step.exemplify,
+            sketchiness: step.flightiness,
+            exemplify: step.cap,
             context: step.context
         })
     });
@@ -433,16 +435,14 @@ Schumann.Your role is to demonstrate these decision to a student.
 Produce the lesson by repeatedly calling \`play_and_explain\`.
 
 ## Procedure
-- Use \`retrieve_info\` to gather relevant musical decisions.
-  This command returns the top 5 decisions matching a specified query and
-  measure range. You may call it multiple times, refining parameters as needed.
-- Example queries:
-    - query: "direction towards", range: null
-      => retrieves all decisions about the musical direction towards something, throughout the whole piece
-    - query: "rubato with @intensity ca. 0.8", range: { from: { measure: 5, beat: 1, inRepeat: false }, to: { measure: 10, beat: 4, inRepeat: false } }
-      => retrieve all decisions about inegalité between measure 5 and 10
-    - query: null, range: { from: { measure: 0, beat: 1, inRepeat: false }, to: { measure: 4, beat: 4, inRepeat: false } }
-        => retrieve all decisions that occur between the upbeat measure and measure 4
+- You may respond with message content only, if something went wrong.
+  Otherwise, you may only respond by calling one of the allowed tools (e.g. \`play_and_explain\`).
+- Call \`retrieve_info\` every time to gather relevant musical decisions.
+  This function returns the top 5 decisions matching a specified query and
+  measure range. Example:
+      query: "direction towards, dynamics", range: { from: { measure: 1, beat: 1, inRepeat: false }, to: { measure: 8, beat: 4, inRepeat: true } }
+      => retrieves all decisions about the musical direction towards something, realised through <dynamics> element, within
+         the first 8 measures (including the repetition).
 - Verbalize only the given information. Frame your explanations within an overarching narrative.
   Omit uncertain information.
 - Work from general to specific elements (e.g., begin with harmonic reduction, then
@@ -451,10 +451,10 @@ Produce the lesson by repeatedly calling \`play_and_explain\`.
   stop generating your response immediately.
 - The student can see what you are pointing at, there is no need to refer to bar numbers. You may
   mention however, about which beat inside the bar you are talking.
-- Always repeat your demonstrations 2-5 times. Sometimes, but not always, adjust exaggeration, sketchiness,
+- Always repeat your demonstrations 2-5 times. Sometimes, but not always, adjust exaggeration, flightiness,
   add melody isolation or context – when you consider it helpful.
 - When repeating differently, reflect briefly on what is different.
-- When you chose to speak while playing, slightly increase the sketchiness and always repeat
+- When you chose to speak while playing, slightly increase the flightiness and always repeat
   once more afterwards without speaking.
 - After demonstrating decisions, summarize with a performance of the whole relevant passage.
 - For ambiguous decision descriptions, use all available raw data, including instructions/definitions,
@@ -464,16 +464,19 @@ Produce the lesson by repeatedly calling \`play_and_explain\`.
 
 ## Parameter descriptions
 - "mode": what to play; options: "all" (complete score), "harmony-only" (harmonic structure), or "melody-only" (melodic line).
-- "what": portion to play; may be:
-- a string (decision ID): a specific decision
-- an array specifying a measure range (using "[measure number][-rpt]")
-- null: the full piece
-- "overlap": if true, narrate while playing; if false, explain first, then demonstrate.
-- "exaggeration": controls how strongly a decision is expressed.
-- "sketchiness": increases fleetingness of the playing. For harmonic reductions always set sketchiness > 1.8.
+- "what": the portion to play. Can be:
+  - a single decision ID (string)
+  - a measure-range object
+  - null for the full piece
+- "overlap":
+   - true → narrate while playing (use only for longer passages)
+   - false → explain first, then play
+- "exaggeration": controls how strongly a decision is expressed
+- "flightiness": increases fleetingness of the playing. For harmonic reductions always set flightiness > 1.8.
   Sketchiness < 1.0 is not allowed.
 - Exaggeration < 1.0 flattens expressivity; >1.0 enhances it.
-- When a decision spans many measures, exemplify with a short segment. Do not use this when specifying a range as "what". Use bar numbers only to determine passage length.
+- When "what" is a specific decision spanning many measures, you might cap it. This limits 
+  the playing to the a maximum length of two measures.
 - For very short decisions (~3–4 beats or less, even across measures), add context (as beat length, e.g., 0.25 = a quarter note before/after).
 - Never mention decision IDs in the spoken/described output.
 
@@ -593,13 +596,13 @@ const tools: OpenAI.Responses.Tool[] = [
                 "exaggeration": {
                     "type": "number"
                 },
-                "sketchiness": {
+                "flightiness": {
                     "type": "number"
                 },
                 "overlap": {
                     "type": "boolean"
                 },
-                "exemplify": {
+                "cap": {
                     "type": "boolean"
                 },
                 "context": {
@@ -616,9 +619,9 @@ const tools: OpenAI.Responses.Tool[] = [
                 "what",
                 "mode",
                 "exaggeration",
-                "sketchiness",
+                "flightiness",
                 "overlap",
-                "exemplify",
+                "cap",
                 "context",
                 "message",
                 "emotion"
@@ -631,16 +634,41 @@ type Query = { question: string; at?: string, session?: string };
 
 const msms = new Map<PlayMode, Document>();
 
+const abortPendingCalls = async (session: Session) => {
+    if (!session.pendingCalls.size || !session.responseId) return;
+
+    const abortOutputs = Array
+        .from(session.pendingCalls.keys())
+        .map((callId) => ({
+            type: "function_call_output" as const,
+            call_id: callId,
+            output: JSON.stringify({ status: "aborted" }),
+        }));
+
+    for (const waiter of session.pendingCalls.values()) {
+        if (waiter && waiter.resolve) {
+            waiter.resolve({ status: "aborted" });
+        }
+    }
+
+    // Single responses.create that advances the chain
+    const abortResponse = await openai.responses.create({
+        model: MODEL,
+        previous_response_id: session.responseId,
+        input: abortOutputs,
+    });
+
+    session.responseId = abortResponse.id;
+    session.pendingCalls.clear();
+}
+
 lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => {
     const { question: userRequest, at } = req.query;
 
     const sessionId = (req.query.session as string) || crypto.randomUUID();
     const session = getOrCreateSession(sessionId);
 
-    for (const waiter of session.waiters.values()) {
-        waiter.resolve({ status: "interrupted" });
-    }
-    session.waiters.clear();
+    abortPendingCalls(session)
 
     // SSE headers
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -650,12 +678,14 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
     // send sessionId to client right away (so client knows where to ack)
     if (!req.query.session) {
         res.write(`event: session\n`);
-        res.write(`data: ${JSON.stringify({ sessionId })}\n\n`);
+        res.write(
+            `data: ${JSON.stringify({ sessionId })}\n\n`
+        );
     }
 
     const decisions = await readDecisions();
     if (!decisions) {
-        res.status(500).json({ error: "No reconstruction data available." });
+        res.status(500).json({ error: "No decision data available." });
         return;
     }
 
@@ -669,25 +699,25 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
     let selectedNotes: string | undefined = undefined;
     if (at) {
         const notes = at
-            .split(',')
-            .map(s => s.trim())
-            .filter(s => s.length > 0);
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
 
         if (notes.length > 0) {
-            let msm = msms.get('all');
+            let msm = msms.get("all");
             if (!msm) {
-                msm = await asMSM(scores.get('all') || '');
-                msms.set('all', msm);
+                msm = await asMSM(scores.get("all") || "");
+                msms.set("all", msm);
             }
 
             const range = rangeOfNotes(notes, msm);
             if (range) {
-                selectedNotes = `T. ${serializeLocation(range.from)} bis T. ${serializeLocation(range.to)}`
+                selectedNotes = `b. ${serializeLocation(range.from)} to b. ${serializeLocation(range.to)}`;
             }
         }
     }
 
-    const user = `${userRequest} ${selectedNotes ? `\nUser selection: ${selectedNotes}` : ''}`;
+    const user = `${userRequest} ${selectedNotes ? `\nUser selection: ${selectedNotes}` : ""}`;
 
     // Helper: run a single streamed turn, and if it makes tool calls, resolve them and recurse.
     async function run(args: {
@@ -697,8 +727,8 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
         if (!args.previous_response_id) {
             args.input.push({
                 role: "system",
-                content: systemPrompt
-            })
+                content: systemPrompt,
+            });
         }
 
         const stream = await openai.responses.create({
@@ -706,34 +736,43 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
             stream: true,
             tools,
             ...args,
-            parallel_tool_calls: false
+            parallel_tool_calls: false,
         });
 
-        let toolName, callId
+        let toolName: string | undefined;
+        let callId: string | undefined;
+
         for await (const ev of stream) {
-            if (ev.type === 'response.created') {
+            if (ev.type === "response.created") {
+                // track the latest response id for this session
                 session.responseId = ev.response.id;
             }
-            if (ev.type === "response.output_item.added" && ev.item.type === "function_call") {
+
+            if (
+                ev.type === "response.output_item.added" &&
+                ev.item.type === "function_call"
+            ) {
                 toolName = ev.item.name;
                 callId = ev.item.call_id;
+
+                console.log("added tool call", toolName, callId);
+                if (callId) {
+                    session.pendingCalls.set(callId, null);
+                }
             }
 
             // Accumulate arguments as they stream in
             if (ev.type === "response.function_call_arguments.done") {
-                // console.log('function call args done', ev, toolName, callId);
                 if (!toolName || !callId) continue; // should not happen
 
                 let toolOutput: any = { ok: true };
                 const args = JSON.parse(ev.arguments);
-                const stepId = crypto.randomUUID();
-                // console.log('args', args);
 
                 if (toolName === "play_and_explain") {
                     const step: Step = args;
                     const [audio, performance] = await Promise.all([
                         speakExplanation(step),
-                        performInIsolation(step, decisions || [])
+                        performInIsolation(step, decisions || []),
                     ]);
                     const { midi_b64, noteIDs } = performance;
                     send("step", {
@@ -741,19 +780,27 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
                         audio,
                         midi: midi_b64,
                         noteIDs,
-                        stepId
+                        stepId: callId,
                     });
 
+                    // Wait for client ACK
                     const ack = await new Promise((resolve) => {
-                        session.waiters.set(stepId, { resolve });
+                        session.pendingCalls.set(callId!, { resolve });
                     });
 
                     toolOutput = ack;
                 } else if (toolName === "retrieve_info") {
-                    const info = await retrieveInfo(args.query, args.range, embeddedDecisions);
+                    const info = await retrieveInfo(
+                        args.query,
+                        args.range,
+                        embeddedDecisions
+                    );
                     toolOutput = info;
                 }
 
+                session.pendingCalls.delete(callId);
+
+                // Continue conversation with tool output
                 await run({
                     previous_response_id: session.responseId,
                     input: [
@@ -763,20 +810,15 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
                             output: JSON.stringify(toolOutput),
                         },
                     ],
-                })
+                });
             }
-
-            // if (!toolName && ev.type === "response.completed") {
-            //   send("done", "[DONE]");
-            //   return;
-            // }
         }
     }
 
     try {
         await run({
             input: [{ role: "user", content: user }],
-            previous_response_id: session.responseId
+            previous_response_id: session.responseId,
         });
     } catch (e: any) {
         send("error", { message: e?.message ?? String(e) });
@@ -785,15 +827,16 @@ lessonRouter.get("/", async (req: Request<{}, {}, {}, Query>, res: Response) => 
     }
 });
 
-lessonRouter.post("/:session/ack", express.json(), (req, res) => {
+lessonRouter.post("/:session/ack", express.json(), (req: Request, res: Response) => {
     const session = sessions.get(req.params.session);
-    if (!session) return res.status(404).json({ error: "unknown session" });
+    if (!session)
+        return res.status(404).json({ error: "unknown session" });
 
     const { stepId, status } = req.body || {};
-    const waiter = session.waiters.get(stepId);
+    const waiter = session.pendingCalls.get(stepId);
     if (!waiter) return res.status(410).json({ error: "no pending step" });
 
-    waiter.resolve({ status: status || "started", stepId });
-    session.waiters.delete(stepId);
+    waiter.resolve({ status: status || "started" });
+    session.pendingCalls.delete(stepId);
     res.json({ ok: true });
 });

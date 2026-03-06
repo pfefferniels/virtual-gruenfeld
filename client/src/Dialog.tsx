@@ -122,22 +122,41 @@ const assertOk = async (r: Response) => {
     throw new Error(`HTTP ${r.status} ${r.statusText}${text ? `: ${text}` : ''}`);
 };
 
-const implant = async (msm: MSM, midi: MidiFile, log: (msg: string) => void): Promise<{ from: number; to: number }> => {
+/**
+ * Implant student performance into a COPY of the MSM notes (does not mutate the original).
+ * Returns both the modified MSM and the matched range.
+ */
+const implant = async (
+    msm: MSM,
+    midi: MidiFile,
+    log: (msg: string) => void,
+    dateHint?: number,
+): Promise<{ studentMsm: MSM; range: { from: number; to: number } }> => {
     const midiBytes = write(midi.tracks, midi.header.ticksPerBeat);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body: any = {
+        notes: msm.allNotes,
+        midi: Array.from(midiBytes),
+    };
+    if (dateHint != null) {
+        body.date_hint = dateHint;
+        body.date_window = 30000;
+        log(`IMPLANT: using date_hint=${dateHint}`);
+    }
     const response = await fetch('http://localhost:8000/implant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            notes: msm.allNotes,
-            midi: Array.from(midiBytes),
-        }),
+        body: JSON.stringify(body),
     });
     await assertOk(response);
     const data = await response.json();
-    msm.allNotes = data.notes;
-    console.log('all notes', msm.allNotes);
-    log(`IMPLANT: ${data.range.to - data.range.from}, notes implanted: ${data.notes.length}, note names: ${msm.allNotes.filter(n => (n.date >= data.range.from) && (n.date <= data.range.to)).map(n => n.pitchname).join(', ')}`);
-    return data.range;
+
+    // Create a new MSM with the implanted notes (don't mutate the original)
+    const studentMsm = msm.deepClone();
+    studentMsm.allNotes = data.notes;
+
+    log(`IMPLANT: range=[${data.range.from}, ${data.range.to}], notes implanted: ${data.notes.length}, note names: ${studentMsm.allNotes.filter((n: { date: number; pitchname: string }) => (n.date >= data.range.from) && (n.date <= data.range.to)).map((n: { pitchname: string }) => n.pitchname).join(', ')}`);
+    return { studentMsm, range: data.range };
 };
 
 /** -------------------- Safe MIDI waiting (replaces throwing version) -------------------- **/
@@ -152,7 +171,8 @@ type MidiStartResult =
 const waitForPlayingSafe = async (
     msm: MSM,
     callback: (msm: MSM, range: { from: number; to: number }) => void,
-    log: (msg: string) => void
+    log: (msg: string) => void,
+    getDateHint?: () => number | undefined,
 ): Promise<MidiStartResult> => {
     if (!('requestMIDIAccess' in navigator) || typeof navigator.requestMIDIAccess !== 'function') {
         log('MIDI: navigator.requestMIDIAccess unavailable -> no Web MIDI support');
@@ -203,11 +223,12 @@ const waitForPlayingSafe = async (
             const midiFile = read(smfBytes);
             log(`MIDI: parsed SMF -> tracks=${midiFile.tracks.length}, tpq=${midiFile.header.ticksPerBeat}`);
 
-            log(`IMPLANT: sending to /implant (notes=${msm.allNotes?.length ?? 'unknown'})…`);
-            const range = await implant(msm, midiFile, log);
-            log(`IMPLANT: done -> range=[${range.from}, ${range.to}], notesNow=${msm.allNotes?.length ?? 'unknown'}`);
+            const dateHint = getDateHint?.();
+            log(`IMPLANT: sending to /implant (notes=${msm.allNotes?.length ?? 'unknown'}, dateHint=${dateHint ?? 'none'})…`);
+            const { studentMsm, range } = await implant(msm, midiFile, log, dateHint);
+            log(`IMPLANT: done -> range=[${range.from}, ${range.to}], notesNow=${studentMsm.allNotes?.length ?? 'unknown'}`);
 
-            if (!disposed) callback(msm, range);
+            if (!disposed) callback(studentMsm, range);
         } catch (e) {
             log(`ERROR: onFinish failed -> ${String(e)}`);
             throw e; // keep behavior: your outer try/catch in React will surface it
@@ -347,8 +368,16 @@ const THRESHOLDS = {
     "transition.to": 4,
 };
 
-const diff = (mpm1: MPM, mpm2: MPM, topN: number = 10): string => {
-    const allInstructions = mpm1.getInstructions();
+const diff = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, topN: number = 10): string => {
+    // Only compare instructions within the matched range to avoid spurious
+    // differences from tail-shifting or unrelated sections.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inRange = (i: any) => {
+        const date = i.date ?? i["date"];
+        return typeof date === 'number' && date >= range.from && date <= range.to;
+    };
+
+    const allInstructions = mpm1.getInstructions().filter(inRange);
 
     // Index mpm2 instructions by xml:id+type
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -433,9 +462,10 @@ const diff = (mpm1: MPM, mpm2: MPM, topN: number = 10): string => {
 const explainDiff = async (
     mpm1: MPM,
     mpm2: MPM,
+    range: { from: number; to: number },
     onDelta: (text: string) => void
 ): Promise<void> => {
-    const diffSummary = diff(mpm1, mpm2);
+    const diffSummary = diff(mpm1, mpm2, range);
     if (diffSummary === "No significant differences found.") {
         onDelta(diffSummary);
         return;
@@ -478,8 +508,15 @@ const explainDiff = async (
     }
 };
 
-const exaggerate = (mpm1: MPM, mpm2: MPM, aggressiveness: number = 1, log: (msg: string) => void) => {
-    const allInstructions = mpm1.getInstructions();
+const exaggerate = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, aggressiveness: number = 1, log: (msg: string) => void) => {
+    // Only exaggerate instructions within the matched range
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const inRange = (i: any) => {
+        const date = i.date ?? i["date"];
+        return typeof date === 'number' && date >= range.from && date <= range.to;
+    };
+
+    const allInstructions = mpm1.getInstructions().filter(inRange);
 
     // Pre-index mpm2 instructions by xml:id+type for speed and determinism
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -502,8 +539,8 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, aggressiveness: number = 1, log: (msg:
             const diffEnd = corresp["transition.to"] - instruction["transition.to"];
 
             // exaggerate reference away from student (so contrast is clearer)
-            instruction.volume -= diffStart * aggressiveness;
-            instruction["transition.to"] -= diffEnd * aggressiveness;
+            instruction.volume = Math.max(1, Math.min(127, instruction.volume - diffStart * aggressiveness));
+            instruction["transition.to"] = Math.max(1, Math.min(127, instruction["transition.to"] - diffEnd * aggressiveness));
             log(`exaggerate dynamics ${instruction["xml:id"]} ${JSON.stringify({ diffStart, diffEnd, newVolume: instruction.volume, newTransitionTo: instruction["transition.to"] })}`);
         } else if (instruction.type === 'tempo' && corresp.type === 'tempo') {
             if (typeof corresp.bpm !== 'number' || typeof instruction.bpm !== 'number') continue;
@@ -512,8 +549,8 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, aggressiveness: number = 1, log: (msg:
             const diffStart = corresp.bpm - instruction.bpm;
             const diffEnd = corresp["transition.to"] - instruction["transition.to"];
 
-            instruction.bpm -= diffStart * aggressiveness;
-            instruction["transition.to"] -= diffEnd * aggressiveness;
+            instruction.bpm = Math.max(10, instruction.bpm - diffStart * aggressiveness);
+            instruction["transition.to"] = Math.max(10, instruction["transition.to"] - diffEnd * aggressiveness);
             log(`exaggerate tempo ${instruction["xml:id"]} ${JSON.stringify({ diffStart, diffEnd, newBpm: instruction.bpm, newTransitionTo: instruction["transition.to"] })}`);
         }
     }
@@ -548,6 +585,10 @@ export const Dialog = () => {
         };
     }, []);
 
+    // Track the last matched range to hint the next implant call.
+    // Starts at the beginning of the piece; updates after each successful match.
+    const lastMatchRef = useRef<{ from: number; to: number } | null>(null);
+
     useEffect(() => {
         let cancelled = false;
         let disposeMidi: null | (() => void) = null;
@@ -580,6 +621,8 @@ export const Dialog = () => {
                 const res = await waitForPlayingSafe(base, async (studentMsm: MSM, range) => {
                     if (cancelled) return;
 
+                    // Track last matched position for future date_hint
+                    lastMatchRef.current = range;
                     log(`CALLBACK: take implanted -> range=[${range.from}, ${range.to}]`);
 
                     log('MPM: building studentMpm…');
@@ -588,13 +631,13 @@ export const Dialog = () => {
 
                     const ref = referenceMpm.clone(); // original performance characteristics
                     setExplanation('');
-                    explainDiff(ref, studentMpm, (delta) => {
+                    explainDiff(ref, studentMpm, range, (delta) => {
                         if (cancelled) return;
                         setExplanation((prev) => prev + delta);
                     });
                     if (cancelled) return;
 
-                    exaggerate(ref, studentMpm, 1.2, log);
+                    exaggerate(ref, studentMpm, range, 1.2, log);
 
                     if (cancelled) return;
                     const midi = await performAsMIDI(mei, ref, range);
@@ -603,7 +646,12 @@ export const Dialog = () => {
                         play(midi as any);
                         log('PLAY: done');
                     }
-                }, log);
+                }, log, () => {
+                    // Provide a date_hint based on the last matched position.
+                    // If no previous match, hint at the beginning of the piece.
+                    const last = lastMatchRef.current;
+                    return last ? (last.from + last.to) / 2 : undefined;
+                });
 
                 if (!res.ok) {
                     setExplanation(res.error);

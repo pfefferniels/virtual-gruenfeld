@@ -356,16 +356,22 @@ const mpmify = (msm: MSM, infoJson: any): MPM => {
 
 type InstructionDiff = {
     id: string;
-    type: 'dynamics' | 'tempo';
+    type: string;
     diffs: Record<string, { ref: number; student: number; delta: number }>;
     magnitude: number; // for sorting by significance
 };
 
-// Thresholds below which differences are ignored
-const THRESHOLDS = {
+// Thresholds below which differences are ignored (per attribute)
+const THRESHOLDS: Record<string, number> = {
     volume: 4,
     bpm: 4,
     "transition.to": 4,
+    relativeDuration: 0.05,
+    relativeVelocity: 0.05,
+    intensity: 0.1,
+    scale: 0.1,
+    "milliseconds.offset": 5,
+    frameLength: 50,
 };
 
 const diff = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, topN: number = 10): string => {
@@ -394,47 +400,45 @@ const diff = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, topN: n
         const corresp = idx.get(key);
         if (!corresp) continue;
 
-        if (instruction.type === 'dynamics' && corresp.type === 'dynamics') {
-            if (typeof corresp.volume !== 'number' || typeof instruction.volume !== 'number') continue;
-            if (typeof corresp["transition.to"] !== 'number' || typeof instruction["transition.to"] !== 'number') continue;
+        // Compare numeric attributes that both instructions share
+        const attrsToCompare: Record<string, string[]> = {
+            dynamics: ['volume', 'transition.to'],
+            tempo: ['bpm', 'transition.to'],
+            articulation: ['relativeDuration', 'relativeVelocity'],
+            rubato: ['intensity', 'frameLength'],
+            ornament: ['scale', 'intensity'],
+            asynchrony: ['milliseconds.offset'],
+            accentuationPattern: ['scale'],
+        };
 
-            const deltaVolume = corresp.volume - instruction.volume;
-            const deltaTransition = corresp["transition.to"] - instruction["transition.to"];
+        const attrs = attrsToCompare[instruction.type];
+        if (!attrs) continue;
 
-            // Skip if both deltas are below their thresholds
-            if (Math.abs(deltaVolume) < THRESHOLDS.volume && Math.abs(deltaTransition) < THRESHOLDS["transition.to"]) continue;
+        const diffs: Record<string, { ref: number; student: number; delta: number }> = {};
+        let magnitude = 0;
+        let hasSignificant = false;
 
-            const magnitude = Math.abs(deltaVolume) + Math.abs(deltaTransition);
-            peaks.push({
-                id: instruction["xml:id"],
-                type: 'dynamics',
-                diffs: {
-                    volume: { ref: instruction.volume, student: corresp.volume, delta: deltaVolume },
-                    "transition.to": { ref: instruction["transition.to"], student: corresp["transition.to"], delta: deltaTransition },
-                },
-                magnitude,
-            });
-        } else if (instruction.type === 'tempo' && corresp.type === 'tempo') {
-            if (typeof corresp.bpm !== 'number' || typeof instruction.bpm !== 'number') continue;
-            if (typeof corresp["transition.to"] !== 'number' || typeof instruction["transition.to"] !== 'number') continue;
+        for (const attr of attrs) {
+            const refVal = instruction[attr];
+            const studentVal = corresp[attr];
+            if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
 
-            const deltaBpm = corresp.bpm - instruction.bpm;
-            const deltaTransition = corresp["transition.to"] - instruction["transition.to"];
+            const delta = studentVal - refVal;
+            const threshold = THRESHOLDS[attr] ?? 0;
+            if (Math.abs(delta) >= threshold) hasSignificant = true;
 
-            // Skip if both deltas are below their thresholds
-            if (Math.abs(deltaBpm) < THRESHOLDS.bpm && Math.abs(deltaTransition) < THRESHOLDS["transition.to"]) continue;
-
-            const magnitude = Math.abs(deltaBpm) + Math.abs(deltaTransition);
-            peaks.push({
-                id: instruction["xml:id"],
-                type: 'tempo',
-                diffs: {
-                    bpm: { ref: instruction.bpm, student: corresp.bpm, delta: deltaBpm },
-                    "transition.to": { ref: instruction["transition.to"], student: corresp["transition.to"], delta: deltaTransition },
-                },
-                magnitude,
-            });
+            diffs[attr] = { ref: refVal, student: studentVal, delta };
+            magnitude += Math.abs(delta);
         }
+
+        if (!hasSignificant || Object.keys(diffs).length === 0) continue;
+
+        peaks.push({
+            id: instruction["xml:id"],
+            type: instruction.type,
+            diffs,
+            magnitude,
+        });
     }
 
     // Sort by magnitude descending, take top N
@@ -508,8 +512,26 @@ const explainDiff = async (
     }
 };
 
+/**
+ * Log-ratio exaggeration: moves the reference AWAY from the student
+ * using perceptually uniform scaling.
+ *
+ * For a ratio-based quantity (tempo bpm, dynamics volume):
+ *   teacher = ref * (ref / student) ^ aggressiveness
+ *
+ * This ensures:
+ *   - The result is always positive (no negative bpm/volume)
+ *   - Equal ratios produce equal perceptual contrast
+ *     (student 2x faster → teacher 2x slower, not shifted by a fixed delta)
+ *   - aggressiveness=0 is identity, aggressiveness=1 mirrors the ratio
+ */
+const logExaggerate = (ref: number, student: number, aggressiveness: number, min: number, max: number): number => {
+    if (student <= 0 || ref <= 0) return ref;
+    const ratio = ref / student;
+    return Math.max(min, Math.min(max, ref * Math.pow(ratio, aggressiveness)));
+};
+
 const exaggerate = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, aggressiveness: number = 1, log: (msg: string) => void) => {
-    // Only exaggerate instructions within the matched range
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const inRange = (i: any) => {
         const date = i.date ?? i["date"];
@@ -518,7 +540,6 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, a
 
     const allInstructions = mpm1.getInstructions().filter(inRange);
 
-    // Pre-index mpm2 instructions by xml:id+type for speed and determinism
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const idx = new Map<string, any>();
     for (const i of mpm2.getInstructions()) {
@@ -531,27 +552,58 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, range: { from: number; to: number }, a
         const corresp = idx.get(key);
         if (!corresp) continue;
 
-        if (instruction.type === 'dynamics' && corresp.type === 'dynamics') {
-            if (typeof corresp.volume !== 'number' || typeof instruction.volume !== 'number') continue;
-            if (typeof corresp["transition.to"] !== 'number' || typeof instruction["transition.to"] !== 'number') continue;
+        // Define which attributes to exaggerate per type, with their clamping ranges
+        // Log-ratio scaling: teacher = ref * (ref/student)^aggressiveness
+        const exaggerationSpec: Record<string, Array<{ attr: string; min: number; max: number }>> = {
+            dynamics: [
+                { attr: 'volume', min: 1, max: 127 },
+                { attr: 'transition.to', min: 1, max: 127 },
+            ],
+            tempo: [
+                { attr: 'bpm', min: 10, max: 300 },
+                { attr: 'transition.to', min: 10, max: 300 },
+            ],
+            articulation: [
+                { attr: 'relativeDuration', min: 0.1, max: 5 },
+                { attr: 'relativeVelocity', min: 0.1, max: 5 },
+            ],
+            rubato: [
+                { attr: 'intensity', min: 0.01, max: 10 },
+            ],
+            ornament: [
+                { attr: 'scale', min: 0.1, max: 20 },
+            ],
+            asynchrony: [
+                { attr: 'milliseconds.offset', min: -500, max: 500 },
+            ],
+            accentuationPattern: [
+                { attr: 'scale', min: 0, max: 10 },
+            ],
+        };
 
-            const diffStart = corresp.volume - instruction.volume;
-            const diffEnd = corresp["transition.to"] - instruction["transition.to"];
+        const specs = exaggerationSpec[instruction.type];
+        if (!specs) continue;
 
-            // exaggerate reference away from student (so contrast is clearer)
-            instruction.volume = Math.max(1, Math.min(127, instruction.volume - diffStart * aggressiveness));
-            instruction["transition.to"] = Math.max(1, Math.min(127, instruction["transition.to"] - diffEnd * aggressiveness));
-            log(`exaggerate dynamics ${instruction["xml:id"]} ${JSON.stringify({ diffStart, diffEnd, newVolume: instruction.volume, newTransitionTo: instruction["transition.to"] })}`);
-        } else if (instruction.type === 'tempo' && corresp.type === 'tempo') {
-            if (typeof corresp.bpm !== 'number' || typeof instruction.bpm !== 'number') continue;
-            if (typeof corresp["transition.to"] !== 'number' || typeof instruction["transition.to"] !== 'number') continue;
+        const changes: string[] = [];
+        for (const { attr, min, max } of specs) {
+            const refVal = instruction[attr];
+            const studentVal = corresp[attr];
+            if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
 
-            const diffStart = corresp.bpm - instruction.bpm;
-            const diffEnd = corresp["transition.to"] - instruction["transition.to"];
-
-            instruction.bpm = Math.max(10, instruction.bpm - diffStart * aggressiveness);
-            instruction["transition.to"] = Math.max(10, instruction["transition.to"] - diffEnd * aggressiveness);
-            log(`exaggerate tempo ${instruction["xml:id"]} ${JSON.stringify({ diffStart, diffEnd, newBpm: instruction.bpm, newTransitionTo: instruction["transition.to"] })}`);
+            // For asynchrony, use linear exaggeration (offset can be negative/zero)
+            if (instruction.type === 'asynchrony') {
+                const delta = studentVal - refVal;
+                const old = refVal;
+                instruction[attr] = Math.max(min, Math.min(max, refVal - delta * aggressiveness));
+                changes.push(`${attr}: ${old.toFixed(1)}→${instruction[attr].toFixed(1)} (student=${studentVal.toFixed(1)})`);
+            } else {
+                const old = refVal;
+                instruction[attr] = logExaggerate(refVal, studentVal, aggressiveness, min, max);
+                changes.push(`${attr}: ${old.toFixed(1)}→${instruction[attr].toFixed(1)} (student=${studentVal.toFixed(1)})`);
+            }
+        }
+        if (changes.length > 0) {
+            log(`exaggerate ${instruction.type} ${instruction["xml:id"]} ${changes.join(', ')}`);
         }
     }
 };
@@ -613,12 +665,17 @@ export const Dialog = () => {
                 const base = await asMSM(mei);
                 log(`MSM: ready (notes=${JSON.stringify(base.allNotes[0]) ?? 'unknown'})`);
 
+                // Deep-copy notes before mpmify mutates them (InsertTemporalSpread
+                // averages chord onsets, shiftToFirstOnset shifts all onsets to 0).
+                // The implant service needs the original onsets.
+                const baseForImplant = base.deepClone();
+
                 log('MPM: building referenceMpm…');
                 const referenceMpm = mpmify(base, transformations);
                 log(`MPM: referenceMpm ready (instructions=${referenceMpm.getInstructions().length})`);
 
                 log('MIDI: starting listener…');
-                const res = await waitForPlayingSafe(base, async (studentMsm: MSM, range) => {
+                const res = await waitForPlayingSafe(baseForImplant, async (studentMsm: MSM, range) => {
                     if (cancelled) return;
 
                     // Track last matched position for future date_hint
@@ -637,7 +694,7 @@ export const Dialog = () => {
                     });
                     if (cancelled) return;
 
-                    exaggerate(ref, studentMpm, range, 1.2, log);
+                    exaggerate(ref, studentMpm, range, 0.4, log);
 
                     if (cancelled) return;
                     const midi = await performAsMIDI(mei, ref, range);

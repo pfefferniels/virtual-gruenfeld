@@ -29,6 +29,9 @@ renders/
 .DS_Store
 Thumbs.db
 
+# Python
+__pycache__/
+
 # Testing
 coverage/
 .nyc_output/

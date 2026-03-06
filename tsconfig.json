@@ -3,7 +3,7 @@
     "target": "esnext",
     "module": "esnext",
     "lib": ["ESNext"],
-    "types": ["node", "jest"],
+    "types": ["node"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,

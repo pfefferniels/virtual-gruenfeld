@@ -2,33 +2,20 @@
   "name": "virtual-gruenfeld-client",
   "version": "1.0.0",
   "description": "React frontend for Virtual Grünfeld application",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "@emotion/react": "^11.11.1",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.15.0",
-    "@mui/material": "^5.15.0",
-    "@openai/agents": "^0.1.2",
-    "axios": "^1.6.0",
-    "concaveman": "^2.0.0",
-    "doubtful": "file:../../doubtful",
-    "install": "^0.13.0",
     "midifile-ts": "^1.5.2",
-    "npm": "^11.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-pianosound": "file:../../react-pianosound",
-    "verovio": "^4.0.0",
-    "zod": "^3.25.76"
+    "react-pianosound": "file:../../react-pianosound"
   },
   "devDependencies": {
-    "@types/concaveman": "^1.1.6",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",
     "@typescript-eslint/eslint-plugin": "^6.14.0",

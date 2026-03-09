@@ -1,6 +1,6 @@
 # Virtual Grünfeld
 
-A dialogic piano teaching app. You play Schumann's *Träumerei*, and Alfred Grünfeld's 1905 Welte-Mignon recording talks back — explaining what you did differently and demonstrating its own interpretation with exaggerated contrast.
+You play Schumann's *Träumerei*, and Alfred Grünfeld's 1905 Welte-Mignon recording talks back — explaining what you did differently and demonstrating its own interpretation with exaggerated contrast.
 
 ## How it works
 

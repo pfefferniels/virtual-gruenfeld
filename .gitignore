@@ -35,6 +35,7 @@ __pycache__/
 # Testing
 coverage/
 .nyc_output/
+test_output/
 
 # Client build
 client/build/

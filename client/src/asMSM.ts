@@ -1,8 +1,7 @@
 import { MSM, MsmNote, MsmPedal } from "mpmify";
 import { v4 } from "uuid";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export const asMSM = async (mei: string, _voicesAsParts: boolean = false) => {
+export const asMSM = async (mei: string) => {
     const response = await fetch(`http://localhost:8080/convert`, {
         method: 'POST',
         body: JSON.stringify({
@@ -15,8 +14,6 @@ export const asMSM = async (mei: string, _voicesAsParts: boolean = false) => {
 
     const json = await response.json()
     const msmDoc = new DOMParser().parseFromString(json.msm, 'application/xml')
-
-    // console.log('All elements', msmDoc.querySelectorAll('*'))
 
     // Enrich the official MSM with performance information
     const meiDoc = new DOMParser().parseFromString(mei, 'application/xml')

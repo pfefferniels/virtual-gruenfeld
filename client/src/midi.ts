@@ -4,7 +4,7 @@ import { buildSmfFromMessages, isRealtimeStatus, MidiMessageEvent } from "./smf"
 import { implant } from "./api";
 import type { Range } from "./mpm";
 
-export type MidiStartResult =
+type MidiStartResult =
     | { ok: true; dispose: () => void }
     | { ok: false; error: string };
 
@@ -30,6 +30,10 @@ export const waitForPlayingSafe = async (
     const SILENCE_SHORT_MS = 800;
     const NOTES_FOR_SHORT = 20;
 
+    // Track currently held notes so we never trigger while keys are down.
+    // Key: (channel << 7) | note, to distinguish channels.
+    const activeNotes = new Set<number>();
+
     const getNoteOnCount = () =>
         events.filter(e => (e.data[0] & 0xf0) === 0x90 && e.data[2] > 0).length;
 
@@ -38,13 +42,27 @@ export const waitForPlayingSafe = async (
         finishTimer = null;
     };
 
-    const resetTimer = () => {
+    const startTimerIfIdle = () => {
         clearTimer();
+        if (activeNotes.size > 0) return;
         const silenceMs = getNoteOnCount() >= NOTES_FOR_SHORT ? SILENCE_SHORT_MS : SILENCE_BASE_MS;
         finishTimer = window.setTimeout(() => {
             log(`MIDI: silence timeout (${silenceMs}ms) hit -> finishing take (events=${events.length})`);
             void onFinish();
         }, silenceMs);
+    };
+
+    const trackNoteState = (data: Uint8Array) => {
+        const status = data[0] & 0xf0;
+        const channel = data[0] & 0x0f;
+        const note = data[1];
+        const key = (channel << 7) | note;
+
+        if (status === 0x90 && data[2] > 0) {
+            activeNotes.add(key);
+        } else if (status === 0x80 || (status === 0x90 && data[2] === 0)) {
+            activeNotes.delete(key);
+        }
     };
 
     const onFinish = async () => {
@@ -99,8 +117,10 @@ export const waitForPlayingSafe = async (
             const status = message.data[0] ?? 0;
             if (isRealtimeStatus(status) && message.data.length === 1) return;
 
-            events.push({ tMs: message.timeStamp, data: new Uint8Array(message.data) });
-            resetTimer();
+            const data = new Uint8Array(message.data);
+            events.push({ tMs: message.timeStamp, data });
+            trackNoteState(data);
+            startTimerIfIdle();
         };
     };
 

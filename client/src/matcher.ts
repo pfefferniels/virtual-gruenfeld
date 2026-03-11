@@ -41,13 +41,13 @@ export type RefNote = {
 };
 
 /** A matched pair: reference note <-> student note */
-export type Match = {
+type Match = {
     ref: RefNote;
     stu: StudentNote;
 };
 
 /** Result of the subsequence matching. */
-export type MatchResult = {
+type MatchResult = {
     matches: Match[];
     /** Reference notes in the matched region that have no student match. */
     deletions: RefNote[];
@@ -224,7 +224,7 @@ export function matchScore(rPitch: number, sPitch: number): number {
 
 const enum TraceOp { STOP, DIAG, UP, LEFT }
 
-export type AlignmentParams = {
+type AlignmentParams = {
     gapOpen: number;
     gapExtend: number;
 };
@@ -554,7 +554,7 @@ function refineChordMatching(
 //  Main matching function
 // ---------------------------------------------------------------------------
 
-export type MatcherOptions = {
+type MatcherOptions = {
     /** Onset grouping tolerance for student notes (seconds). Default: 0.1 */
     chordTolerance?: number;
     /** Gap open penalty. Default: -0.6 */

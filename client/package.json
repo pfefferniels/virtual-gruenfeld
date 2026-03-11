@@ -4,16 +4,21 @@
   "description": "React frontend for Virtual Grünfeld application",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/fix-vite-crypto.mjs",
     "dev": "vite --host",
+    "prebuild": "node scripts/fix-vite-crypto.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "test": "node scripts/fix-vite-crypto.mjs && vitest"
   },
   "dependencies": {
     "midifile-ts": "^1.5.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-pianosound": "file:../../react-pianosound"
+    "@tonejs/piano": "^0.3.0",
+    "tone": "^14.7.77",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

@@ -1,12 +1,12 @@
 /**
  * generate_test.ts — Full dialogic teaching pipeline test
  *
- * Generates MP3s: student playing → spoken explanation → teacher playing
- * Uses the same infrastructure as the frontend (local matcher, /explain-and-speak).
+ * Generates MP3s: student playing → teacher playing with synced cue words
+ * Uses the same infrastructure as the frontend (/render-cues + exact cue timing).
  *
  * Requires:
  *   - meico server at http://localhost:8080 (/convert, /perform)
- *   - virtual-gruenfeld server (/explain-and-speak) — optional, skips speech if unavailable
+ *   - virtual-gruenfeld server (/render-cues, /plan-cues)
  *   - timidity or fluidsynth + SF2_PATH (MIDI → WAV)
  *   - ffmpeg (audio concat + MP3 encoding)
  *
@@ -18,6 +18,7 @@ import { execSync } from 'child_process';
 import 'dotenv/config';
 import { read as readMidi } from 'midifile-ts';
 import { implantLocal } from './client/src/matcher';
+import { buildTimingMap, planTeacherCues, secAtDate, TeacherCue } from './client/src/teacherCues';
 
 // Import from TypeScript source directly — the compiled lib has a CJS/ESM
 // mismatch (ESM syntax without "type":"module" in package.json) that breaks
@@ -33,12 +34,14 @@ type MSM = InstanceType<typeof MSM>;
 
 const CONVERT_URL = 'http://localhost:8080/convert';
 const PERFORM_URL = 'http://localhost:8080/perform';
-const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3001';
+const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3002';
 const PPQ = 720;
 const BEAT = PPQ;
 const MEASURE = 4 * BEAT;
 const AGGRESSIVENESS = 0.4;
 const OUT_DIR = 'test_output';
+const STRICT_LLM_CUES = process.env.ALLOW_FALLBACK_CUES !== '1';
+const CUE_PREP_MODE = 'balanced';
 
 // ── Helpers ──
 
@@ -144,44 +147,170 @@ function enrichWithPerformanceData(notes: any[], mei: string): number {
     return matched;
 }
 
-/** Fetch explanation + speech audio via SSE from /explain-and-speak */
-async function explainAndSpeak(diffText: string): Promise<{ explanation: string; audio: Buffer }> {
-    const res = await fetch(`${SERVER_URL}/explain-and-speak`, {
+async function renderCueAudio(cues: Array<{ id: string; text: string }>): Promise<Array<{ id: string; text: string; audio: Buffer }>> {
+    const res = await fetch(`${SERVER_URL}/render-cues`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ diff: diffText }),
+        body: JSON.stringify({ mode: CUE_PREP_MODE, cues }),
     });
-    await assertOk(res, '/explain-and-speak');
+    await assertOk(res, '/render-cues');
+    const payload = await res.json();
+    const rendered = Array.isArray(payload?.cues) ? payload.cues : [];
+    return rendered
+        .filter((cue: any) => typeof cue?.id === 'string' && typeof cue?.text === 'string' && typeof cue?.audio_b64 === 'string')
+        .map((cue: any) => ({
+            id: cue.id,
+            text: cue.text,
+            audio: Buffer.from(cue.audio_b64, 'base64'),
+        }));
+}
 
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let eventType = '';
-    let explanation = '';
-    const audioChunks: Buffer[] = [];
+const CUE_OVERLAP_PADDING_SEC = 0.08;
+const MAX_MERGED_CUE_WORDS = 8;
 
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+const splitCueText = (text: string): { tag: string | null; body: string } => {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    const tagMatch = normalized.match(/^\[([^\]]+)\]\s*/);
+    const tag = tagMatch ? `[${tagMatch[1].trim()}]` : null;
+    const body = normalized.slice(tagMatch?.[0].length ?? 0).trim();
+    return { tag, body };
+};
 
-        for (const line of lines) {
-            if (line.startsWith('event: ')) {
-                eventType = line.slice(7);
-            } else if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (eventType === 'delta') {
-                    explanation += data;
-                } else if (eventType === 'audio') {
-                    audioChunks.push(Buffer.from(data, 'base64'));
-                }
-            }
-        }
+const mergeCueTexts = (first: string, second: string): string | null => {
+    const left = splitCueText(first);
+    const right = splitCueText(second);
+    if (!left.body || !right.body) return null;
+
+    const words = `${left.body} ${right.body}`.split(/[ ,]+/).filter(Boolean);
+    if (words.length > MAX_MERGED_CUE_WORDS) return null;
+
+    if (left.tag && right.tag && left.tag === right.tag) return `${left.tag} ${left.body}, ${right.body}`;
+    if (left.tag && right.tag) return `${left.tag} ${left.body}, ${right.tag} ${right.body}`;
+    if (left.tag) return `${left.tag} ${left.body}, ${right.body}`;
+    if (right.tag) return `${left.body}, ${right.tag} ${right.body}`;
+    return `${left.body}, ${right.body}`;
+};
+
+const audioDurationSec = (audioPath: string): number => {
+    const output = execSync(
+        `ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "${audioPath}"`,
+        { stdio: 'pipe' },
+    ).toString().trim();
+    const duration = Number(output);
+    if (!Number.isFinite(duration) || duration <= 0) {
+        throw new Error(`Invalid duration from ffprobe for ${audioPath}`);
+    }
+    return duration;
+};
+
+const chooseStrongerCue = (
+    left: TeacherCue,
+    right: TeacherCue,
+): TeacherCue => {
+    if (left.priority !== right.priority) return left.priority > right.priority ? left : right;
+    return left.atSec <= right.atSec ? left : right;
+};
+
+type RenderedCueFile = {
+    id: string;
+    atSec: number;
+    text: string;
+    audioPath: string;
+    durationSec: number;
+    severity: TeacherCue['severity'];
+    type: string;
+    priority: number;
+};
+
+async function resolveRenderedCueCollisions(
+    scenarioName: string,
+    cuePlan: TeacherCue[],
+    renderedCues: Array<{ id: string; text: string; audio: Buffer }>,
+): Promise<RenderedCueFile[]> {
+    const renderedById = new Map(renderedCues.map((cue) => [cue.id, cue]));
+    const files: RenderedCueFile[] = [];
+    for (const cue of cuePlan) {
+        const rendered = renderedById.get(cue.id);
+        if (!rendered) continue;
+        const audioPath = `${OUT_DIR}/${scenarioName}_${cue.id}.mp3`;
+        fs.writeFileSync(audioPath, rendered.audio);
+        files.push({
+            id: cue.id,
+            atSec: cue.atSec,
+            text: cue.text,
+            audioPath,
+            durationSec: audioDurationSec(audioPath),
+            severity: cue.severity,
+            type: cue.type,
+            priority: cue.priority,
+        });
     }
 
-    return { explanation, audio: Buffer.concat(audioChunks) };
+    for (let i = 0; i < files.length - 1;) {
+        const current = files[i];
+        const next = files[i + 1];
+        if (next.atSec >= current.atSec + current.durationSec + CUE_OVERLAP_PADDING_SEC) {
+            i++;
+            continue;
+        }
+
+        const mergedText = mergeCueTexts(current.text, next.text);
+        if (mergedText) {
+            const stronger = chooseStrongerCue(
+                cuePlan.find((cue) => cue.id === current.id)!,
+                cuePlan.find((cue) => cue.id === next.id)!,
+            );
+            const mergedId = `${current.id}__${next.id}`;
+            const [rendered] = await renderCueAudio([{ id: mergedId, text: mergedText }]);
+            if (rendered) {
+                const audioPath = `${OUT_DIR}/${scenarioName}_${mergedId}.mp3`;
+                fs.writeFileSync(audioPath, rendered.audio);
+                files.splice(i, 2, {
+                    id: mergedId,
+                    atSec: current.atSec,
+                    text: mergedText,
+                    audioPath,
+                    durationSec: audioDurationSec(audioPath),
+                    severity: stronger.severity,
+                    type: stronger.type,
+                    priority: current.priority + next.priority,
+                });
+                continue;
+            }
+        }
+
+        const stronger = current.priority >= next.priority ? current : next;
+        files.splice(stronger === current ? i + 1 : i, 1);
+    }
+
+    return files;
+}
+
+async function planCueTexts(diff: string, candidates: Array<Record<string, unknown>>): Promise<Array<{ position: string; text: string }>> {
+    const res = await fetch(`${SERVER_URL}/plan-cues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ diff, candidates }),
+    });
+    await assertOk(res, '/plan-cues');
+    const payload = await res.json();
+    const cues = Array.isArray(payload?.cues) ? payload.cues : [];
+    return cues.filter((cue: any) => typeof cue?.position === 'string' && typeof cue?.text === 'string');
+}
+
+function resolveSoundfont(): string | null {
+    const candidates = [
+        process.env.SF2_PATH,
+        '/Users/nielspfeffer/Downloads/Full Grand Piano.sf2',
+        '/Users/nielspfeffer/.gervill/soundbank-emg.sf2',
+        '/Users/nielspfeffer/Downloads/A320U.sf2',
+        '/Users/nielspfeffer/Downloads/FluidR3_GS.sf2',
+    ].filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return null;
 }
 
 /** Convert MIDI file to WAV using timidity or fluidsynth */
@@ -191,7 +320,7 @@ function midiToWav(midiPath: string, wavPath: string) {
         return;
     } catch { /* timidity not found, try fluidsynth */ }
 
-    const sf2 = process.env.SF2_PATH;
+    const sf2 = resolveSoundfont();
     if (sf2) {
         execSync(`fluidsynth -ni -F "${wavPath}" -r 44100 "${sf2}" "${midiPath}"`, { stdio: 'pipe' });
         return;
@@ -204,28 +333,42 @@ function midiToWav(midiPath: string, wavPath: string) {
     );
 }
 
-/** Combine student WAV + speech MP3 + teacher WAV → output MP3 */
-function combineToMp3(studentWav: string, speechMp3: string | null, teacherWav: string, outputMp3: string) {
-    if (speechMp3 && fs.existsSync(speechMp3)) {
-        execSync(
-            `ffmpeg -y -i "${studentWav}" -i "${speechMp3}" -i "${teacherWav}" ` +
-            `-filter_complex "` +
-            `[0:a]apad=pad_dur=1.5[s];` +
-            `[1:a]apad=pad_dur=1[sp];` +
-            `[s][sp][2:a]concat=n=3:v=0:a=1[out]" ` +
-            `-map "[out]" -codec:a libmp3lame -b:a 192k "${outputMp3}"`,
-            { stdio: 'pipe' },
-        );
-    } else {
-        execSync(
-            `ffmpeg -y -i "${studentWav}" -i "${teacherWav}" ` +
-            `-filter_complex "` +
-            `[0:a]apad=pad_dur=2[s];` +
-            `[s][1:a]concat=n=2:v=0:a=1[out]" ` +
-            `-map "[out]" -codec:a libmp3lame -b:a 192k "${outputMp3}"`,
-            { stdio: 'pipe' },
-        );
+/** Combine student WAV + teacher WAV → output MP3 */
+function combineToMp3(studentWav: string, teacherWav: string, outputMp3: string) {
+    execSync(
+        `ffmpeg -y -i "${studentWav}" -i "${teacherWav}" ` +
+        `-filter_complex "` +
+        `[0:a]apad=pad_dur=2[s];` +
+        `[s][1:a]concat=n=2:v=0:a=1[out]" ` +
+        `-map "[out]" -codec:a libmp3lame -b:a 192k "${outputMp3}"`,
+        { stdio: 'pipe' },
+    );
+}
+
+function mixTeacherWithCues(
+    teacherWav: string,
+    cues: Array<{ id: string; atSec: number; audioPath: string }>,
+    outputWav: string,
+) {
+    if (cues.length === 0) {
+        fs.copyFileSync(teacherWav, outputWav);
+        return;
     }
+
+    const inputs = [`-i "${teacherWav}"`, ...cues.map((cue) => `-i "${cue.audioPath}"`)].join(' ');
+    const delayed = cues
+        .map((cue, index) => {
+            const delayMs = Math.max(0, Math.round(cue.atSec * 1000));
+            return `[${index + 1}:a]adelay=${delayMs}|${delayMs}[cue${index}]`;
+        })
+        .join(';');
+    const mixInputs = ['[0:a]', ...cues.map((_, index) => `[cue${index}]`)].join('');
+    const filter = `${delayed};${mixInputs}amix=inputs=${cues.length + 1}:duration=first:normalize=0[out]`;
+
+    execSync(
+        `ffmpeg -y ${inputs} -filter_complex "${filter}" -map "[out]" -c:a pcm_s16le "${outputWav}"`,
+        { stdio: 'pipe' },
+    );
 }
 
 /** Deep clone an MPM (the built-in clone() is shallow and shares the doc) */
@@ -233,6 +376,14 @@ function deepCloneMpm(mpm: MPM): MPM {
     const clone = new MPM();
     clone.doc = structuredClone(mpm.doc);
     return clone;
+}
+
+function clearScenarioOutputs(prefix: string) {
+    if (!fs.existsSync(OUT_DIR)) return;
+    for (const file of fs.readdirSync(OUT_DIR)) {
+        if (!file.startsWith(`${prefix}_`) && file !== `${prefix}.mp3`) continue;
+        try { fs.unlinkSync(`${OUT_DIR}/${file}`); } catch { /* ignore */ }
+    }
 }
 
 // ── Pipeline functions (inlined from client/src/mpm.ts to avoid CJS import chain) ──
@@ -295,8 +446,6 @@ const dynLabel = (v: number): string => {
     return 'fff';
 };
 
-const signStr = (n: number): string => (n > 0 ? '+' : '') + Math.round(n);
-
 const SEVERITY_THRESHOLDS: Record<string, [number, number]> = {
     bpm: [15, 40], volume: [12, 30], 'transition.to': [15, 40],
     relativeDuration: [0.15, 0.4], relativeVelocity: [0.15, 0.4],
@@ -307,9 +456,9 @@ const SEVERITY_THRESHOLDS: Record<string, [number, number]> = {
 const severity = (attr: string, delta: number): string => {
     const abs = Math.abs(delta);
     const [mod, large] = SEVERITY_THRESHOLDS[attr] ?? [0, 0];
-    if (abs >= large) return '!!';
-    if (abs >= mod) return '!';
-    return '~';
+    if (abs >= large) return 'large';
+    if (abs >= mod) return 'mod';
+    return 'slight';
 };
 
 type InstructionDiff = {
@@ -317,6 +466,20 @@ type InstructionDiff = {
     type: string;
     diffs: Record<string, { ref: number; student: number; delta: number }>;
     magnitude: number;
+};
+
+type StructuredDiffEvent = {
+    id: string;
+    date: number;
+    position: string;
+    type: string;
+    severity: 'slight' | 'mod' | 'large';
+    primaryAttr: string;
+    magnitude: number;
+    cueText: string;
+    direction: 'more' | 'less';
+    refValue: number;
+    studentValue: number;
 };
 
 const collectDiffs = (mpm1: MPM, mpm2: MPM, range: Range): InstructionDiff[] => {
@@ -344,45 +507,61 @@ const collectDiffs = (mpm1: MPM, mpm2: MPM, range: Range): InstructionDiff[] => 
     return peaks;
 };
 
-const formatTempoLine = (p: InstructionDiff): string => {
-    const pos = tickToPos(p.date);
+const formatTable = (headers: string[], rows: string[][]): string => {
+    const widths = headers.map((h, i) =>
+        Math.max(h.length, ...rows.map(r => (r[i] || '').length))
+    );
+    const fmtRow = (row: string[]) =>
+        '  ' + row.map((cell, i) => (cell || '').padEnd(widths[i])).join(' | ');
+    return [fmtRow(headers), ...rows.map(fmtRow)].join('\n');
+};
+
+const tempoRow = (p: InstructionDiff): string[] => {
     const bpm = p.diffs['bpm'];
     const trans = p.diffs['transition.to'];
     const sev = severity('bpm', bpm.delta);
-    let line = `  ${sev} ${pos}: ${Math.round(bpm.ref)}→${Math.round(bpm.student)} bpm (${signStr(bpm.delta)})`;
+    let transition = '';
     if (trans && Math.abs(trans.delta) >= THRESHOLDS['transition.to']) {
         const refDir = trans.ref > bpm.ref ? 'accel' : trans.ref < bpm.ref ? 'rit' : 'const';
         const stuDir = trans.student > bpm.student ? 'accel' : trans.student < bpm.student ? 'rit' : 'const';
-        line += `, ${refDir}→${Math.round(trans.ref)} vs ${stuDir}→${Math.round(trans.student)}`;
+        if (refDir === stuDir) {
+            transition = `both ${refDir} (ref ${Math.round(trans.ref)}, stu ${Math.round(trans.student)})`;
+        } else {
+            transition = `ref ${refDir} ${Math.round(trans.ref)}, stu ${stuDir} ${Math.round(trans.student)}`;
+        }
     }
-    return line;
+    return [tickToPos(p.date), sev, `${Math.round(bpm.ref)} bpm`, `${Math.round(bpm.student)} bpm`, transition];
 };
 
-const formatDynamicsLine = (p: InstructionDiff): string => {
-    const pos = tickToPos(p.date);
+const dynamicsRow = (p: InstructionDiff): string[] => {
     const vol = p.diffs['volume'];
     const trans = p.diffs['transition.to'];
     const sev = severity('volume', vol.delta);
-    let line = `  ${sev} ${pos}: ${dynLabel(vol.ref)}(${Math.round(vol.ref)})→${dynLabel(vol.student)}(${Math.round(vol.student)}) (${signStr(vol.delta)})`;
+    let transition = '';
     if (trans && Math.abs(trans.delta) >= THRESHOLDS['transition.to']) {
         const refDir = trans.ref > vol.ref ? 'cresc' : trans.ref < vol.ref ? 'decresc' : 'const';
         const stuDir = trans.student > vol.student ? 'cresc' : trans.student < vol.student ? 'decresc' : 'const';
-        line += `, ${refDir}→${dynLabel(trans.ref)}(${Math.round(trans.ref)}) vs ${stuDir}→${dynLabel(trans.student)}(${Math.round(trans.student)})`;
+        if (refDir === stuDir) {
+            transition = `both ${refDir} (ref ${dynLabel(trans.ref)}(${Math.round(trans.ref)}), stu ${dynLabel(trans.student)}(${Math.round(trans.student)}))`;
+        } else {
+            transition = `ref ${refDir} ${dynLabel(trans.ref)}(${Math.round(trans.ref)}), stu ${stuDir} ${dynLabel(trans.student)}(${Math.round(trans.student)})`;
+        }
     }
-    return line;
+    return [tickToPos(p.date), sev, `${dynLabel(vol.ref)}(${Math.round(vol.ref)})`, `${dynLabel(vol.student)}(${Math.round(vol.student)})`, transition];
 };
 
-const formatGenericLine = (p: InstructionDiff): string => {
-    const pos = tickToPos(p.date);
+const genericRow = (p: InstructionDiff): string[] => {
     const entries = Object.entries(p.diffs)
         .filter(([, { delta }]) => Math.abs(delta) >= (THRESHOLDS['intensity'] ?? 0));
     const maxSev = entries.reduce((s, [attr, { delta }]) => {
         const sv = severity(attr, delta);
-        return sv === '!!' ? '!!' : sv === '!' && s !== '!!' ? '!' : s;
-    }, '~' as string);
-    const parts = entries.map(([attr, { ref, student, delta }]) =>
-        `${attr}: ${ref.toFixed(1)}→${student.toFixed(1)} (${signStr(delta)})`);
-    return `  ${maxSev} ${pos}: ${parts.join(', ')}`;
+        return sv === 'large' ? 'large' : sv === 'mod' && s !== 'large' ? 'mod' : s;
+    }, 'slight' as string);
+    const refParts = entries.map(([attr, { ref }]) =>
+        `${attr}: ${ref.toFixed(1)}`);
+    const stuParts = entries.map(([attr, { student }]) =>
+        `${attr}: ${student.toFixed(1)}`);
+    return [tickToPos(p.date), maxSev, refParts.join(', '), stuParts.join(', ')];
 };
 
 const TYPE_ORDER = ['tempo', 'dynamics', 'articulation', 'rubato', 'ornament', 'accentuationPattern', 'asynchrony'];
@@ -391,26 +570,233 @@ const TYPE_LABELS: Record<string, string> = {
     rubato: 'RUBATO', ornament: 'ORNAMENTS (arpeggio)',
     accentuationPattern: 'METRIC ACCENTS', asynchrony: 'VOICE ASYNCHRONY',
 };
-const PRIMARY_ATTR: Record<string, string> = {
-    tempo: 'bpm', dynamics: 'volume', articulation: 'relativeDuration',
-    rubato: 'intensity', ornament: 'scale', accentuationPattern: 'scale',
-    asynchrony: 'milliseconds.offset',
+
+const severityRank = (value: string): number =>
+    value === 'large' ? 3 : value === 'mod' ? 2 : 1;
+
+const primaryDiffEntry = (p: InstructionDiff): [string, { ref: number; student: number; delta: number }] => {
+    const entries = Object.entries(p.diffs)
+        .filter(([attr, { delta }]) => Math.abs(delta) >= (THRESHOLDS[attr] ?? 0));
+    if (entries.length === 0) {
+        return Object.entries(p.diffs)[0];
+    }
+
+    entries.sort((a, b) => {
+        const sevDelta = severityRank(severity(b[0], b[1].delta)) - severityRank(severity(a[0], a[1].delta));
+        if (sevDelta !== 0) return sevDelta;
+        return Math.abs(b[1].delta) - Math.abs(a[1].delta);
+    });
+    return entries[0];
 };
 
-const groupDirection = (items: InstructionDiff[], primaryAttr: string): string => {
-    const deltas = items.map(i => i.diffs[primaryAttr]?.delta).filter((d): d is number => d != null);
-    if (deltas.length === 0) return '';
-    const avg = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-    const allSameDir = deltas.every(d => d > 0) || deltas.every(d => d < 0);
-    const q = allSameDir ? 'consistently' : 'generally';
-    if (primaryAttr === 'bpm') return avg > 0 ? `student ${q} faster` : `student ${q} slower`;
-    if (primaryAttr === 'volume') return avg > 0 ? `student ${q} louder` : `student ${q} softer`;
-    if (primaryAttr === 'relativeDuration') return avg > 0 ? `student ${q} more legato` : `student ${q} more staccato`;
-    if (primaryAttr === 'relativeVelocity') return avg > 0 ? `student ${q} more accented` : `student ${q} less accented`;
-    if (primaryAttr === 'intensity') return avg > 0 ? `student ${q} more` : `student ${q} less`;
-    if (primaryAttr === 'scale') return avg > 0 ? `student ${q} stronger` : `student ${q} weaker`;
-    if (primaryAttr === 'milliseconds.offset') return avg > 0 ? `student ${q} more delayed` : `student ${q} more ahead`;
-    return '';
+const cueTextForDiff = (
+    type: string,
+    attr: string,
+    delta: number,
+): { cueText: string; direction: 'more' | 'less' } => {
+    if (type === 'dynamics' && attr === 'volume') {
+        return delta > 0 ? { cueText: 'leiser', direction: 'less' } : { cueText: 'lauter', direction: 'more' };
+    }
+    if (type === 'dynamics' && attr === 'transition.to') {
+        return delta > 0 ? { cueText: 'weniger Crescendo', direction: 'less' } : { cueText: 'mehr Crescendo', direction: 'more' };
+    }
+    if (type === 'tempo' && (attr === 'bpm' || attr === 'transition.to')) {
+        return delta > 0 ? { cueText: 'ruhiger', direction: 'less' } : { cueText: 'bewegter', direction: 'more' };
+    }
+    if (type === 'articulation' && attr === 'relativeDuration') {
+        return delta < 0 ? { cueText: 'mehr Legato', direction: 'more' } : { cueText: 'kuerzer', direction: 'less' };
+    }
+    if (type === 'articulation' && attr === 'relativeVelocity') {
+        return delta > 0 ? { cueText: 'weniger Akzent', direction: 'less' } : { cueText: 'mehr Akzent', direction: 'more' };
+    }
+    if (type === 'rubato' && attr === 'intensity') {
+        return delta > 0 ? { cueText: 'ruhiger im Puls', direction: 'less' } : { cueText: 'mehr atmen', direction: 'more' };
+    }
+    if (type === 'accentuationPattern' && attr === 'scale') {
+        return delta > 0 ? { cueText: 'weniger betonen', direction: 'less' } : { cueText: 'mehr betonen', direction: 'more' };
+    }
+    if (type === 'ornament' && (attr === 'intensity' || attr === 'frameLength')) {
+        return delta > 0 ? { cueText: 'naeher zusammen', direction: 'less' } : { cueText: 'etwas breiter', direction: 'more' };
+    }
+    if (type === 'ornament' && attr === 'scale') {
+        return delta > 0 ? { cueText: 'gleichmaessiger', direction: 'less' } : { cueText: 'oben mehr zeigen', direction: 'more' };
+    }
+    if (type === 'asynchrony' && attr === 'milliseconds.offset') {
+        return { cueText: 'mehr zusammen', direction: 'less' };
+    }
+    return delta > 0 ? { cueText: 'weniger', direction: 'less' } : { cueText: 'mehr', direction: 'more' };
+};
+
+const UNCLEAR_CUE_PATTERNS = [
+    /\bstaffel/i,
+    /\barpeggi/i,
+    /\bagog/i,
+    /\bphrasierungskurve/i,
+];
+const TOO_VAGUE_CUES = new Set(['mehr', 'weniger']);
+const ALLOWED_V3_TAGS = new Set([
+    'warmly',
+    'encouragingly',
+    'softly',
+    'whispers',
+    'slowly',
+    'urgent',
+    'curious',
+    'excited',
+    'sad',
+    'gently',
+]);
+const V3_TAG_ALIASES: Record<string, string> = {
+    inviting: 'warmly',
+    leading: 'encouragingly',
+    resolving: 'softly',
+    releasing: 'softly',
+    neutral: 'slowly',
+    guiding: 'encouragingly',
+    supportive: 'warmly',
+    tenderly: 'gently',
+};
+
+const normalizeV3Tag = (rawTag: string): string | null => {
+    const normalized = rawTag.trim().toLowerCase();
+    if (!normalized) return null;
+    if (ALLOWED_V3_TAGS.has(normalized)) return normalized;
+    return V3_TAG_ALIASES[normalized] ?? null;
+};
+
+const normalizeCueText = (text: string, fallback: string): string => {
+    const normalized = text
+        .replace(/\s+/g, ' ')
+        .replace(/[.!?]+$/g, '')
+        .trim();
+    if (!normalized) return fallback;
+
+    const leadingTagMatch = normalized.match(/^\[([a-zA-Z][a-zA-Z ]{0,23})\]\s*/);
+    const normalizedTag = leadingTagMatch ? normalizeV3Tag(leadingTagMatch[1]) : null;
+    const body = normalized
+        .slice(leadingTagMatch?.[0].length ?? 0)
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const words = body.split(' ').filter(Boolean);
+    const shortened = words.length > 5 ? words.slice(0, 5).join(' ') : body;
+    if (!shortened) return fallback;
+    if (TOO_VAGUE_CUES.has(shortened.toLowerCase())) return fallback;
+    if (UNCLEAR_CUE_PATTERNS.some((pattern) => pattern.test(shortened))) return fallback;
+    return normalizedTag ? `[${normalizedTag}] ${shortened}` : shortened;
+};
+
+const topDiffsByType = (peaks: InstructionDiff[], perTypeN: number): InstructionDiff[] => {
+    const byType = new Map<string, InstructionDiff[]>();
+    for (const p of peaks) {
+        const group = byType.get(p.type) ?? [];
+        group.push(p);
+        byType.set(p.type, group);
+    }
+
+    const selected: InstructionDiff[] = [];
+    for (const [, items] of byType) {
+        items.sort((a, b) => b.magnitude - a.magnitude);
+        selected.push(...items.slice(0, perTypeN));
+    }
+    return selected;
+};
+
+const diffStructured = (
+    mpm1: MPM,
+    mpm2: MPM,
+    range: Range,
+    perTypeN: number = 3,
+): StructuredDiffEvent[] => {
+    const peaks = collectDiffs(mpm1, mpm2, range);
+    if (peaks.length === 0) return [];
+
+    return topDiffsByType(peaks, perTypeN)
+        .sort((a, b) => a.date - b.date || b.magnitude - a.magnitude)
+        .map((p, index) => {
+            const [primaryAttr, primary] = primaryDiffEntry(p);
+            const sev = severity(primaryAttr, primary.delta) as StructuredDiffEvent['severity'];
+            const cue = cueTextForDiff(p.type, primaryAttr, primary.delta);
+            return {
+                id: `${p.type}_${p.date}_${index}`,
+                date: p.date,
+                position: tickToPos(p.date),
+                type: p.type,
+                severity: sev,
+                primaryAttr,
+                magnitude: p.magnitude,
+                cueText: cue.cueText,
+                direction: cue.direction,
+                refValue: primary.ref,
+                studentValue: primary.student,
+            };
+        });
+};
+
+const PPQ_POS = 720;
+const BEATS_PER_MEASURE_POS = 4;
+
+const compareEvents = (a: StructuredDiffEvent, b: StructuredDiffEvent): number => {
+    const sevA = severityRank(a.severity);
+    const sevB = severityRank(b.severity);
+    if (sevB !== sevA) return sevB - sevA;
+    return b.magnitude - a.magnitude;
+};
+
+const positionToTick = (position: string): number | null => {
+    const match = /^m(\d+)\.(\d+)$/.exec(position.trim());
+    if (!match) return null;
+
+    const measure = Number(match[1]);
+    const beat = Number(match[2]);
+    if (!Number.isFinite(measure) || !Number.isFinite(beat) || measure < 1 || beat < 1 || beat > BEATS_PER_MEASURE_POS) {
+        return null;
+    }
+
+    return ((measure - 1) * BEATS_PER_MEASURE_POS + (beat - 1)) * PPQ_POS;
+};
+
+const resolveTeacherCuePlan = (
+    diffEvents: StructuredDiffEvent[],
+    timingMap: Array<{ date: number; sec: number }>,
+    drafts: Array<{ position: string; text: string }>,
+): TeacherCue[] => {
+    if (drafts.length === 0) return planTeacherCues(diffEvents, timingMap);
+
+    const byPosition = new Map<string, StructuredDiffEvent[]>();
+    for (const event of diffEvents) {
+        const group = byPosition.get(event.position) ?? [];
+        group.push(event);
+        byPosition.set(event.position, group);
+    }
+    const accepted: TeacherCue[] = [];
+    const used = new Set<string>();
+
+    for (const draft of drafts) {
+        const events = byPosition.get(draft.position);
+        if (!events || used.has(draft.position)) continue;
+
+        const [event] = events.slice().sort(compareEvents);
+        const anchorDate = positionToTick(draft.position) ?? event.date;
+        const atSec = Math.max(0, secAtDate(timingMap, anchorDate) - 0.08);
+        const tooClose = accepted.some((cue) => Math.abs(cue.atSec - atSec) < 1.2);
+        if (tooClose) continue;
+
+        accepted.push({
+            id: `cue_${accepted.length + 1}_${draft.position.replace(/[^\w]+/g, '_')}`,
+            atSec,
+            text: normalizeCueText(draft.text, event.cueText),
+            anchorDate,
+            severity: event.severity,
+            type: event.type,
+            priority: severityRank(event.severity) * 1000 + event.magnitude,
+        });
+        used.add(draft.position);
+        if (accepted.length >= 4) break;
+    }
+
+    return accepted.length > 0 ? accepted.sort((a, b) => a.atSec - b.atSec) : planTeacherCues(diffEvents, timingMap);
 };
 
 const diff = (mpm1: MPM, mpm2: MPM, range: Range, topN: number = 10): string => {
@@ -428,20 +814,29 @@ const diff = (mpm1: MPM, mpm2: MPM, range: Range, topN: number = 10): string => 
     }
 
     const rangeStr = `${tickToPos(range.from)}–${tickToPos(range.to)}`;
-    const sections: string[] = [`${top.length} deviations in ${rangeStr} (~ slight, ! moderate, !! large):`];
+    const sections: string[] = [`${top.length} deviations in ${rangeStr}:`];
 
     for (const type of TYPE_ORDER) {
         const items = grouped.get(type);
         if (!items) continue;
         items.sort((a, b) => a.date - b.date);
+
         const label = TYPE_LABELS[type] ?? type;
-        const dir = groupDirection(items, PRIMARY_ATTR[type]);
-        sections.push(`\n${label}${dir ? ` — ${dir}` : ''}:`);
-        for (const p of items) {
-            if (type === 'tempo') sections.push(formatTempoLine(p));
-            else if (type === 'dynamics') sections.push(formatDynamicsLine(p));
-            else sections.push(formatGenericLine(p));
+        let headers: string[];
+        let rows: string[][];
+
+        if (type === 'tempo') {
+            headers = ['pos', 'sev', 'ref', 'student', 'transition'];
+            rows = items.map(p => tempoRow(p));
+        } else if (type === 'dynamics') {
+            headers = ['pos', 'sev', 'ref', 'student', 'transition'];
+            rows = items.map(p => dynamicsRow(p));
+        } else {
+            headers = ['pos', 'sev', 'ref', 'student'];
+            rows = items.map(p => genericRow(p));
         }
+
+        sections.push(`\n${label} (${items.length}):\n${formatTable(headers, rows)}`);
     }
 
     return sections.join('\n');
@@ -450,6 +845,46 @@ const diff = (mpm1: MPM, mpm2: MPM, range: Range, topN: number = 10): string => 
 const logExaggerate = (ref: number, student: number, aggressiveness: number, min: number, max: number): number => {
     if (student <= 0 || ref <= 0) return ref;
     return Math.max(min, Math.min(max, ref * Math.pow(ref / student, aggressiveness)));
+};
+
+const EXAGGERATION_TUNING: Record<string, Record<string, { strength: number; maxAbsDelta: number }>> = {
+    dynamics: {
+        volume: { strength: 0.45, maxAbsDelta: 12 },
+        'transition.to': { strength: 0.45, maxAbsDelta: 12 },
+    },
+    tempo: {
+        bpm: { strength: 0.35, maxAbsDelta: 10 },
+        'transition.to': { strength: 0.35, maxAbsDelta: 10 },
+    },
+    articulation: {
+        relativeDuration: { strength: 0.5, maxAbsDelta: 0.2 },
+        relativeVelocity: { strength: 0.45, maxAbsDelta: 0.2 },
+    },
+    rubato: {
+        intensity: { strength: 0.35, maxAbsDelta: 0.25 },
+    },
+    ornament: {
+        scale: { strength: 0.4, maxAbsDelta: 0.8 },
+        intensity: { strength: 0.35, maxAbsDelta: 0.25 },
+    },
+    asynchrony: {
+        'milliseconds.offset': { strength: 0.35, maxAbsDelta: 40 },
+    },
+    accentuationPattern: {
+        scale: { strength: 0.4, maxAbsDelta: 0.6 },
+    },
+};
+
+const applyExaggerationCap = (
+    refVal: number,
+    exaggeratedVal: number,
+    maxAbsDelta: number,
+    min: number,
+    max: number,
+): number => {
+    const lower = Math.max(min, refVal - maxAbsDelta);
+    const upper = Math.min(max, refVal + maxAbsDelta);
+    return Math.max(lower, Math.min(upper, exaggeratedVal));
 };
 
 const EXAGGERATION_SPEC: Record<string, Array<{ attr: string; min: number; max: number }>> = {
@@ -473,10 +908,14 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, range: Range, aggressiveness: number =
         for (const { attr, min, max } of specs) {
             const refVal = instruction[attr], studentVal = corresp[attr];
             if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
+            const tuning = EXAGGERATION_TUNING[instruction.type]?.[attr] ?? { strength: 1, maxAbsDelta: max };
+            const effectiveAggressiveness = aggressiveness * tuning.strength;
             if (instruction.type === 'asynchrony') {
-                instruction[attr] = Math.max(min, Math.min(max, refVal - (studentVal - refVal) * aggressiveness));
+                const exaggerated = refVal - (studentVal - refVal) * effectiveAggressiveness;
+                instruction[attr] = applyExaggerationCap(refVal, exaggerated, tuning.maxAbsDelta, min, max);
             } else {
-                instruction[attr] = logExaggerate(refVal, studentVal, aggressiveness, min, max);
+                const exaggerated = logExaggerate(refVal, studentVal, effectiveAggressiveness, min, max);
+                instruction[attr] = applyExaggerationCap(refVal, exaggerated, tuning.maxAbsDelta, min, max);
             }
         }
     }
@@ -630,6 +1069,7 @@ console.log(`  Reference: ${referenceMpm.getInstructions().length} instructions`
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 for (const scenario of scenarios) {
+    clearScenarioOutputs(scenario.name);
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  ${scenario.name}: ${scenario.description}`);
     console.log(`  Range: ${scenario.startDate}–${scenario.endDate}`);
@@ -674,26 +1114,9 @@ for (const scenario of scenarios) {
     console.log(`    ${diffResult.split('\n')[0]}`);
     fs.writeFileSync(`${OUT_DIR}/${scenario.name}_diff.txt`, diffResult);
 
-    // 5. Explain + speak (via /explain-and-speak → OpenAI + ElevenLabs)
-    let speechPath: string | null = null;
-    if (diffResult !== "No significant differences found.") {
-        console.log('  [5/7] Explain + speak...');
-        try {
-            const { explanation, audio } = await explainAndSpeak(diffResult);
-            console.log(`    "${explanation}"`);
-            fs.writeFileSync(`${OUT_DIR}/${scenario.name}_explanation.txt`, explanation);
-            if (audio.length > 0) {
-                speechPath = `${OUT_DIR}/${scenario.name}_speech.mp3`;
-                fs.writeFileSync(speechPath, audio);
-                console.log(`    Speech: ${(audio.length / 1024).toFixed(0)} KB`);
-            }
-        } catch (e: any) {
-            console.log(`    Explain+speak unavailable: ${e.message}`);
-            console.log('    (continuing without speech)');
-        }
-    } else {
-        console.log('  [5/7] No significant differences — skipping explanation');
-    }
+    // 5. Exact cue plan for the teacher rendering
+    let renderedCueFiles: Array<{ id: string; atSec: number; audioPath: string }> = [];
+    console.log('  [5/7] Preparing synced teacher cues...');
 
     // 6. Exaggerate + render teacher MIDI
     console.log('  [6/7] Exaggerating + rendering teacher MIDI...');
@@ -713,20 +1136,80 @@ for (const scenario of scenarios) {
     const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
     fs.writeFileSync(teacherMidPath, teacherMidiBytes);
 
+    // Build exact cue timing from the rendered teacher MIDI
+    try {
+        const structuredDiffs = diffStructured(referenceMpm, studentMpm, range);
+        const teacherMidiFile = readMidi(
+            teacherMidiBytes.buffer.slice(
+                teacherMidiBytes.byteOffset,
+                teacherMidiBytes.byteOffset + teacherMidiBytes.byteLength,
+            ),
+        );
+        const timingMap = buildTimingMap(baseMsm, teacherMidiFile, range);
+            const positions = new Map<string, StructuredDiffEvent[]>();
+            for (const event of structuredDiffs) {
+                const group = positions.get(event.position) ?? [];
+                group.push(event);
+                positions.set(event.position, group);
+            }
+            const drafted = await planCueTexts(
+                diffResult,
+                Array.from(positions.entries()).map(([position, events]) => ({
+                    position,
+                    issues: events.map((event) => ({
+                        type: event.type,
+                        severity: event.severity,
+                        direction: event.direction,
+                        primaryAttr: event.primaryAttr,
+                        refValue: event.refValue,
+                        studentValue: event.studentValue,
+                        defaultCue: event.cueText,
+                    })),
+                })),
+            );
+        if (STRICT_LLM_CUES && drafted.length === 0) {
+            throw new Error('LLM cue plan returned no cues');
+        }
+        const cuePlan = resolveTeacherCuePlan(structuredDiffs, timingMap, drafted);
+        const renderedCues = await renderCueAudio(cuePlan.map((cue: TeacherCue) => ({ id: cue.id, text: cue.text })));
+        if (STRICT_LLM_CUES && renderedCues.length !== cuePlan.length) {
+            throw new Error(`Expected ${cuePlan.length} rendered cues, got ${renderedCues.length}`);
+        }
+        const resolvedCueFiles = await resolveRenderedCueCollisions(scenario.name, cuePlan, renderedCues);
+        renderedCueFiles = resolvedCueFiles.map(({ id, atSec, audioPath }) => ({ id, atSec, audioPath }));
+        fs.writeFileSync(
+            `${OUT_DIR}/${scenario.name}_teacher_cues.json`,
+            JSON.stringify(
+                resolvedCueFiles.map(({ id, atSec, text, severity, type, priority }) => ({
+                    id, atSec, text, severity, type, priority,
+                })),
+                null,
+                2,
+            ),
+        );
+        console.log(`    Teacher cues: ${renderedCueFiles.length}`);
+    } catch (e: any) {
+        if (STRICT_LLM_CUES) throw e;
+        console.log(`    Cue rendering unavailable: ${e.message}`);
+        console.log('    (continuing without synced teacher cues)');
+    }
+
     // 7. MIDI → WAV → combine → MP3
     console.log('  [7/7] Combining → MP3...');
     try {
         const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
         const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
+        const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
         midiToWav(studentMidPath, studentWav);
         midiToWav(teacherMidPath, teacherWav);
+        mixTeacherWithCues(teacherWav, renderedCueFiles, teacherMixedWav);
 
         const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
-        combineToMp3(studentWav, speechPath, teacherWav, mp3Path);
+        combineToMp3(studentWav, teacherMixedWav, mp3Path);
         console.log(`    → ${mp3Path}`);
 
         // Clean up intermediate WAV files
-        for (const f of [studentWav, teacherWav]) {
+        for (const f of [studentWav, teacherWav, teacherMixedWav]) {
             try { fs.unlinkSync(f); } catch { /* ignore */ }
         }
     } catch (e: any) {

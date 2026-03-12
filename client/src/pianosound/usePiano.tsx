@@ -249,6 +249,29 @@ export const usePiano = () => {
         }
     };
 
+    const playAudioBuffer = async (audioBuffer: AudioBuffer, onStart?: () => void) => {
+        await Tone.start();
+        if (audioContext.state === 'suspended') await audioContext.resume();
+
+        await new Promise<void>((resolve) => {
+            const source = audioContext.createBufferSource();
+            let settled = false;
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                activeCueSources.delete(source);
+                resolve();
+            };
+
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.onended = finish;
+            activeCueSources.add(source);
+            onStart?.();
+            source.start();
+        });
+    };
+
     const stopAll = () => {
         transport.stop();
         transport.position = 0;
@@ -296,6 +319,7 @@ export const usePiano = () => {
     return {
         status,
         play,
+        playAudioBuffer,
         playSingleNote,
         stop: stopAll,
         jumpTo,

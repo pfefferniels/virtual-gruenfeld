@@ -167,8 +167,11 @@ describe('planTeacherCues', () => {
         const cues = planTeacherCues(diffEvents, timingMap);
 
         expect(cues.map(cue => cue.text)).toEqual(['ruhiger', 'mehr Legato']);
-        expect(cues[0].atSec).toBeCloseTo(1.02, 6);
-        expect(cues[1].atSec).toBeCloseTo(2.72, 6);
+        // cue delay: 0.6 * ln(1 + regionLength / 2.0), clamped to [0.2, 1.0]
+        // event at sec 1.1, region to next = 1.7s → delay ≈ 0.369
+        expect(cues[0].atSec).toBeCloseTo(1.469, 2);
+        // event at sec 2.8, no next → default region 2.0 → delay ≈ 0.416
+        expect(cues[1].atSec).toBeCloseTo(3.216, 2);
     });
 
     it('resolves an llm-authored cue plan onto exact seconds and filters bad positions', () => {
@@ -228,8 +231,8 @@ describe('planTeacherCues', () => {
         ]);
 
         expect(cues.map(cue => cue.text)).toEqual(['ruhig weiter', 'oben mehr binden']);
-        expect(cues[0].atSec).toBeCloseTo(1.02, 6);
-        expect(cues[1].atSec).toBeCloseTo(2.72, 6);
+        expect(cues[0].atSec).toBeCloseTo(1.469, 2);
+        expect(cues[1].atSec).toBeCloseTo(3.216, 2);
     });
 
     it('falls back to the default cue when llm wording is unclear or too vague', () => {

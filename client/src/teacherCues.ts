@@ -2,6 +2,9 @@ import type { MidiFile } from 'midifile-ts';
 import type { MSM } from 'mpmify';
 import { extractNotesFromMidi, extractRefNotes, matchSubsequence } from './matcher';
 import type { Range, StructuredDiffEvent } from './mpm';
+import { positionToTick } from './shared/constants';
+import { severityWeight } from './shared/severity';
+import { normalizeV3Tag } from './shared/tts';
 
 export type TimingMapPoint = {
     date: number;
@@ -33,30 +36,21 @@ type TeacherCueCandidate = {
 
 const MIN_CUE_GAP_SEC = 1.2;
 const MAX_CUES = 4;
-const CUE_LEAD_SEC = 0.08;
-const PPQ = 720;
-const BEATS_PER_MEASURE = 4;
-const ALLOWED_V3_TAGS = new Set([
-    'warmly',
-    'encouragingly',
-    'softly',
-    'whispers',
-    'slowly',
-    'urgent',
-    'curious',
-    'excited',
-    'sad',
-    'gently',
-]);
-const V3_TAG_ALIASES: Record<string, string> = {
-    inviting: 'warmly',
-    leading: 'encouragingly',
-    resolving: 'softly',
-    releasing: 'softly',
-    neutral: 'slowly',
-    guiding: 'encouragingly',
-    supportive: 'warmly',
-    tenderly: 'gently',
+
+// ── Logarithmic cue delay ──
+// A real teacher narrates what they're doing *after* the change is underway,
+// not before it. The delay scales logarithmically with the region length:
+// short regions → short delay, long regions → slightly longer, but with
+// diminishing returns (a teacher reacts quickly regardless of phrase length).
+const CUE_DELAY_K = 0.6;
+const CUE_DELAY_SCALE = 2.0;
+const CUE_DELAY_MIN = 0.2;
+const CUE_DELAY_MAX = 1.0;
+const CUE_DELAY_DEFAULT_REGION = 2.0; // fallback when no next event exists
+
+const cueDelay = (regionLengthSec: number): number => {
+    const raw = CUE_DELAY_K * Math.log(1 + regionLengthSec / CUE_DELAY_SCALE);
+    return Math.min(CUE_DELAY_MAX, Math.max(CUE_DELAY_MIN, raw));
 };
 const UNCLEAR_CUE_PATTERNS = [
     /\bstaffel/i,
@@ -66,33 +60,10 @@ const UNCLEAR_CUE_PATTERNS = [
 ];
 const TOO_VAGUE_CUES = new Set(['mehr', 'weniger']);
 
-const severityWeight = (severity: StructuredDiffEvent['severity']): number =>
-    severity === 'large' ? 3 : severity === 'mod' ? 2 : 1;
-
 const compareEvents = (a: StructuredDiffEvent, b: StructuredDiffEvent): number => {
     const severityDelta = severityWeight(b.severity) - severityWeight(a.severity);
     if (severityDelta !== 0) return severityDelta;
     return b.magnitude - a.magnitude;
-};
-
-const positionToTick = (position: string): number | null => {
-    const match = /^m(\d+)\.(\d+)$/.exec(position.trim());
-    if (!match) return null;
-
-    const measure = Number(match[1]);
-    const beat = Number(match[2]);
-    if (!Number.isFinite(measure) || !Number.isFinite(beat) || measure < 1 || beat < 1 || beat > BEATS_PER_MEASURE) {
-        return null;
-    }
-
-    return ((measure - 1) * BEATS_PER_MEASURE + (beat - 1)) * PPQ;
-};
-
-const normalizeV3Tag = (rawTag: string): string | null => {
-    const normalized = rawTag.trim().toLowerCase();
-    if (!normalized) return null;
-    if (ALLOWED_V3_TAGS.has(normalized)) return normalized;
-    return V3_TAG_ALIASES[normalized] ?? null;
 };
 
 const collapseTimingMap = (points: TimingMapPoint[]): TimingMapPoint[] => {
@@ -181,18 +152,41 @@ const cueCountForRange = (timingMap: TimingMapPoint[]): number => {
     return MAX_CUES;
 };
 
+const computeCueAtSec = (
+    eventDate: number,
+    nextEventDate: number | null,
+    timingMap: TimingMapPoint[],
+): number => {
+    const anchorDate = eventDate;
+    const anchorSec = secAtDate(timingMap, anchorDate);
+    const nextSec = nextEventDate != null
+        ? secAtDate(timingMap, nextEventDate)
+        : anchorSec + CUE_DELAY_DEFAULT_REGION;
+    const regionLength = Math.max(0, nextSec - anchorSec);
+    return anchorSec + cueDelay(regionLength);
+};
+
 export const pickCueCandidates = (
     diffEvents: StructuredDiffEvent[],
     timingMap: TimingMapPoint[],
     maxCues: number = cueCountForRange(timingMap),
 ): TeacherCueCandidate[] => {
-    const candidates = diffEvents.map((event) => ({
-        position: event.position,
-        anchorDate: positionToTick(event.position) ?? event.date,
-        event,
-        atSec: Math.max(0, secAtDate(timingMap, positionToTick(event.position) ?? event.date) - CUE_LEAD_SEC),
-        priority: cuePriority(event),
-    }));
+    const sorted = [...diffEvents].sort((a, b) => a.date - b.date);
+    const nextDateByEvent = new Map<string, number | null>();
+    for (let i = 0; i < sorted.length; i++) {
+        nextDateByEvent.set(sorted[i].id, sorted[i + 1]?.date ?? null);
+    }
+
+    const candidates = diffEvents.map((event) => {
+        const anchorDate = positionToTick(event.position) ?? event.date;
+        return {
+            position: event.position,
+            anchorDate,
+            event,
+            atSec: computeCueAtSec(anchorDate, nextDateByEvent.get(event.id) ?? null, timingMap),
+            priority: cuePriority(event),
+        };
+    });
 
     candidates.sort((a, b) => {
         const severityDelta = compareEvents(a.event, b.event);
@@ -269,6 +263,12 @@ export const resolveTeacherCuePlan = (
     const accepted: TeacherCue[] = [];
     const usedPositions = new Set<string>();
 
+    const sortedEvents = [...diffEvents].sort((a, b) => a.date - b.date);
+    const nextDateByEvent = new Map<string, number | null>();
+    for (let i = 0; i < sortedEvents.length; i++) {
+        nextDateByEvent.set(sortedEvents[i].id, sortedEvents[i + 1]?.date ?? null);
+    }
+
     for (const draft of drafts) {
         const events = byPosition.get(draft.position);
         if (!events || usedPositions.has(draft.position)) continue;
@@ -276,7 +276,7 @@ export const resolveTeacherCuePlan = (
         const [event] = events.slice().sort(compareEvents);
         const anchorDate = positionToTick(draft.position) ?? event.date;
 
-        const atSec = Math.max(0, secAtDate(timingMap, anchorDate) - CUE_LEAD_SEC);
+        const atSec = computeCueAtSec(anchorDate, nextDateByEvent.get(event.id) ?? null, timingMap);
         const tooClose = accepted.some((cue) => Math.abs(cue.atSec - atSec) < MIN_CUE_GAP_SEC);
         if (tooClose) continue;
 

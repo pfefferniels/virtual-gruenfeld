@@ -1,4 +1,6 @@
 import type { Range, StructuredDiffEvent } from './mpm';
+import { PPQ } from './shared/constants';
+import { severityRank } from './shared/severity';
 
 export type ImmediateJudgementPayload = {
     score: number;
@@ -19,13 +21,8 @@ export type ImmediateJudgementPayload = {
     }>;
 };
 
-const PPQ = 720;
-
 const severityPenalty = (severity: StructuredDiffEvent['severity']): number =>
     severity === 'large' ? 4 : severity === 'mod' ? 2.5 : 1;
-
-const severityRank = (severity: StructuredDiffEvent['severity']): number =>
-    severity === 'large' ? 3 : severity === 'mod' ? 2 : 1;
 
 const typeLabel = (type: string): string => {
     switch (type) {

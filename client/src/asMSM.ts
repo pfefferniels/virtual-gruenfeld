@@ -1,18 +1,44 @@
 import { MSM, MsmNote, MsmPedal } from "mpmify";
 import { v4 } from "uuid";
+import { convert } from "./services/mpmRenderer";
 
-export const asMSM = async (mei: string) => {
-    const response = await fetch(`http://localhost:8080/convert`, {
-        method: 'POST',
-        body: JSON.stringify({
-            mei
-        })
-    })
-    if (!response.ok) {
-        throw new Error(`Failed to convert MEI to MSM: ${response.statusText}`)
+/** Convert MEI to MSM using only score data (no performance enrichment). */
+export const asMSMBasic = async (mei: string): Promise<MSM> => {
+    const json = await convert(mei);
+    const msmDoc = new DOMParser().parseFromString(json.msm, 'application/xml');
+
+    const seen = new Map<string, Element>();
+    for (const note of msmDoc.querySelectorAll('note')) {
+        const key = `${note.getAttribute('date')}:${note.getAttribute('midi.pitch')}`;
+        const existing = seen.get(key);
+        if (!existing || +(note.getAttribute('duration') || 0) > +(existing.getAttribute('duration') || 0)) {
+            seen.set(key, note);
+        }
     }
 
-    const json = await response.json()
+    const notes: MsmNote[] = Array.from(seen.values()).map(note => ({
+        part: Number(note.closest('part')?.getAttribute('number')),
+        'xml:id': note.getAttribute('xml:id') || v4(),
+        'date': Number(note.getAttribute('date')),
+        'duration': Number(note.getAttribute('duration')),
+        'pitchname': note.getAttribute('pitchname') || '',
+        'octave': Number(note.getAttribute('octave')),
+        'accidentals': Number(note.getAttribute('accidentals')),
+        'midi.pitch': Number(note.getAttribute('midi.pitch')),
+        'midi.onset': 0,
+        'midi.duration': 0,
+        'midi.velocity': 64,
+    }));
+
+    const timeSignature = msmDoc.querySelector('timeSignature');
+    return new MSM(notes, {
+        numerator: Number(timeSignature?.getAttribute('numerator') || 4),
+        denominator: Number(timeSignature?.getAttribute('denominator') || 4),
+    });
+};
+
+export const asMSM = async (mei: string) => {
+    const json = await convert(mei);
     const msmDoc = new DOMParser().parseFromString(json.msm, 'application/xml')
 
     // Enrich the official MSM with performance information

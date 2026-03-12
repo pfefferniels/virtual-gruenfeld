@@ -2,25 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import 'dotenv/config';
 import { DEFAULT_CUE_LIBRARY_TEXTS } from './cueLibraryManifest';
-
-const ELEVEN_V3_MODEL_ID = 'eleven_v3';
-
-const sanitizeCueForSpeech = (text: string, modelId: string): string => {
-    const normalized = text.replace(/\s+/g, ' ').trim();
-    if (!normalized) return normalized;
-
-    const leadingTagMatch = normalized.match(/^\[([a-zA-Z][a-zA-Z ]{0,23})\]\s*/);
-    const leadingTag = modelId === ELEVEN_V3_MODEL_ID && leadingTagMatch
-        ? `[${leadingTagMatch[1].trim()}] `
-        : '';
-    const body = normalized
-        .slice(leadingTagMatch?.[0].length ?? 0)
-        .replace(/\[[^\]]*\]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    return `${leadingTag}${body}`.trim();
-};
+import { ELEVEN_V3_MODEL_ID, sanitizeCueForSpeech } from './shared/tts';
 
 const synthesizeCueAudio = async (
     text: string,

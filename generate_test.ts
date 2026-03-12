@@ -16,9 +16,15 @@
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import 'dotenv/config';
-import { read as readMidi } from 'midifile-ts';
+import { read as readMidi, write as writeMidi } from 'midifile-ts';
 import { implantLocal } from './client/src/matcher';
+import { fallbackImmediateJudgement, summarizeImmediateJudgement, type ImmediateJudgementPayload } from './client/src/judgement';
 import { buildTimingMap, planTeacherCues, secAtDate, TeacherCue } from './client/src/teacherCues';
+import { appendMidiWithOffset, millisecondsToMidiTicks, offsetCueTimes } from './client/src/pianosound/midiSequence';
+import {
+    buildJudgementMoodRenderPlan,
+    JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
+} from './client/src/pipeline/judgementMood';
 
 // Import from TypeScript source directly — the compiled lib has a CJS/ESM
 // mismatch (ESM syntax without "type":"module" in package.json) that breaks
@@ -38,10 +44,11 @@ const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3002';
 const PPQ = 720;
 const BEAT = PPQ;
 const MEASURE = 4 * BEAT;
-const AGGRESSIVENESS = 0.4;
+const AGGRESSIVENESS = 0.2;
 const OUT_DIR = 'test_output';
 const STRICT_LLM_CUES = process.env.ALLOW_FALLBACK_CUES !== '1';
 const CUE_PREP_MODE = 'balanced';
+const SCENARIO_FILTER = process.env.SCENARIO?.trim();
 
 // ── Helpers ──
 
@@ -203,10 +210,12 @@ const audioDurationSec = (audioPath: string): number => {
     return duration;
 };
 
-const chooseStrongerCue = (
-    left: TeacherCue,
-    right: TeacherCue,
-): TeacherCue => {
+const chooseStrongerCue = <
+    T extends { priority: number; atSec: number }
+>(
+    left: T,
+    right: T,
+): T => {
     if (left.priority !== right.priority) return left.priority > right.priority ? left : right;
     return left.atSec <= right.atSec ? left : right;
 };
@@ -256,10 +265,7 @@ async function resolveRenderedCueCollisions(
 
         const mergedText = mergeCueTexts(current.text, next.text);
         if (mergedText) {
-            const stronger = chooseStrongerCue(
-                cuePlan.find((cue) => cue.id === current.id)!,
-                cuePlan.find((cue) => cue.id === next.id)!,
-            );
+            const stronger = chooseStrongerCue(current, next);
             const mergedId = `${current.id}__${next.id}`;
             const [rendered] = await renderCueAudio([{ id: mergedId, text: mergedText }]);
             if (rendered) {
@@ -296,6 +302,30 @@ async function planCueTexts(diff: string, candidates: Array<Record<string, unkno
     const payload = await res.json();
     const cues = Array.isArray(payload?.cues) ? payload.cues : [];
     return cues.filter((cue: any) => typeof cue?.position === 'string' && typeof cue?.text === 'string');
+}
+
+async function requestJudgementText(summary: ImmediateJudgementPayload): Promise<string> {
+    const res = await fetch(`${SERVER_URL}/judge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary }),
+    });
+    await assertOk(res, '/judge');
+    const payload = await res.json();
+    return typeof payload?.text === 'string' ? payload.text.trim() : '';
+}
+
+async function renderJudgementAudio(text: string): Promise<Buffer | null> {
+    if (!text.trim()) return null;
+    const res = await fetch(`${SERVER_URL}/render-judgement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+    });
+    await assertOk(res, '/render-judgement');
+    const payload = await res.json();
+    if (typeof payload?.audio_b64 !== 'string' || !payload.audio_b64) return null;
+    return Buffer.from(payload.audio_b64, 'base64');
 }
 
 function resolveSoundfont(): string | null {
@@ -359,7 +389,7 @@ function mixTeacherWithCues(
     const delayed = cues
         .map((cue, index) => {
             const delayMs = Math.max(0, Math.round(cue.atSec * 1000));
-            return `[${index + 1}:a]adelay=${delayMs}|${delayMs}[cue${index}]`;
+            return `[${index + 1}:a]volume=0.55,adelay=${delayMs}|${delayMs}[cue${index}]`;
         })
         .join(';');
     const mixInputs = ['[0:a]', ...cues.map((_, index) => `[cue${index}]`)].join('');
@@ -367,6 +397,25 @@ function mixTeacherWithCues(
 
     execSync(
         `ffmpeg -y ${inputs} -filter_complex "${filter}" -map "[out]" -c:a pcm_s16le "${outputWav}"`,
+        { stdio: 'pipe' },
+    );
+}
+
+function mixNarrationOverWav(
+    narrationAudioPath: string | null,
+    backgroundWav: string,
+    outputWav: string,
+    backgroundVolume: number,
+) {
+    if (!narrationAudioPath) {
+        fs.copyFileSync(backgroundWav, outputWav);
+        return;
+    }
+
+    execSync(
+        `ffmpeg -y -i "${narrationAudioPath}" -i "${backgroundWav}" ` +
+        `-filter_complex "[1:a]volume=${backgroundVolume}[bg];[0:a][bg]amix=inputs=2:duration=longest:normalize=0[out]" ` +
+        `-map "[out]" -c:a pcm_s16le "${outputWav}"`,
         { stdio: 'pipe' },
     );
 }
@@ -861,7 +910,7 @@ const EXAGGERATION_TUNING: Record<string, Record<string, { strength: number; max
         relativeVelocity: { strength: 0.45, maxAbsDelta: 0.2 },
     },
     rubato: {
-        intensity: { strength: 0.35, maxAbsDelta: 0.25 },
+        intensity: { strength: 0.25, maxAbsDelta: 0.15 },
     },
     ornament: {
         scale: { strength: 0.4, maxAbsDelta: 0.8 },
@@ -919,6 +968,56 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, range: Range, aggressiveness: number =
             }
         }
     }
+};
+
+// ── Large-scale deviation detection ──
+
+const MACRO_TYPES = new Set(['tempo', 'dynamics']);
+const MIN_CONSECUTIVE_MEASURES = 2;
+
+const detectLargeScaleDeviation = (
+    events: StructuredDiffEvent[],
+    range: Range,
+    paddingMeasures: number = 1,
+): Range | null => {
+    const macroEvents = events.filter(
+        e => MACRO_TYPES.has(e.type) && severityRank(e.severity) >= 2,
+    );
+    if (macroEvents.length === 0) return null;
+
+    const measures = new Set<number>();
+    for (const e of macroEvents) {
+        measures.add(Math.floor(e.date / TICKS_PER_MEASURE) + 1);
+    }
+
+    const sorted = Array.from(measures).sort((a, b) => a - b);
+    let bestStart = sorted[0], bestEnd = sorted[0], bestLen = 1;
+    let curStart = sorted[0], curEnd = sorted[0], curLen = 1;
+
+    for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === curEnd + 1) {
+            curEnd = sorted[i];
+            curLen++;
+        } else {
+            if (curLen > bestLen) {
+                bestStart = curStart; bestEnd = curEnd; bestLen = curLen;
+            }
+            curStart = sorted[i]; curEnd = sorted[i]; curLen = 1;
+        }
+    }
+    if (curLen > bestLen) {
+        bestStart = curStart; bestEnd = curEnd; bestLen = curLen;
+    }
+
+    if (bestLen < MIN_CONSECUTIVE_MEASURES) return null;
+
+    const paddedStart = Math.max(1, bestStart - paddingMeasures);
+    const paddedEnd = bestEnd + paddingMeasures;
+
+    return {
+        from: Math.max(range.from, (paddedStart - 1) * TICKS_PER_MEASURE),
+        to: Math.min(range.to, paddedEnd * TICKS_PER_MEASURE),
+    };
 };
 
 // ── Student MPM builder ──
@@ -1066,9 +1165,31 @@ const referenceMpm = buildMpm(baseMsm, infoJson);
 console.log = origLog;
 console.log(`  Reference: ${referenceMpm.getInstructions().length} instructions`);
 
+// Load harmonic reduction (optional — enables two-pass mode)
+let reductionMei: string | undefined;
+let reductionMsmNotes: any[] | undefined;
+try {
+    reductionMei = fs.readFileSync('client/public/harmonic_reduction.mei', 'utf8');
+    console.log(`  Reduction MEI: ${reductionMei.length} bytes`);
+
+    const reductionConvertResp = await fetchRetry(CONVERT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mei: reductionMei }),
+    }, 'convert reduction');
+    await assertOk(reductionConvertResp, '/convert (reduction)');
+    const reductionMsmXml = (await reductionConvertResp.json()).msm;
+    reductionMsmNotes = parseMsmNotes(reductionMsmXml);
+    // No performance enrichment — reduction has no <when> elements
+    console.log(`  Reduction MSM: ${reductionMsmNotes.length} notes`);
+} catch (e: any) {
+    console.log(`  Harmonic reduction not available: ${e.message}`);
+}
+
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 for (const scenario of scenarios) {
+    if (SCENARIO_FILTER && scenario.name !== SCENARIO_FILTER) continue;
     clearScenarioOutputs(scenario.name);
     console.log(`\n${'═'.repeat(60)}`);
     console.log(`  ${scenario.name}: ${scenario.description}`);
@@ -1109,51 +1230,96 @@ for (const scenario of scenarios) {
     console.log = origLog;
 
     // 4. Diff
-    console.log('  [4/7] Diffing reference vs student...');
+    console.log('  [4/8] Diffing reference vs student...');
     const diffResult = diff(referenceMpm, studentMpm, range);
     console.log(`    ${diffResult.split('\n')[0]}`);
     fs.writeFileSync(`${OUT_DIR}/${scenario.name}_diff.txt`, diffResult);
 
-    // 5. Exact cue plan for the teacher rendering
-    let renderedCueFiles: Array<{ id: string; atSec: number; audioPath: string }> = [];
-    console.log('  [5/7] Preparing synced teacher cues...');
+    const structuredDiffs = diffStructured(referenceMpm, studentMpm, range);
+    const judgementSummary = summarizeImmediateJudgement(structuredDiffs, range);
+    const fallbackJudgement = fallbackImmediateJudgement(judgementSummary);
+    let judgementText = fallbackJudgement;
+    let judgementAudioPath: string | null = null;
+    try {
+        judgementText = (await requestJudgementText(judgementSummary)) || fallbackJudgement;
+    } catch (e: any) {
+        console.log(`    Judgement text unavailable: ${e.message}`);
+    }
+    try {
+        const judgementAudio = await renderJudgementAudio(judgementText);
+        if (judgementAudio) {
+            judgementAudioPath = `${OUT_DIR}/${scenario.name}_judgement.mp3`;
+            fs.writeFileSync(judgementAudioPath, judgementAudio);
+        }
+    } catch (e: any) {
+        console.log(`    Judgement audio unavailable: ${e.message}`);
+    }
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_judgement.txt`, `${judgementText}\n`);
 
-    // 6. Exaggerate + render teacher MIDI
-    console.log('  [6/7] Exaggerating + rendering teacher MIDI...');
+    // 4.5. Detect large-scale deviation → two-pass mode
+    const deviationRange = reductionMei && reductionMsmNotes
+        ? detectLargeScaleDeviation(structuredDiffs, range)
+        : null;
+
+    // 5. Exaggerate
+    console.log('  [5/8] Exaggerating reference MPM...');
     const teacherMpm = deepCloneMpm(referenceMpm);
     exaggerate(teacherMpm, studentMpm, range, AGGRESSIVENESS);
+    const teacherMpmXml = exportMPM(teacherMpm);
 
-    const teacherPerformResp = await fetchRetry(PERFORM_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            mei, mpm: exportMPM(teacherMpm),
-            from: range.from, to: range.to, ppq: PPQ,
-        }),
-    }, 'teacher perform');
-    await assertOk(teacherPerformResp, '/perform (teacher)');
-    const teacherMidiBytes = Buffer.from((await teacherPerformResp.json()).midi_b64, 'base64');
-    const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
-    fs.writeFileSync(teacherMidPath, teacherMidiBytes);
+    // Helper: render a performance and build cues
+    const renderPassWithCues = async (
+        passLabel: string,
+        passMei: string,
+        passMsm: MSM,
+        passRange: Range,
+        diffEvents: StructuredDiffEvent[],
+        diffText: string,
+        opts?: { sketchiness?: number; mpmXml?: string },
+    ): Promise<{
+        midiBytes: Buffer;
+        midPath: string;
+        cueFiles: Array<{ id: string; atSec: number; audioPath: string }>;
+    }> => {
+        // Render teacher MIDI
+        const perfBody: Record<string, unknown> = {
+            mei: passMei,
+            mpm: opts?.mpmXml ?? teacherMpmXml,
+            from: passRange.from, to: passRange.to, ppq: PPQ,
+        };
+        if (opts?.sketchiness != null && opts.sketchiness > 1) {
+            perfBody.sketchiness = opts.sketchiness;
+        }
+        const perfResp = await fetchRetry(PERFORM_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(perfBody),
+        }, `${passLabel} perform`);
+        await assertOk(perfResp, `/perform (${passLabel})`);
+        const midiBytes = Buffer.from((await perfResp.json()).midi_b64, 'base64');
+        const midPath = `${OUT_DIR}/${scenario.name}_${passLabel}.mid`;
+        fs.writeFileSync(midPath, midiBytes);
 
-    // Build exact cue timing from the rendered teacher MIDI
-    try {
-        const structuredDiffs = diffStructured(referenceMpm, studentMpm, range);
-        const teacherMidiFile = readMidi(
-            teacherMidiBytes.buffer.slice(
-                teacherMidiBytes.byteOffset,
-                teacherMidiBytes.byteOffset + teacherMidiBytes.byteLength,
-            ),
-        );
-        const timingMap = buildTimingMap(baseMsm, teacherMidiFile, range);
+        // Build cue timing
+        let cueFiles: Array<{ id: string; atSec: number; audioPath: string }> = [];
+        try {
+            if (diffEvents.length === 0) {
+                console.log(`    ${passLabel} cues: 0`);
+                return { midiBytes, midPath, cueFiles };
+            }
+
+            const midiFile = readMidi(
+                midiBytes.buffer.slice(midiBytes.byteOffset, midiBytes.byteOffset + midiBytes.byteLength),
+            );
+            const timingMap = buildTimingMap(passMsm, midiFile, passRange);
             const positions = new Map<string, StructuredDiffEvent[]>();
-            for (const event of structuredDiffs) {
+            for (const event of diffEvents) {
                 const group = positions.get(event.position) ?? [];
                 group.push(event);
                 positions.set(event.position, group);
             }
             const drafted = await planCueTexts(
-                diffResult,
+                diffText,
                 Array.from(positions.entries()).map(([position, events]) => ({
                     position,
                     issues: events.map((event) => ({
@@ -1167,55 +1333,151 @@ for (const scenario of scenarios) {
                     })),
                 })),
             );
-        if (STRICT_LLM_CUES && drafted.length === 0) {
-            throw new Error('LLM cue plan returned no cues');
+            if (STRICT_LLM_CUES && drafted.length === 0) {
+                throw new Error(`LLM cue plan returned no cues for ${passLabel}`);
+            }
+            const cuePlan = resolveTeacherCuePlan(diffEvents, timingMap, drafted);
+            const renderedCues = await renderCueAudio(cuePlan.map((cue: TeacherCue) => ({ id: cue.id, text: cue.text })));
+            if (STRICT_LLM_CUES && renderedCues.length !== cuePlan.length) {
+                throw new Error(`Expected ${cuePlan.length} rendered cues for ${passLabel}, got ${renderedCues.length}`);
+            }
+            const resolvedCueFiles = await resolveRenderedCueCollisions(`${scenario.name}_${passLabel}`, cuePlan, renderedCues);
+            cueFiles = resolvedCueFiles.map(({ id, atSec, audioPath }) => ({ id, atSec, audioPath }));
+            fs.writeFileSync(
+                `${OUT_DIR}/${scenario.name}_${passLabel}_cues.json`,
+                JSON.stringify(
+                    resolvedCueFiles.map(({ id, atSec, text, severity, type, priority }) => ({
+                        id, atSec, text, severity, type, priority,
+                    })),
+                    null, 2,
+                ),
+            );
+            console.log(`    ${passLabel} cues: ${cueFiles.length}`);
+        } catch (e: any) {
+            if (STRICT_LLM_CUES) throw e;
+            console.log(`    ${passLabel} cue rendering unavailable: ${e.message}`);
         }
-        const cuePlan = resolveTeacherCuePlan(structuredDiffs, timingMap, drafted);
-        const renderedCues = await renderCueAudio(cuePlan.map((cue: TeacherCue) => ({ id: cue.id, text: cue.text })));
-        if (STRICT_LLM_CUES && renderedCues.length !== cuePlan.length) {
-            throw new Error(`Expected ${cuePlan.length} rendered cues, got ${renderedCues.length}`);
-        }
-        const resolvedCueFiles = await resolveRenderedCueCollisions(scenario.name, cuePlan, renderedCues);
-        renderedCueFiles = resolvedCueFiles.map(({ id, atSec, audioPath }) => ({ id, atSec, audioPath }));
-        fs.writeFileSync(
-            `${OUT_DIR}/${scenario.name}_teacher_cues.json`,
-            JSON.stringify(
-                resolvedCueFiles.map(({ id, atSec, text, severity, type, priority }) => ({
-                    id, atSec, text, severity, type, priority,
-                })),
-                null,
-                2,
-            ),
+
+        return { midiBytes, midPath, cueFiles };
+    };
+
+    if (deviationRange) {
+        // ── Two-pass mode: mood chord, judgement, full demonstration ──
+        console.log(`  [6/8] TWO-PASS: large-scale deviation in m${Math.floor(deviationRange.from / TICKS_PER_MEASURE) + 1}–m${Math.floor(deviationRange.to / TICKS_PER_MEASURE) + 1}`);
+
+        const inDevRange = (e: StructuredDiffEvent) =>
+            e.date >= deviationRange.from && e.date <= deviationRange.to;
+        const fullDiff = structuredDiffs.filter(inDevRange);
+        const judgementDurationSec = judgementAudioPath ? audioDurationSec(judgementAudioPath) : 0;
+
+        const reductionBaseMsm = new MSM(reductionMsmNotes!, { numerator: 4, denominator: 4 });
+        const moodPlan = buildJudgementMoodRenderPlan(
+            reductionBaseMsm,
+            baseMsm,
+            teacherMpm,
+            deviationRange.from,
+            { minimumPedalHoldMs: judgementDurationSec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         );
-        console.log(`    Teacher cues: ${renderedCueFiles.length}`);
-    } catch (e: any) {
-        if (STRICT_LLM_CUES) throw e;
-        console.log(`    Cue rendering unavailable: ${e.message}`);
-        console.log('    (continuing without synced teacher cues)');
-    }
-
-    // 7. MIDI → WAV → combine → MP3
-    console.log('  [7/7] Combining → MP3...');
-    try {
-        const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
-        const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
-        const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
-        midiToWav(studentMidPath, studentWav);
-        midiToWav(teacherMidPath, teacherWav);
-        mixTeacherWithCues(teacherWav, renderedCueFiles, teacherMixedWav);
-
-        const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
-        combineToMp3(studentWav, teacherMixedWav, mp3Path);
-        console.log(`    → ${mp3Path}`);
-
-        // Clean up intermediate WAV files
-        for (const f of [studentWav, teacherWav, teacherMixedWav]) {
-            try { fs.unlinkSync(f); } catch { /* ignore */ }
+        if (!moodPlan) {
+            throw new Error('Could not build judgement mood chord plan for two-pass test render');
         }
-    } catch (e: any) {
-        console.log(`    MP3 combine failed: ${e.message}`);
-        console.log('    (MIDI files are still available for manual processing)');
+
+        console.log(`    Pass 1: judgement mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
+        const mood = await renderPassWithCues(
+            'reduction',
+            reductionMei!,
+            reductionBaseMsm,
+            moodPlan.range,
+            [],
+            diffResult,
+            { mpmXml: exportMPM(moodPlan.mpm as MPM) },
+        );
+
+        console.log('    Pass 2: full piece (all cues)...');
+        const full = await renderPassWithCues(
+            'full', mei, baseMsm, deviationRange, fullDiff, diffResult,
+        );
+
+        // 7. MIDI → WAV → combine → MP3
+        console.log('  [7/8] Combining (two-pass) → MP3...');
+        try {
+            const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
+            const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
+            const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
+            const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
+            const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
+            const fullEntrySec = judgementDurationSec;
+            const moodMidi = readMidi(
+                mood.midiBytes.buffer.slice(
+                    mood.midiBytes.byteOffset,
+                    mood.midiBytes.byteOffset + mood.midiBytes.byteLength,
+                ),
+            );
+            const fullMidi = readMidi(
+                full.midiBytes.buffer.slice(
+                    full.midiBytes.byteOffset,
+                    full.midiBytes.byteOffset + full.midiBytes.byteLength,
+                ),
+            );
+            const connectedMidi = appendMidiWithOffset(
+                moodMidi,
+                fullMidi,
+                millisecondsToMidiTicks(moodMidi, judgementDurationSec * 1000),
+            );
+            fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(connectedMidi.tracks, connectedMidi.header.ticksPerBeat)));
+            const connectedCueFiles = offsetCueTimes(full.cueFiles, fullEntrySec);
+
+            midiToWav(studentMidPath, studentWav);
+            midiToWav(teacherMidPath, teacherWav);
+            mixTeacherWithCues(teacherWav, connectedCueFiles, teacherMixedWav);
+            mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
+
+            const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
+            combineToMp3(studentWav, teacherIntroWav, mp3Path);
+            console.log(`    → ${mp3Path}`);
+
+            for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
+                try { fs.unlinkSync(f); } catch { /* ignore */ }
+            }
+        } catch (e: any) {
+            console.log(`    MP3 combine failed: ${e.message}`);
+            console.log('    (MIDI files are still available for manual processing)');
+        }
+
+    } else {
+        // ── Single-pass mode (original flow) ──
+        console.log('  [6/8] Single-pass: rendering teacher MIDI...');
+
+        const single = await renderPassWithCues(
+            'teacher', mei, baseMsm, range, structuredDiffs, diffResult,
+        );
+
+        // 7. MIDI → WAV → combine → MP3
+        console.log('  [7/8] Combining → MP3...');
+        try {
+            const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
+            const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
+            const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
+            const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
+            midiToWav(studentMidPath, studentWav);
+            midiToWav(single.midPath, teacherWav);
+            mixTeacherWithCues(teacherWav, single.cueFiles, teacherMixedWav);
+            mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
+
+            const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
+            combineToMp3(studentWav, teacherIntroWav, mp3Path);
+            console.log(`    → ${mp3Path}`);
+
+            for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
+                try { fs.unlinkSync(f); } catch { /* ignore */ }
+            }
+        } catch (e: any) {
+            console.log(`    MP3 combine failed: ${e.message}`);
+            console.log('    (MIDI files are still available for manual processing)');
+        }
     }
+
+    console.log('  [8/8] Done.');
 }
 
 // ── Summary ──

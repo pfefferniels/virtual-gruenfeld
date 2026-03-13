@@ -2,8 +2,6 @@ import OpenAI from 'openai';
 
 export type CuePrepMode = 'realtime' | 'balanced' | 'studio';
 
-export const MODEL = process.env.OPENAI_MODEL || 'gpt-5.2';
-export const JUDGEMENT_MODEL = process.env.OPENAI_JUDGEMENT_MODEL || 'gpt-4.1-mini';
 export const OUTPUT_LANGUAGE = process.env.OUTPUT_LANGUAGE || 'German';
 
 export const DEFAULT_CUE_MODELS: Record<CuePrepMode, string> = {

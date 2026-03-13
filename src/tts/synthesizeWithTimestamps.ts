@@ -1,7 +1,7 @@
 import { ELEVEN_V3_MODEL_ID } from '../shared/tts';
 import type { TeacherStreamAlignment } from '../shared/teacherStream';
 
-export type SynthesisWithTimestampsResult = {
+type SynthesisWithTimestampsResult = {
     audioBase64: string;
     alignment: TeacherStreamAlignment;
 };

@@ -10,10 +10,6 @@ import { buildTimingMap, type TimingMapPoint } from "./teacherCues";
 import { perform, warmPerformEndpoint } from "./services/mpmRenderer";
 import { assertOk } from "./services/api";
 
-// Re-exports from cues/ (deprecated — kept for backwards compatibility)
-export { prepareTeacherCues, type PreparedTeacherCue } from "./cues/prepare";
-export { resolveTeacherCues, requestTeacherCuePlan } from "./cues/planning";
-
 // Re-exports from services/
 export { assertOk, warmPerformEndpoint };
 

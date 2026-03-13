@@ -87,6 +87,22 @@ export const appendMidiWithOffset = (
     };
 };
 
+/** Shift all MIDI events forward by `offsetTicks`, prepending silence. */
+export const delayMidi = (
+    midi: MidiFile,
+    offsetTicks: number,
+): MidiFile => {
+    if (offsetTicks <= 0) return midi;
+    const tracks: AnyEvent[][] = midi.tracks.map((track) => {
+        if (track.length === 0) return track;
+        return [
+            { ...track[0], deltaTime: track[0].deltaTime + offsetTicks },
+            ...track.slice(1),
+        ];
+    });
+    return { header: { ...midi.header }, tracks };
+};
+
 export const offsetCueTimes = <T extends { atSec: number }>(
     cues: T[],
     offsetSec: number,

@@ -1,7 +1,7 @@
 import { exaggerate } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
 import { fallbackImmediateJudgement } from '../../judgement';
-import { appendMidiWithOffset, millisecondsToMidiTicks } from '../../pianosound/midiSequence';
+import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from '../../pianosound/midiSequence';
 import {
     buildJudgementMoodRenderPlan,
     JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
@@ -9,6 +9,9 @@ import {
 import { requestVocalStream, scheduleVocalStream } from '../teacherVocalStream';
 import type { VocalChunk } from '../chunker';
 import type { TeacherStrategy } from '../types';
+
+/** Small breathing room between JUDGE narration ending and correction piano entry. */
+const JUDGE_TO_CORRECTION_BUFFER_MS = 200;
 
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
     const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement } = controls;
@@ -52,6 +55,9 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         onJudgement(fallback);
     }
 
+    const correctionEntryMs = judgeDurationMs + JUDGE_TO_CORRECTION_BUFFER_MS;
+    const correctionEntrySec = correctionEntryMs / 1000;
+
     // Build mood chord from harmonic reduction (if available)
     const moodPlan = ctx.reductionMei && ctx.reductionMsm
         ? buildJudgementMoodRenderPlan(
@@ -59,7 +65,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             ctx.baseMsm,
             take.referenceMpmClone,
             take.range.from,
-            { minimumPedalHoldMs: judgeDurationMs + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
+            { minimumPedalHoldMs: correctionEntryMs + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         )
         : null;
 
@@ -73,16 +79,15 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     if (moodPerf && moodPlan && vocalChunks.length > 0) {
         // Mood chord → vocal stream over chord → corrective playback
-        const judgeDurationSec = judgeDurationMs / 1000;
         const connectedMidi = appendMidiWithOffset(
             moodPerf.midi,
             correctionPerf.midi,
-            millisecondsToMidiTicks(moodPerf.midi, judgeDurationMs),
+            millisecondsToMidiTicks(moodPerf.midi, correctionEntryMs),
         );
 
         log(
             `PLAY: mood chord (date=${moodPlan.chordDate}, notes=${moodPlan.noteCount}, ` +
-            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(judgeDurationMs)})`,
+            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(correctionEntryMs)})`,
         );
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,18 +97,23 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
                 correctionPerf.timingMap,
                 scheduleAudioCue,
                 log,
-                judgeDurationSec,
+                correctionEntrySec,
             );
         });
     } else if (vocalChunks.length > 0) {
-        // No mood chord — vocal stream + corrective playback
+        // No mood chord — delay correction MIDI so JUDGE narration finishes first
+        const delayedMidi = delayMidi(
+            correctionPerf.midi,
+            millisecondsToMidiTicks(correctionPerf.midi, correctionEntryMs),
+        );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        play(correctionPerf.midi as any, undefined, ({ scheduleAudioCue }) => {
+        play(delayedMidi as any, undefined, ({ scheduleAudioCue }) => {
             scheduleVocalStream(
                 vocalChunks,
                 correctionPerf.timingMap,
                 scheduleAudioCue,
                 log,
+                correctionEntrySec,
             );
         });
     } else {

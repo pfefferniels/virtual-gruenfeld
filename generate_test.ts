@@ -21,7 +21,7 @@ import { implantLocal } from './client/src/matcher';
 import { fallbackImmediateJudgement, summarizeImmediateJudgement, type ImmediateJudgementPayload } from './client/src/judgement';
 import { buildTimingMap, secAtDate, cueDelay } from './client/src/teacherCues';
 import { layoutCues } from './client/src/pipeline/teacherVocalStream';
-import { appendMidiWithOffset, millisecondsToMidiTicks } from './client/src/pianosound/midiSequence';
+import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from './client/src/pianosound/midiSequence';
 import {
     buildJudgementMoodRenderPlan,
     JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
@@ -1226,6 +1226,8 @@ for (const scenario of scenarios) {
     // Map vocal chunks to playback times
     const judgeChunk = vocalChunks.find(c => c.marker === 'JUDGE');
     const judgeDurationSec = judgeChunk?.durationSec ?? 0;
+    const JUDGE_TO_CORRECTION_BUFFER_SEC = 0.2;
+    const correctionEntrySec = judgeDurationSec + JUDGE_TO_CORRECTION_BUFFER_SEC;
 
     // Build mood chord from harmonic reduction (if available)
     let moodPlan: ReturnType<typeof buildJudgementMoodRenderPlan> = null;
@@ -1237,7 +1239,7 @@ for (const scenario of scenarios) {
             baseMsm,
             teacherMpm,
             range.from,
-            { minimumPedalHoldMs: judgeDurationSec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
+            { minimumPedalHoldMs: correctionEntrySec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         );
         if (moodPlan) {
             console.log(`    Mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
@@ -1269,7 +1271,7 @@ for (const scenario of scenarios) {
         .map(c => {
             const tick = positionToTick(c.marker);
             if (tick === null) return null;
-            return { chunk: c, ideal: secAtDate(timingMap, tick) + cueDelay(CUE_DELAY_DEFAULT_REGION) + judgeDurationSec };
+            return { chunk: c, ideal: secAtDate(timingMap, tick) + cueDelay(CUE_DELAY_DEFAULT_REGION) + correctionEntrySec };
         })
         .filter((c): c is NonNullable<typeof c> => c !== null)
         .sort((a, b) => a.ideal - b.ideal);
@@ -1284,7 +1286,7 @@ for (const scenario of scenarios) {
         const lastPos = positional[positional.length - 1];
         const endIdeal = lastPos
             ? lastPos.ideal + lastPos.chunk.durationSec + END_GAP_SEC
-            : judgeDurationSec + END_GAP_SEC;
+            : correctionEntrySec + END_GAP_SEC;
         layoutItems.push({ chunk: endVocal, ideal: endIdeal, gapAfter: 0 });
     }
 
@@ -1322,13 +1324,16 @@ for (const scenario of scenarios) {
             const connectedMidi = appendMidiWithOffset(
                 moodMidi,
                 correctionMidi,
-                millisecondsToMidiTicks(moodMidi, judgeDurationSec * 1000),
+                millisecondsToMidiTicks(moodMidi, correctionEntrySec * 1000),
             );
             fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(connectedMidi.tracks, connectedMidi.header.ticksPerBeat)));
             finalMidPath = teacherMidPath;
-            // JUDGE chunk already at 0, musical chunks already offset by judgeDurationSec
+            // JUDGE chunk already at 0, musical chunks already offset by correctionEntrySec
         } else {
-            finalMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
+            // No mood chord — delay correction MIDI so JUDGE narration finishes first
+            const delayedMidi = delayMidi(correctionMidi, millisecondsToMidiTicks(correctionMidi, correctionEntrySec * 1000));
+            fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(delayedMidi.tracks, delayedMidi.header.ticksPerBeat)));
+            finalMidPath = teacherMidPath;
         }
 
         midiToWav(studentMidPath, studentWav);

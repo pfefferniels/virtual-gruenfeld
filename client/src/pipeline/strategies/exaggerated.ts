@@ -1,102 +1,56 @@
 import { exaggerate } from '../../mpm';
-import type { StructuredDiffEvent } from '../../mpm';
-import { performTeacherPlayback, resolveTeacherCues, requestTeacherCuePlan, prepareTeacherCues } from '../../api';
-import type { PreparedTeacherCue } from '../../api';
-import { REALTIME_PLAN_BUDGET_MS } from '../../cueLibrary';
-import type { TeacherCueDraft } from '../../teacherCues';
-import { appendMidiWithOffset, millisecondsToMidiTicks, offsetCueTimes } from '../../pianosound/midiSequence';
-import type { MidiFile } from 'midifile-ts';
+import { performTeacherPlayback } from '../../api';
+import { fallbackImmediateJudgement } from '../../judgement';
+import { appendMidiWithOffset, millisecondsToMidiTicks } from '../../pianosound/midiSequence';
 import {
     buildJudgementMoodRenderPlan,
     JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
 } from '../judgementMood';
-import type { TeacherStrategy, StrategyControls, SpokenJudgement } from '../types';
-
-// ── Cue planning + playback helpers ──
-
-const planAndPrepareCues = async (
-    diffSummary: string,
-    diffEvents: StructuredDiffEvent[],
-    timingMap: Parameters<typeof resolveTeacherCues>[1],
-    mode: StrategyControls['mode'],
-    audioContext: AudioContext,
-    playbackDeadlineAt: number | undefined,
-    log: (msg: string) => void,
-): Promise<PreparedTeacherCue[]> => {
-    const planStartedAt = Date.now();
-    const cueDraftPromise = requestTeacherCuePlan(diffSummary, diffEvents, mode, timingMap, log)
-        .then((drafts) => {
-            log(`CUE: plan_ms=${Date.now() - planStartedAt} drafted=${drafts.length}`);
-            return drafts;
-        })
-        .catch((e) => {
-            log(`CUE plan error: ${e}`);
-            return [] as TeacherCueDraft[];
-        });
-
-    let drafted: TeacherCueDraft[] = [];
-    if (mode === 'realtime') {
-        const remainingMs = Math.max(0, Math.min(
-            (playbackDeadlineAt ?? Date.now()) - Date.now(),
-            REALTIME_PLAN_BUDGET_MS,
-        ));
-        drafted = await Promise.race([
-            cueDraftPromise,
-            new Promise<TeacherCueDraft[]>((resolve) => window.setTimeout(() => resolve([]), remainingMs)),
-        ]);
-    } else {
-        drafted = await cueDraftPromise;
-    }
-
-    const cuePlan = resolveTeacherCues(diffEvents, timingMap, drafted);
-    try {
-        return await prepareTeacherCues(cuePlan, audioContext, log, mode, playbackDeadlineAt);
-    } catch (e) {
-        log(`CUE prepare error: ${e}`);
-        return [];
-    }
-};
-
-const playWithCues = (
-    midi: MidiFile,
-    cues: PreparedTeacherCue[],
-    play: StrategyControls['play'],
-    log: (msg: string) => void,
-    spokenJudgement?: SpokenJudgement,
-) => {
-    log(`PLAY: starting (cues=${cues.length})`);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    play(midi as any, undefined, ({ scheduleAudioCue }) => {
-        if (spokenJudgement) {
-            scheduleAudioCue({
-                atSec: 0,
-                audioBuffer: spokenJudgement.audioBuffer,
-                onStart: () => {
-                    log(`PLAY: spoken judgement start (duration_ms=${Math.round(spokenJudgement.audioBuffer.duration * 1000)})`);
-                },
-            });
-        }
-        for (const cue of cues) {
-            scheduleAudioCue({
-                atSec: cue.atSec,
-                audioBuffer: cue.audioBuffer,
-                onStart: () => {
-                    log(`CUE: trigger "${cue.text}" at ${cue.atSec.toFixed(2)}s`);
-                },
-            });
-        }
-    });
-};
-
-// ── Strategy ──
+import { requestVocalStream, scheduleVocalStream } from '../teacherVocalStream';
+import type { VocalChunk } from '../chunker';
+import type { TeacherStrategy } from '../types';
 
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
-    const { log, isCancelled, play, playAudioBuffer, audioContext, mode, playbackDeadlineAt, takeStartedAt } = controls;
+    const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement } = controls;
 
     exaggerate(take.referenceMpmClone, take.studentMpm, take.range, 0.2, log);
 
-    const spokenJudgement = await take.spokenJudgementPromise;
-    const spokenJudgementMs = spokenJudgement ? spokenJudgement.audioBuffer.duration * 1000 : 0;
+    // Kick off vocal stream + correction rendering in parallel
+    const vocalStreamPromise = requestVocalStream(
+        take.judgementSummary,
+        take.diffSummary,
+        take.structuredDiff,
+        undefined, // timingMap not yet available; candidates will be built from diffEvents
+        mode,
+        audioContext,
+        log,
+    ).catch((e) => {
+        log(`VOCAL: stream error: ${e}`);
+        return [] as VocalChunk[];
+    });
+
+    const performStartedAt = Date.now();
+    const correctionPerf = await performTeacherPlayback(
+        ctx.mei, ctx.baseMsm, take.referenceMpmClone, take.range,
+    );
+    log(`PLAY: correction perform_ms=${Date.now() - performStartedAt}`);
+    if (isCancelled() || !correctionPerf) return;
+
+    const vocalChunks = await vocalStreamPromise;
+    if (isCancelled()) return;
+
+    // Extract JUDGE chunk info
+    const judgeChunk = vocalChunks.find((c) => c.marker === 'JUDGE');
+    const judgeText = judgeChunk?.text ?? '';
+    const judgeDurationMs = judgeChunk ? judgeChunk.audioBuffer.duration * 1000 : 0;
+
+    // Update UI with judgement text
+    if (judgeText) {
+        onJudgement(judgeText);
+    } else {
+        const fallback = fallbackImmediateJudgement(take.judgementSummary);
+        onJudgement(fallback);
+    }
 
     // Build mood chord from harmonic reduction (if available)
     const moodPlan = ctx.reductionMei && ctx.reductionMsm
@@ -105,52 +59,57 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             ctx.baseMsm,
             take.referenceMpmClone,
             take.range.from,
-            { minimumPedalHoldMs: spokenJudgementMs + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
+            { minimumPedalHoldMs: judgeDurationMs + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         )
         : null;
 
-    // Render mood chord + corrective playback in parallel
-    const performStartedAt = Date.now();
-    const [moodPerf, correctionPerf] = await Promise.all([
-        moodPlan
-            ? performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
-            : Promise.resolve(undefined),
-        performTeacherPlayback(ctx.mei, ctx.baseMsm, take.referenceMpmClone, take.range),
-    ]);
-    log(`PLAY: perform_ms=${Date.now() - performStartedAt}`);
-    if (isCancelled() || !correctionPerf) return;
-
-    const preparedCues = await planAndPrepareCues(
-        take.diffSummary, take.structuredDiff, correctionPerf.timingMap,
-        mode, audioContext, playbackDeadlineAt, log,
-    );
+    // Render mood chord if available
+    const moodPerf = moodPlan
+        ? await performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
+        : undefined;
     if (isCancelled()) return;
 
     log(`PLAY: time_to_play_ms=${Date.now() - takeStartedAt}`);
 
-    if (moodPerf && moodPlan) {
-        // Mood chord → spoken judgement over chord → corrective playback with cues
-        const entrySec = spokenJudgementMs / 1000;
+    if (moodPerf && moodPlan && vocalChunks.length > 0) {
+        // Mood chord → vocal stream over chord → corrective playback
+        const judgeDurationSec = judgeDurationMs / 1000;
         const connectedMidi = appendMidiWithOffset(
             moodPerf.midi,
             correctionPerf.midi,
-            millisecondsToMidiTicks(moodPerf.midi, spokenJudgementMs),
+            millisecondsToMidiTicks(moodPerf.midi, judgeDurationMs),
         );
-        const connectedCues = offsetCueTimes(preparedCues, entrySec);
+
         log(
             `PLAY: mood chord (date=${moodPlan.chordDate}, notes=${moodPlan.noteCount}, ` +
-            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(spokenJudgementMs)})`,
+            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(judgeDurationMs)})`,
         );
-        playWithCues(connectedMidi, connectedCues, play, log, spokenJudgement ?? undefined);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        play(connectedMidi as any, undefined, ({ scheduleAudioCue }) => {
+            scheduleVocalStream(
+                vocalChunks,
+                correctionPerf.timingMap,
+                scheduleAudioCue,
+                log,
+                judgeDurationSec,
+            );
+        });
+    } else if (vocalChunks.length > 0) {
+        // No mood chord — vocal stream + corrective playback
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        play(correctionPerf.midi as any, undefined, ({ scheduleAudioCue }) => {
+            scheduleVocalStream(
+                vocalChunks,
+                correctionPerf.timingMap,
+                scheduleAudioCue,
+                log,
+            );
+        });
     } else {
-        // Fallback: spoken judgement then corrective playback
-        if (spokenJudgement && !isCancelled()) {
-            log(`PLAY: spoken judgement "${spokenJudgement.text}"`);
-            await playAudioBuffer(spokenJudgement.audioBuffer, () => {
-                log(`PLAY: spoken judgement start (duration_ms=${Math.round(spokenJudgementMs)})`);
-            });
-        }
-        if (isCancelled()) return;
-        playWithCues(correctionPerf.midi, preparedCues, play, log);
+        // Fallback: instrumental only (vocal stream failed)
+        log('PLAY: fallback instrumental-only (no vocal chunks)');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        play(correctionPerf.midi as any, undefined, () => {});
     }
 };

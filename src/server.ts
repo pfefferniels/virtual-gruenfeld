@@ -8,6 +8,7 @@ import { planCuesRouter } from './routes/planCues';
 import { renderCuesRouter } from './routes/renderCues';
 import { renderJudgementRouter } from './routes/renderJudgement';
 import { judgeRouter } from './routes/judge';
+import { teacherStreamRouter } from './routes/teacherStream';
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ app.use(planCuesRouter);
 app.use(renderCuesRouter);
 app.use(renderJudgementRouter);
 app.use(judgeRouter);
+app.use(teacherStreamRouter);
 
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../client/build', 'index.html'));

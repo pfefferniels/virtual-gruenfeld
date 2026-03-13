@@ -1,4 +1,4 @@
-// Thin re-export layer — all logic lives in services/, cues/, and matcher.
+// Thin re-export layer — all logic lives in services/, cues/, pipeline/, and matcher.
 // Consumers (Dialog.tsx, midi.ts) can import from here without changes.
 
 import { MidiFile } from "midifile-ts";
@@ -7,12 +7,10 @@ import { MSM } from "mpmify";
 import type { Range } from "./mpm";
 import { implantLocal } from "./matcher";
 import { buildTimingMap, type TimingMapPoint } from "./teacherCues";
-import { renderJudgementAudioBuffer } from "./cues/render";
 import { perform, warmPerformEndpoint } from "./services/mpmRenderer";
-import { assertOk, fetchJudgement } from "./services/api";
-import type { ImmediateJudgementPayload } from "./judgement";
+import { assertOk } from "./services/api";
 
-// Re-exports from cues/
+// Re-exports from cues/ (deprecated — kept for backwards compatibility)
 export { prepareTeacherCues, type PreparedTeacherCue } from "./cues/prepare";
 export { resolveTeacherCues, requestTeacherCuePlan } from "./cues/planning";
 
@@ -56,24 +54,4 @@ export const performTeacherPlayback = async (
         midi,
         timingMap: buildTimingMap(referenceMsm, midi, range),
     };
-};
-
-export const requestImmediateJudgement = async (
-    summary: ImmediateJudgementPayload,
-    log: (msg: string) => void,
-): Promise<string> => {
-    const text = await fetchJudgement(summary);
-    log(`JUDGE: text="${text}"`);
-    return text;
-};
-
-export const requestSpokenJudgement = async (
-    text: string,
-    audioContext: AudioContext,
-    log: (msg: string) => void,
-): Promise<AudioBuffer | null> => {
-    const startedAt = Date.now();
-    const buffer = await renderJudgementAudioBuffer(text, audioContext);
-    log(`JUDGE audio: render_ms=${Date.now() - startedAt} text="${text}" ready=${buffer ? 1 : 0}`);
-    return buffer;
 };

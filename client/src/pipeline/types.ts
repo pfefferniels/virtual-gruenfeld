@@ -20,7 +20,6 @@ export type TakeSnapshot = {
     diffSummary: string;
     structuredDiff: StructuredDiffEvent[];
     judgementSummary: ImmediateJudgementPayload;
-    spokenJudgementPromise: Promise<SpokenJudgement | null>;
     range: Range;
 };
 
@@ -36,11 +35,6 @@ export type PlayFn = (
     setup: (api: { scheduleAudioCue: (cue: ScheduledCue) => void }) => void,
 ) => void;
 
-export type SpokenJudgement = {
-    text: string;
-    audioBuffer: AudioBuffer;
-};
-
 export type PlayAudioBufferFn = (
     audioBuffer: AudioBuffer,
     onStart?: () => void,
@@ -55,6 +49,7 @@ export type StrategyControls = {
     mode: CuePrepMode;
     playbackDeadlineAt: number | undefined;
     takeStartedAt: number;
+    onJudgement: (value: string | ((prev: string) => string)) => void;
 };
 
 export type TeacherStrategy = (

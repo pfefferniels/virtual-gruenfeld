@@ -28,6 +28,10 @@ export default defineConfig({
       '/plan-cues': {
         target: 'http://localhost:3002',
         changeOrigin: true
+      },
+      '/teacher-stream': {
+        target: 'http://localhost:3002',
+        changeOrigin: true
       }
     }
   },

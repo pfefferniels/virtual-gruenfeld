@@ -48,7 +48,7 @@ const CUE_DELAY_MIN = 0.2;
 const CUE_DELAY_MAX = 1.0;
 const CUE_DELAY_DEFAULT_REGION = 2.0; // fallback when no next event exists
 
-const cueDelay = (regionLengthSec: number): number => {
+export const cueDelay = (regionLengthSec: number): number => {
     const raw = CUE_DELAY_K * Math.log(1 + regionLengthSec / CUE_DELAY_SCALE);
     return Math.min(CUE_DELAY_MAX, Math.max(CUE_DELAY_MIN, raw));
 };

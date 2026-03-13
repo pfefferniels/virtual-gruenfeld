@@ -1,12 +1,9 @@
 import type { MSM } from 'mpmify';
 import { mpmify, diff, diffStructured } from '../mpm';
 import type { Range } from '../mpm';
-import { summarizeImmediateJudgement, fallbackImmediateJudgement } from '../judgement';
-import { requestImmediateJudgement, requestSpokenJudgement } from '../api';
+import { summarizeImmediateJudgement } from '../judgement';
 import { REALTIME_PLAYBACK_DEADLINE_MS } from '../cueLibrary';
 import type { PipelineContext, TeacherStrategy, TakeRunnerControls } from './types';
-
-const QUICK_JUDGEMENT_BUDGET_MS = 450;
 
 export const runTake = async (
     ctx: PipelineContext,
@@ -33,38 +30,6 @@ export const runTake = async (
     controls.onJudgement('');
 
     const mode = controls.mode;
-    const fallback = fallbackImmediateJudgement(judgementSummary);
-    const judgementStartedAt = Date.now();
-    const judgementPromise = requestImmediateJudgement(judgementSummary, controls.log)
-        .then((text) => {
-            controls.log(`JUDGE: judgement_ms=${Date.now() - judgementStartedAt}`);
-            if (!controls.isCancelled() && text) {
-                controls.onJudgement(text);
-            }
-            return text;
-        })
-        .catch((e) => {
-            controls.log(`JUDGE error: ${e}`);
-            return '';
-        });
-    const spokenJudgementPromise = judgementPromise
-        .then(async (text) => {
-            const spokenText = text || fallback;
-            if (!spokenText) return null;
-            const audioBuffer = await requestSpokenJudgement(spokenText, controls.audioContext, controls.log);
-            if (!audioBuffer) return null;
-            return { text: spokenText, audioBuffer };
-        })
-        .catch((e) => {
-            controls.log(`JUDGE audio error: ${e}`);
-            return null;
-        });
-    window.setTimeout(() => {
-        if (!controls.isCancelled()) {
-            controls.onJudgement((prev) => prev || fallback);
-        }
-    }, QUICK_JUDGEMENT_BUDGET_MS);
-
     const playbackDeadlineAt = mode === 'realtime'
         ? Date.now() + REALTIME_PLAYBACK_DEADLINE_MS
         : undefined;
@@ -78,7 +43,6 @@ export const runTake = async (
             diffSummary,
             structuredDiff,
             judgementSummary,
-            spokenJudgementPromise,
             range,
         }, {
             log: controls.log,
@@ -89,10 +53,9 @@ export const runTake = async (
             mode,
             playbackDeadlineAt,
             takeStartedAt,
+            onJudgement: controls.onJudgement,
         });
     } catch (e) {
         controls.log(`PERFORM error: ${e}`);
     }
-
-    void judgementPromise;
 };

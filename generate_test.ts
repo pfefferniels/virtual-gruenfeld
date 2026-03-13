@@ -1,12 +1,12 @@
 /**
  * generate_test.ts — Full dialogic teaching pipeline test
  *
- * Generates MP3s: student playing → teacher playing with synced cue words
- * Uses the same infrastructure as the frontend (/render-cues + exact cue timing).
+ * Generates MP3s: student playing → teacher playing with unified vocal stream.
+ * Uses the /teacher-stream endpoint for a single LLM + TTS call.
  *
  * Requires:
  *   - meico server at http://localhost:8080 (/convert, /perform)
- *   - virtual-gruenfeld server (/render-cues, /plan-cues)
+ *   - virtual-gruenfeld server (/teacher-stream)
  *   - timidity or fluidsynth + SF2_PATH (MIDI → WAV)
  *   - ffmpeg (audio concat + MP3 encoding)
  *
@@ -19,8 +19,9 @@ import 'dotenv/config';
 import { read as readMidi, write as writeMidi } from 'midifile-ts';
 import { implantLocal } from './client/src/matcher';
 import { fallbackImmediateJudgement, summarizeImmediateJudgement, type ImmediateJudgementPayload } from './client/src/judgement';
-import { buildTimingMap, planTeacherCues, secAtDate, TeacherCue } from './client/src/teacherCues';
-import { appendMidiWithOffset, millisecondsToMidiTicks, offsetCueTimes } from './client/src/pianosound/midiSequence';
+import { buildTimingMap, secAtDate, cueDelay } from './client/src/teacherCues';
+import { layoutCues } from './client/src/pipeline/teacherVocalStream';
+import { appendMidiWithOffset, millisecondsToMidiTicks } from './client/src/pianosound/midiSequence';
 import {
     buildJudgementMoodRenderPlan,
     JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
@@ -154,49 +155,108 @@ function enrichWithPerformanceData(notes: any[], mei: string): number {
     return matched;
 }
 
-async function renderCueAudio(cues: Array<{ id: string; text: string }>): Promise<Array<{ id: string; text: string; audio: Buffer }>> {
-    const res = await fetch(`${SERVER_URL}/render-cues`, {
+// ── Teacher Stream (unified vocal) ──
+
+type TeacherStreamAnchor = { marker: string; charOffset: number; text: string };
+type TeacherStreamAlignment = {
+    characters: string[];
+    character_start_times_seconds: number[];
+    character_end_times_seconds: number[];
+};
+type TeacherStreamResponse = {
+    rawText: string;
+    anchors: TeacherStreamAnchor[];
+    cleanedText: string;
+    audioBase64: string;
+    alignment: TeacherStreamAlignment;
+    model: string;
+    stats: { llmMs: number; ttsMs: number; totalMs: number };
+};
+
+async function requestTeacherStream(
+    judgement: ImmediateJudgementPayload,
+    diff: string,
+    candidates: Array<Record<string, unknown>>,
+    mode: string,
+): Promise<TeacherStreamResponse> {
+    const res = await fetch(`${SERVER_URL}/teacher-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: CUE_PREP_MODE, cues }),
+        body: JSON.stringify({ judgement, diff, candidates, mode }),
     });
-    await assertOk(res, '/render-cues');
-    const payload = await res.json();
-    const rendered = Array.isArray(payload?.cues) ? payload.cues : [];
-    return rendered
-        .filter((cue: any) => typeof cue?.id === 'string' && typeof cue?.text === 'string' && typeof cue?.audio_b64 === 'string')
-        .map((cue: any) => ({
-            id: cue.id,
-            text: cue.text,
-            audio: Buffer.from(cue.audio_b64, 'base64'),
-        }));
+    await assertOk(res, '/teacher-stream');
+    return res.json() as Promise<TeacherStreamResponse>;
 }
 
-const CUE_OVERLAP_PADDING_SEC = 0.08;
-const MAX_MERGED_CUE_WORDS = 8;
-
-const splitCueText = (text: string): { tag: string | null; body: string } => {
-    const normalized = text.replace(/\s+/g, ' ').trim();
-    const tagMatch = normalized.match(/^\[([^\]]+)\]\s*/);
-    const tag = tagMatch ? `[${tagMatch[1].trim()}]` : null;
-    const body = normalized.slice(tagMatch?.[0].length ?? 0).trim();
-    return { tag, body };
+type VocalChunkFile = {
+    marker: string;
+    text: string;
+    audioPath: string;
+    startSec: number;
+    endSec: number;
+    durationSec: number;
 };
 
-const mergeCueTexts = (first: string, second: string): string | null => {
-    const left = splitCueText(first);
-    const right = splitCueText(second);
-    if (!left.body || !right.body) return null;
+function sliceVocalStream(
+    fullAudioPath: string,
+    anchors: TeacherStreamAnchor[],
+    alignment: TeacherStreamAlignment,
+    scenarioName: string,
+): VocalChunkFile[] {
+    const starts = alignment.character_start_times_seconds;
+    const ends = alignment.character_end_times_seconds;
 
-    const words = `${left.body} ${right.body}`.split(/[ ,]+/).filter(Boolean);
-    if (words.length > MAX_MERGED_CUE_WORDS) return null;
+    if (anchors.length === 0 || starts.length === 0) {
+        // No alignment → single chunk from full audio
+        const dur = audioDurationSec(fullAudioPath);
+        return [{
+            marker: anchors[0]?.marker ?? 'JUDGE',
+            text: anchors[0]?.text ?? '',
+            audioPath: fullAudioPath,
+            startSec: 0,
+            endSec: dur,
+            durationSec: dur,
+        }];
+    }
 
-    if (left.tag && right.tag && left.tag === right.tag) return `${left.tag} ${left.body}, ${right.body}`;
-    if (left.tag && right.tag) return `${left.tag} ${left.body}, ${right.tag} ${right.body}`;
-    if (left.tag) return `${left.tag} ${left.body}, ${right.body}`;
-    if (right.tag) return `${left.body}, ${right.tag} ${right.body}`;
-    return `${left.body}, ${right.body}`;
-};
+    const boundaries: number[] = [];
+    for (const anchor of anchors) {
+        const offset = anchor.charOffset;
+        if (offset < starts.length) {
+            boundaries.push(starts[offset]);
+        } else if (ends.length > 0) {
+            boundaries.push(ends[ends.length - 1]);
+        } else {
+            boundaries.push(0);
+        }
+    }
+    boundaries.push(ends.length > 0 ? ends[ends.length - 1] : 0);
+
+    const chunks: VocalChunkFile[] = [];
+    for (let i = 0; i < anchors.length; i++) {
+        const startSec = boundaries[i];
+        const endSec = boundaries[i + 1];
+        if (endSec <= startSec) continue;
+
+        const safeMarker = anchors[i].marker.replace(/\./g, '_');
+        const audioPath = `${OUT_DIR}/${scenarioName}_chunk_${i}_${safeMarker}.mp3`;
+        execSync(
+            `ffmpeg -y -i "${fullAudioPath}" -ss ${startSec.toFixed(3)} -to ${endSec.toFixed(3)} -c copy "${audioPath}"`,
+            { stdio: 'pipe' },
+        );
+
+        chunks.push({
+            marker: anchors[i].marker,
+            text: anchors[i].text,
+            audioPath,
+            startSec,
+            endSec,
+            durationSec: audioDurationSec(audioPath),
+        });
+    }
+
+    return chunks;
+}
 
 const audioDurationSec = (audioPath: string): number => {
     const output = execSync(
@@ -210,123 +270,7 @@ const audioDurationSec = (audioPath: string): number => {
     return duration;
 };
 
-const chooseStrongerCue = <
-    T extends { priority: number; atSec: number }
->(
-    left: T,
-    right: T,
-): T => {
-    if (left.priority !== right.priority) return left.priority > right.priority ? left : right;
-    return left.atSec <= right.atSec ? left : right;
-};
-
-type RenderedCueFile = {
-    id: string;
-    atSec: number;
-    text: string;
-    audioPath: string;
-    durationSec: number;
-    severity: TeacherCue['severity'];
-    type: string;
-    priority: number;
-};
-
-async function resolveRenderedCueCollisions(
-    scenarioName: string,
-    cuePlan: TeacherCue[],
-    renderedCues: Array<{ id: string; text: string; audio: Buffer }>,
-): Promise<RenderedCueFile[]> {
-    const renderedById = new Map(renderedCues.map((cue) => [cue.id, cue]));
-    const files: RenderedCueFile[] = [];
-    for (const cue of cuePlan) {
-        const rendered = renderedById.get(cue.id);
-        if (!rendered) continue;
-        const audioPath = `${OUT_DIR}/${scenarioName}_${cue.id}.mp3`;
-        fs.writeFileSync(audioPath, rendered.audio);
-        files.push({
-            id: cue.id,
-            atSec: cue.atSec,
-            text: cue.text,
-            audioPath,
-            durationSec: audioDurationSec(audioPath),
-            severity: cue.severity,
-            type: cue.type,
-            priority: cue.priority,
-        });
-    }
-
-    for (let i = 0; i < files.length - 1;) {
-        const current = files[i];
-        const next = files[i + 1];
-        if (next.atSec >= current.atSec + current.durationSec + CUE_OVERLAP_PADDING_SEC) {
-            i++;
-            continue;
-        }
-
-        const mergedText = mergeCueTexts(current.text, next.text);
-        if (mergedText) {
-            const stronger = chooseStrongerCue(current, next);
-            const mergedId = `${current.id}__${next.id}`;
-            const [rendered] = await renderCueAudio([{ id: mergedId, text: mergedText }]);
-            if (rendered) {
-                const audioPath = `${OUT_DIR}/${scenarioName}_${mergedId}.mp3`;
-                fs.writeFileSync(audioPath, rendered.audio);
-                files.splice(i, 2, {
-                    id: mergedId,
-                    atSec: current.atSec,
-                    text: mergedText,
-                    audioPath,
-                    durationSec: audioDurationSec(audioPath),
-                    severity: stronger.severity,
-                    type: stronger.type,
-                    priority: current.priority + next.priority,
-                });
-                continue;
-            }
-        }
-
-        const stronger = current.priority >= next.priority ? current : next;
-        files.splice(stronger === current ? i + 1 : i, 1);
-    }
-
-    return files;
-}
-
-async function planCueTexts(diff: string, candidates: Array<Record<string, unknown>>): Promise<Array<{ position: string; text: string }>> {
-    const res = await fetch(`${SERVER_URL}/plan-cues`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ diff, candidates }),
-    });
-    await assertOk(res, '/plan-cues');
-    const payload = await res.json();
-    const cues = Array.isArray(payload?.cues) ? payload.cues : [];
-    return cues.filter((cue: any) => typeof cue?.position === 'string' && typeof cue?.text === 'string');
-}
-
-async function requestJudgementText(summary: ImmediateJudgementPayload): Promise<string> {
-    const res = await fetch(`${SERVER_URL}/judge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ summary }),
-    });
-    await assertOk(res, '/judge');
-    const payload = await res.json();
-    return typeof payload?.text === 'string' ? payload.text.trim() : '';
-}
-
-async function renderJudgementAudio(text: string): Promise<Buffer | null> {
-    if (!text.trim()) return null;
-    const res = await fetch(`${SERVER_URL}/render-judgement`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-    });
-    await assertOk(res, '/render-judgement');
-    const payload = await res.json();
-    if (typeof payload?.audio_b64 !== 'string' || !payload.audio_b64) return null;
-    return Buffer.from(payload.audio_b64, 'base64');
-}
+// (Old separate judge/render/plan helpers removed — using unified /teacher-stream now)
 
 function resolveSoundfont(): string | null {
     const candidates = [
@@ -1191,24 +1135,6 @@ for (const scenario of scenarios) {
 
     const structuredDiffs = diffStructured(referenceMpm, studentMpm, range);
     const judgementSummary = summarizeImmediateJudgement(structuredDiffs, range);
-    const fallbackJudgement = fallbackImmediateJudgement(judgementSummary);
-    let judgementText = fallbackJudgement;
-    let judgementAudioPath: string | null = null;
-    try {
-        judgementText = (await requestJudgementText(judgementSummary)) || fallbackJudgement;
-    } catch (e: any) {
-        console.log(`    Judgement text unavailable: ${e.message}`);
-    }
-    try {
-        const judgementAudio = await renderJudgementAudio(judgementText);
-        if (judgementAudio) {
-            judgementAudioPath = `${OUT_DIR}/${scenario.name}_judgement.mp3`;
-            fs.writeFileSync(judgementAudioPath, judgementAudio);
-        }
-    } catch (e: any) {
-        console.log(`    Judgement audio unavailable: ${e.message}`);
-    }
-    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_judgement.txt`, `${judgementText}\n`);
 
     // 5. Exaggerate
     console.log('  [5/8] Exaggerating reference MPM...');
@@ -1216,29 +1142,18 @@ for (const scenario of scenarios) {
     exaggerate(teacherMpm, studentMpm, range, AGGRESSIVENESS);
     const teacherMpmXml = exportMPM(teacherMpm);
 
-    // Helper: render a performance and build cues
-    const renderPassWithCues = async (
+    // Helper: render a MIDI performance via /perform
+    const renderMidi = async (
         passLabel: string,
         passMei: string,
-        passMsm: MSM,
         passRange: Range,
-        diffEvents: StructuredDiffEvent[],
-        diffText: string,
-        opts?: { sketchiness?: number; mpmXml?: string },
-    ): Promise<{
-        midiBytes: Buffer;
-        midPath: string;
-        cueFiles: Array<{ id: string; atSec: number; audioPath: string }>;
-    }> => {
-        // Render teacher MIDI
+        opts?: { mpmXml?: string },
+    ): Promise<Buffer> => {
         const perfBody: Record<string, unknown> = {
             mei: passMei,
             mpm: opts?.mpmXml ?? teacherMpmXml,
             from: passRange.from, to: passRange.to, ppq: PPQ,
         };
-        if (opts?.sketchiness != null && opts.sketchiness > 1) {
-            perfBody.sketchiness = opts.sketchiness;
-        }
         const perfResp = await fetchRetry(PERFORM_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1246,101 +1161,146 @@ for (const scenario of scenarios) {
         }, `${passLabel} perform`);
         await assertOk(perfResp, `/perform (${passLabel})`);
         const midiBytes = Buffer.from((await perfResp.json()).midi_b64, 'base64');
-        const midPath = `${OUT_DIR}/${scenario.name}_${passLabel}.mid`;
-        fs.writeFileSync(midPath, midiBytes);
-
-        // Build cue timing
-        let cueFiles: Array<{ id: string; atSec: number; audioPath: string }> = [];
-        try {
-            if (diffEvents.length === 0) {
-                console.log(`    ${passLabel} cues: 0`);
-                return { midiBytes, midPath, cueFiles };
-            }
-
-            const midiFile = readMidi(
-                midiBytes.buffer.slice(midiBytes.byteOffset, midiBytes.byteOffset + midiBytes.byteLength),
-            );
-            const timingMap = buildTimingMap(passMsm, midiFile, passRange);
-            const positions = new Map<string, StructuredDiffEvent[]>();
-            for (const event of diffEvents) {
-                const group = positions.get(event.position) ?? [];
-                group.push(event);
-                positions.set(event.position, group);
-            }
-            const drafted = await planCueTexts(
-                diffText,
-                Array.from(positions.entries()).map(([position, events]) => ({
-                    position,
-                    issues: events.map((event) => ({
-                        type: event.type,
-                        severity: event.severity,
-                        direction: event.direction,
-                        primaryAttr: event.primaryAttr,
-                        refValue: event.refValue,
-                        studentValue: event.studentValue,
-                        defaultCue: event.cueText,
-                    })),
-                })),
-            );
-            if (STRICT_LLM_CUES && drafted.length === 0) {
-                throw new Error(`LLM cue plan returned no cues for ${passLabel}`);
-            }
-            const cuePlan = resolveTeacherCuePlan(diffEvents, timingMap, drafted);
-            const renderedCues = await renderCueAudio(cuePlan.map((cue: TeacherCue) => ({ id: cue.id, text: cue.text })));
-            if (STRICT_LLM_CUES && renderedCues.length !== cuePlan.length) {
-                throw new Error(`Expected ${cuePlan.length} rendered cues for ${passLabel}, got ${renderedCues.length}`);
-            }
-            const resolvedCueFiles = await resolveRenderedCueCollisions(`${scenario.name}_${passLabel}`, cuePlan, renderedCues);
-            cueFiles = resolvedCueFiles.map(({ id, atSec, audioPath }) => ({ id, atSec, audioPath }));
-            fs.writeFileSync(
-                `${OUT_DIR}/${scenario.name}_${passLabel}_cues.json`,
-                JSON.stringify(
-                    resolvedCueFiles.map(({ id, atSec, text, severity, type, priority }) => ({
-                        id, atSec, text, severity, type, priority,
-                    })),
-                    null, 2,
-                ),
-            );
-            console.log(`    ${passLabel} cues: ${cueFiles.length}`);
-        } catch (e: any) {
-            if (STRICT_LLM_CUES) throw e;
-            console.log(`    ${passLabel} cue rendering unavailable: ${e.message}`);
-        }
-
-        return { midiBytes, midPath, cueFiles };
+        fs.writeFileSync(`${OUT_DIR}/${scenario.name}_${passLabel}.mid`, midiBytes);
+        return midiBytes;
     };
 
-    // 6. Render teacher correction
-    console.log('  [6/8] Rendering teacher MIDI...');
-    const correction = await renderPassWithCues(
-        'teacher', mei, baseMsm, range, structuredDiffs, diffResult,
+    // 6. Render teacher correction MIDI + request unified vocal stream in parallel
+    console.log('  [6/8] Rendering teacher MIDI + requesting vocal stream...');
+
+    // Build candidates for teacher-stream
+    const positions = new Map<string, StructuredDiffEvent[]>();
+    for (const event of structuredDiffs) {
+        const group = positions.get(event.position) ?? [];
+        group.push(event);
+        positions.set(event.position, group);
+    }
+    const candidates = Array.from(positions.entries()).map(([position, events]) => ({
+        position,
+        issues: events.map((event) => ({
+            type: event.type,
+            severity: event.severity,
+            direction: event.direction,
+            primaryAttr: event.primaryAttr,
+            refValue: event.refValue,
+            studentValue: event.studentValue,
+        })),
+    }));
+
+    const [correctionBytes, teacherStreamResp] = await Promise.all([
+        renderMidi('teacher', mei, range),
+        requestTeacherStream(judgementSummary, diffResult, candidates, CUE_PREP_MODE),
+    ]);
+
+    // Save vocal stream info
+    const judgeAnchor = teacherStreamResp.anchors.find(a => a.marker === 'JUDGE');
+    const judgementText = judgeAnchor?.text || fallbackImmediateJudgement(judgementSummary);
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_judgement.txt`, `${judgementText}\n`);
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_vocal_raw.txt`, teacherStreamResp.rawText);
+    console.log(`    Vocal stream: ${teacherStreamResp.anchors.length} anchors, ` +
+        `llm=${teacherStreamResp.stats.llmMs}ms, tts=${teacherStreamResp.stats.ttsMs}ms`);
+    for (const anchor of teacherStreamResp.anchors) {
+        console.log(`      ${anchor.marker.padEnd(8)} "${anchor.text}"`);
+    }
+
+    // Save + slice vocal audio
+    let vocalChunks: VocalChunkFile[] = [];
+    const fullVocalPath = `${OUT_DIR}/${scenario.name}_vocal_full.mp3`;
+    if (teacherStreamResp.audioBase64) {
+        fs.writeFileSync(fullVocalPath, Buffer.from(teacherStreamResp.audioBase64, 'base64'));
+        vocalChunks = sliceVocalStream(
+            fullVocalPath,
+            teacherStreamResp.anchors,
+            teacherStreamResp.alignment,
+            scenario.name,
+        );
+        console.log(`    Sliced into ${vocalChunks.length} chunks`);
+    }
+
+    // Build timing map from correction MIDI
+    const correctionMidi = readMidi(
+        correctionBytes.buffer.slice(correctionBytes.byteOffset, correctionBytes.byteOffset + correctionBytes.byteLength),
     );
+    const timingMap = buildTimingMap(baseMsm, correctionMidi, range);
+
+    // Map vocal chunks to playback times
+    const judgeChunk = vocalChunks.find(c => c.marker === 'JUDGE');
+    const judgeDurationSec = judgeChunk?.durationSec ?? 0;
 
     // Build mood chord from harmonic reduction (if available)
     let moodPlan: ReturnType<typeof buildJudgementMoodRenderPlan> = null;
     let moodBytes: Buffer | null = null;
     if (reductionMei && reductionMsmNotes) {
-        const judgementDurationSec = judgementAudioPath ? audioDurationSec(judgementAudioPath) : 0;
         const reductionBaseMsm = new MSM(reductionMsmNotes, { numerator: 4, denominator: 4 });
         moodPlan = buildJudgementMoodRenderPlan(
             reductionBaseMsm,
             baseMsm,
             teacherMpm,
             range.from,
-            { minimumPedalHoldMs: judgementDurationSec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
+            { minimumPedalHoldMs: judgeDurationSec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         );
         if (moodPlan) {
             console.log(`    Mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
-            const moodPerf = await renderPassWithCues(
+            moodBytes = await renderMidi(
                 'reduction',
                 reductionMei,
-                reductionBaseMsm,
                 moodPlan.range,
-                [],
-                diffResult,
                 { mpmXml: exportMPM(moodPlan.mpm as MPM) },
             );
-            moodBytes = moodPerf.midiBytes;
+        }
+    }
+
+    // Schedule vocal chunks using PAVA layout (optimal non-overlapping positions)
+    const CUE_DELAY_DEFAULT_REGION = 2.0;
+    const MIN_CUE_GAP_SEC = 0.25;
+    const END_GAP_SEC = 1.5;
+    const scheduledChunks: Array<{ marker: string; atSec: number; audioPath: string }> = [];
+
+    // JUDGE is fixed at t=0
+    const judgeVocal = vocalChunks.find(c => c.marker === 'JUDGE');
+    if (judgeVocal) {
+        scheduledChunks.push({ marker: 'JUDGE', atSec: 0, audioPath: judgeVocal.audioPath });
+        console.log(`    Schedule "JUDGE" at 0.00s`);
+    }
+
+    // Collect positional cues with ideal times
+    const positional = vocalChunks
+        .filter(c => c.marker !== 'JUDGE' && c.marker !== 'END')
+        .map(c => {
+            const tick = positionToTick(c.marker);
+            if (tick === null) return null;
+            return { chunk: c, ideal: secAtDate(timingMap, tick) + cueDelay(CUE_DELAY_DEFAULT_REGION) + judgeDurationSec };
+        })
+        .filter((c): c is NonNullable<typeof c> => c !== null)
+        .sort((a, b) => a.ideal - b.ideal);
+
+    // Build layout items (positional + END)
+    const layoutItems: { chunk: VocalChunkFile; ideal: number; gapAfter: number }[] = positional.map(
+        p => ({ chunk: p.chunk, ideal: p.ideal, gapAfter: MIN_CUE_GAP_SEC }),
+    );
+    const endVocal = vocalChunks.find(c => c.marker === 'END');
+    if (endVocal) {
+        if (layoutItems.length > 0) layoutItems[layoutItems.length - 1].gapAfter = END_GAP_SEC;
+        const lastPos = positional[positional.length - 1];
+        const endIdeal = lastPos
+            ? lastPos.ideal + lastPos.chunk.durationSec + END_GAP_SEC
+            : judgeDurationSec + END_GAP_SEC;
+        layoutItems.push({ chunk: endVocal, ideal: endIdeal, gapAfter: 0 });
+    }
+
+    // Run PAVA layout
+    if (layoutItems.length > 0) {
+        const positions = layoutCues(layoutItems.map(item => ({
+            ideal: item.ideal,
+            duration: item.chunk.durationSec,
+            gapAfter: item.gapAfter,
+        })));
+        for (let i = 0; i < layoutItems.length; i++) {
+            const { chunk } = layoutItems[i];
+            const atSec = positions[i];
+            const drift = atSec - layoutItems[i].ideal;
+            scheduledChunks.push({ marker: chunk.marker, atSec, audioPath: chunk.audioPath });
+            console.log(`    Schedule "${chunk.marker}" at ${atSec.toFixed(2)}s (ideal=${layoutItems[i].ideal.toFixed(2)}s, drift=${drift >= 0 ? '+' : ''}${drift.toFixed(2)}s)`);
         }
     }
 
@@ -1350,45 +1310,39 @@ for (const scenario of scenarios) {
         const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
         const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
         const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
-        const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
-        const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
+        const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_vocal.wav`;
 
         let finalMidPath: string;
-        let finalCueFiles = correction.cueFiles;
+        let finalScheduledChunks = scheduledChunks;
 
         if (moodBytes && moodPlan) {
-            const judgementDurationSec = judgementAudioPath ? audioDurationSec(judgementAudioPath) : 0;
             const moodMidi = readMidi(
                 moodBytes.buffer.slice(moodBytes.byteOffset, moodBytes.byteOffset + moodBytes.byteLength),
-            );
-            const correctionMidi = readMidi(
-                correction.midiBytes.buffer.slice(
-                    correction.midiBytes.byteOffset,
-                    correction.midiBytes.byteOffset + correction.midiBytes.byteLength,
-                ),
             );
             const connectedMidi = appendMidiWithOffset(
                 moodMidi,
                 correctionMidi,
-                millisecondsToMidiTicks(moodMidi, judgementDurationSec * 1000),
+                millisecondsToMidiTicks(moodMidi, judgeDurationSec * 1000),
             );
             fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(connectedMidi.tracks, connectedMidi.header.ticksPerBeat)));
-            finalCueFiles = offsetCueTimes(correction.cueFiles, judgementDurationSec);
             finalMidPath = teacherMidPath;
+            // JUDGE chunk already at 0, musical chunks already offset by judgeDurationSec
         } else {
-            finalMidPath = correction.midPath;
+            finalMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
         }
 
         midiToWav(studentMidPath, studentWav);
         midiToWav(finalMidPath, teacherWav);
-        mixTeacherWithCues(teacherWav, finalCueFiles, teacherMixedWav);
-        mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.85);
+
+        // Mix vocal chunks into teacher WAV
+        const vocalInputs = finalScheduledChunks.map(c => ({ id: c.marker, atSec: c.atSec, audioPath: c.audioPath }));
+        mixTeacherWithCues(teacherWav, vocalInputs, teacherMixedWav);
 
         const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
-        combineToMp3(studentWav, teacherIntroWav, mp3Path);
+        combineToMp3(studentWav, teacherMixedWav, mp3Path);
         console.log(`    → ${mp3Path}`);
 
-        for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
+        for (const f of [studentWav, teacherWav, teacherMixedWav]) {
             try { fs.unlinkSync(f); } catch { /* ignore */ }
         }
     } catch (e: any) {

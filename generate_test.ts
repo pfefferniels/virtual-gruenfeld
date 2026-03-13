@@ -972,54 +972,6 @@ const exaggerate = (mpm1: MPM, mpm2: MPM, range: Range, aggressiveness: number =
 
 // ── Large-scale deviation detection ──
 
-const MACRO_TYPES = new Set(['tempo', 'dynamics']);
-const MIN_CONSECUTIVE_MEASURES = 2;
-
-const detectLargeScaleDeviation = (
-    events: StructuredDiffEvent[],
-    range: Range,
-    paddingMeasures: number = 1,
-): Range | null => {
-    const macroEvents = events.filter(
-        e => MACRO_TYPES.has(e.type) && severityRank(e.severity) >= 2,
-    );
-    if (macroEvents.length === 0) return null;
-
-    const measures = new Set<number>();
-    for (const e of macroEvents) {
-        measures.add(Math.floor(e.date / TICKS_PER_MEASURE) + 1);
-    }
-
-    const sorted = Array.from(measures).sort((a, b) => a - b);
-    let bestStart = sorted[0], bestEnd = sorted[0], bestLen = 1;
-    let curStart = sorted[0], curEnd = sorted[0], curLen = 1;
-
-    for (let i = 1; i < sorted.length; i++) {
-        if (sorted[i] === curEnd + 1) {
-            curEnd = sorted[i];
-            curLen++;
-        } else {
-            if (curLen > bestLen) {
-                bestStart = curStart; bestEnd = curEnd; bestLen = curLen;
-            }
-            curStart = sorted[i]; curEnd = sorted[i]; curLen = 1;
-        }
-    }
-    if (curLen > bestLen) {
-        bestStart = curStart; bestEnd = curEnd; bestLen = curLen;
-    }
-
-    if (bestLen < MIN_CONSECUTIVE_MEASURES) return null;
-
-    const paddedStart = Math.max(1, bestStart - paddingMeasures);
-    const paddedEnd = bestEnd + paddingMeasures;
-
-    return {
-        from: Math.max(range.from, (paddedStart - 1) * TICKS_PER_MEASURE),
-        to: Math.min(range.to, paddedEnd * TICKS_PER_MEASURE),
-    };
-};
-
 // ── Student MPM builder ──
 
 function buildStudentMpm(opts: {
@@ -1256,11 +1208,6 @@ for (const scenario of scenarios) {
     }
     fs.writeFileSync(`${OUT_DIR}/${scenario.name}_judgement.txt`, `${judgementText}\n`);
 
-    // 4.5. Detect large-scale deviation → two-pass mode
-    const deviationRange = reductionMei && reductionMsmNotes
-        ? detectLargeScaleDeviation(structuredDiffs, range)
-        : null;
-
     // 5. Exaggerate
     console.log('  [5/8] Exaggerating reference MPM...');
     const teacherMpm = deepCloneMpm(referenceMpm);
@@ -1361,120 +1308,90 @@ for (const scenario of scenarios) {
         return { midiBytes, midPath, cueFiles };
     };
 
-    if (deviationRange) {
-        // ── Two-pass mode: mood chord, judgement, full demonstration ──
-        console.log(`  [6/8] TWO-PASS: large-scale deviation in m${Math.floor(deviationRange.from / TICKS_PER_MEASURE) + 1}–m${Math.floor(deviationRange.to / TICKS_PER_MEASURE) + 1}`);
+    // 6. Render teacher correction
+    console.log('  [6/8] Rendering teacher MIDI...');
+    const correction = await renderPassWithCues(
+        'teacher', mei, baseMsm, range, structuredDiffs, diffResult,
+    );
 
-        const inDevRange = (e: StructuredDiffEvent) =>
-            e.date >= deviationRange.from && e.date <= deviationRange.to;
-        const fullDiff = structuredDiffs.filter(inDevRange);
+    // Build mood chord from harmonic reduction (if available)
+    let moodPlan: ReturnType<typeof buildJudgementMoodRenderPlan> = null;
+    let moodBytes: Buffer | null = null;
+    if (reductionMei && reductionMsmNotes) {
         const judgementDurationSec = judgementAudioPath ? audioDurationSec(judgementAudioPath) : 0;
-
-        const reductionBaseMsm = new MSM(reductionMsmNotes!, { numerator: 4, denominator: 4 });
-        const moodPlan = buildJudgementMoodRenderPlan(
+        const reductionBaseMsm = new MSM(reductionMsmNotes, { numerator: 4, denominator: 4 });
+        moodPlan = buildJudgementMoodRenderPlan(
             reductionBaseMsm,
             baseMsm,
             teacherMpm,
-            deviationRange.from,
+            range.from,
             { minimumPedalHoldMs: judgementDurationSec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         );
-        if (!moodPlan) {
-            throw new Error('Could not build judgement mood chord plan for two-pass test render');
-        }
-
-        console.log(`    Pass 1: judgement mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
-        const mood = await renderPassWithCues(
-            'reduction',
-            reductionMei!,
-            reductionBaseMsm,
-            moodPlan.range,
-            [],
-            diffResult,
-            { mpmXml: exportMPM(moodPlan.mpm as MPM) },
-        );
-
-        console.log('    Pass 2: full piece (all cues)...');
-        const full = await renderPassWithCues(
-            'full', mei, baseMsm, deviationRange, fullDiff, diffResult,
-        );
-
-        // 7. MIDI → WAV → combine → MP3
-        console.log('  [7/8] Combining (two-pass) → MP3...');
-        try {
-            const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
-            const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
-            const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
-            const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
-            const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
-            const fullEntrySec = judgementDurationSec;
-            const moodMidi = readMidi(
-                mood.midiBytes.buffer.slice(
-                    mood.midiBytes.byteOffset,
-                    mood.midiBytes.byteOffset + mood.midiBytes.byteLength,
-                ),
+        if (moodPlan) {
+            console.log(`    Mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
+            const moodPerf = await renderPassWithCues(
+                'reduction',
+                reductionMei,
+                reductionBaseMsm,
+                moodPlan.range,
+                [],
+                diffResult,
+                { mpmXml: exportMPM(moodPlan.mpm as MPM) },
             );
-            const fullMidi = readMidi(
-                full.midiBytes.buffer.slice(
-                    full.midiBytes.byteOffset,
-                    full.midiBytes.byteOffset + full.midiBytes.byteLength,
+            moodBytes = moodPerf.midiBytes;
+        }
+    }
+
+    // 7. MIDI → WAV → combine → MP3
+    console.log('  [7/8] Combining → MP3...');
+    try {
+        const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
+        const teacherMidPath = `${OUT_DIR}/${scenario.name}_teacher.mid`;
+        const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
+        const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
+        const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
+
+        let finalMidPath: string;
+        let finalCueFiles = correction.cueFiles;
+
+        if (moodBytes && moodPlan) {
+            const judgementDurationSec = judgementAudioPath ? audioDurationSec(judgementAudioPath) : 0;
+            const moodMidi = readMidi(
+                moodBytes.buffer.slice(moodBytes.byteOffset, moodBytes.byteOffset + moodBytes.byteLength),
+            );
+            const correctionMidi = readMidi(
+                correction.midiBytes.buffer.slice(
+                    correction.midiBytes.byteOffset,
+                    correction.midiBytes.byteOffset + correction.midiBytes.byteLength,
                 ),
             );
             const connectedMidi = appendMidiWithOffset(
                 moodMidi,
-                fullMidi,
+                correctionMidi,
                 millisecondsToMidiTicks(moodMidi, judgementDurationSec * 1000),
             );
             fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(connectedMidi.tracks, connectedMidi.header.ticksPerBeat)));
-            const connectedCueFiles = offsetCueTimes(full.cueFiles, fullEntrySec);
-
-            midiToWav(studentMidPath, studentWav);
-            midiToWav(teacherMidPath, teacherWav);
-            mixTeacherWithCues(teacherWav, connectedCueFiles, teacherMixedWav);
-            mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
-
-            const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
-            combineToMp3(studentWav, teacherIntroWav, mp3Path);
-            console.log(`    → ${mp3Path}`);
-
-            for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
-                try { fs.unlinkSync(f); } catch { /* ignore */ }
-            }
-        } catch (e: any) {
-            console.log(`    MP3 combine failed: ${e.message}`);
-            console.log('    (MIDI files are still available for manual processing)');
+            finalCueFiles = offsetCueTimes(correction.cueFiles, judgementDurationSec);
+            finalMidPath = teacherMidPath;
+        } else {
+            finalMidPath = correction.midPath;
         }
 
-    } else {
-        // ── Single-pass mode (original flow) ──
-        console.log('  [6/8] Single-pass: rendering teacher MIDI...');
+        midiToWav(studentMidPath, studentWav);
+        midiToWav(finalMidPath, teacherWav);
+        mixTeacherWithCues(teacherWav, finalCueFiles, teacherMixedWav);
+        mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
 
-        const single = await renderPassWithCues(
-            'teacher', mei, baseMsm, range, structuredDiffs, diffResult,
-        );
+        const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
+        combineToMp3(studentWav, teacherIntroWav, mp3Path);
+        console.log(`    → ${mp3Path}`);
 
-        // 7. MIDI → WAV → combine → MP3
-        console.log('  [7/8] Combining → MP3...');
-        try {
-            const studentWav = `${OUT_DIR}/${scenario.name}_student.wav`;
-            const teacherWav = `${OUT_DIR}/${scenario.name}_teacher.wav`;
-            const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_cues.wav`;
-            const teacherIntroWav = `${OUT_DIR}/${scenario.name}_teacher_with_intro.wav`;
-            midiToWav(studentMidPath, studentWav);
-            midiToWav(single.midPath, teacherWav);
-            mixTeacherWithCues(teacherWav, single.cueFiles, teacherMixedWav);
-            mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
-
-            const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
-            combineToMp3(studentWav, teacherIntroWav, mp3Path);
-            console.log(`    → ${mp3Path}`);
-
-            for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
-                try { fs.unlinkSync(f); } catch { /* ignore */ }
-            }
-        } catch (e: any) {
-            console.log(`    MP3 combine failed: ${e.message}`);
-            console.log('    (MIDI files are still available for manual processing)');
+        for (const f of [studentWav, teacherWav, teacherMixedWav, teacherIntroWav]) {
+            try { fs.unlinkSync(f); } catch { /* ignore */ }
         }
+    } catch (e: any) {
+        console.log(`    MP3 combine failed: ${e.message}`);
+        console.log('    (MIDI files are still available for manual processing)');
     }
 
     console.log('  [8/8] Done.');

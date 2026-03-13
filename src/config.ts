@@ -13,3 +13,6 @@ export const DEFAULT_CUE_MODELS: Record<CuePrepMode, string> = {
 };
 
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+export const parseCuePrepMode = (value: unknown): CuePrepMode =>
+    value === 'studio' || value === 'balanced' || value === 'realtime' ? value : 'balanced';

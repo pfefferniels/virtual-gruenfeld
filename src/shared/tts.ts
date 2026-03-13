@@ -1,6 +1,6 @@
 export const ELEVEN_V3_MODEL_ID = 'eleven_v3';
 
-export const ALLOWED_V3_TAGS = new Set([
+const ALLOWED_V3_TAGS = new Set([
     'warmly',
     'encouragingly',
     'softly',
@@ -13,7 +13,7 @@ export const ALLOWED_V3_TAGS = new Set([
     'gently',
 ]);
 
-export const V3_TAG_ALIASES: Record<string, string> = {
+const V3_TAG_ALIASES: Record<string, string> = {
     inviting: 'warmly',
     leading: 'encouragingly',
     resolving: 'softly',
@@ -24,7 +24,7 @@ export const V3_TAG_ALIASES: Record<string, string> = {
     tenderly: 'gently',
 };
 
-export const normalizeV3Tag = (rawTag: string): string | null => {
+const normalizeV3Tag = (rawTag: string): string | null => {
     const normalized = rawTag.trim().toLowerCase();
     if (!normalized) return null;
     if (ALLOWED_V3_TAGS.has(normalized)) return normalized;

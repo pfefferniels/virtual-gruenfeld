@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { openai, DEFAULT_CUE_MODELS, type CuePrepMode } from '../config';
+import { openai, DEFAULT_CUE_MODELS, parseCuePrepMode, type CuePrepMode } from '../config';
 import { MPM_GLOSSARY } from '../prompts/explanation';
 import { CUE_SYSTEM_PROMPT, CUE_CONTOUR_SYSTEM_PROMPT, REALTIME_CUE_SYSTEM_PROMPT, CUE_PLAN_SCHEMA } from '../prompts/cuePlanning';
 
@@ -50,7 +50,9 @@ const planCueTexts = async (
     const outputText = response.output_text?.trim();
     if (!outputText) return [];
 
-    const parsed = JSON.parse(outputText);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let parsed: any;
+    try { parsed = JSON.parse(outputText); } catch { return []; }
     if (!Array.isArray(parsed?.cues)) return [];
 
     const seen = new Set<string>();
@@ -97,9 +99,7 @@ planCuesRouter.post('/plan-cues', async (req, res) => {
         const startedAt = Date.now();
         const diff = typeof req.body?.diff === 'string' ? req.body.diff : '';
         const candidates = Array.isArray(req.body?.candidates) ? req.body.candidates : [];
-        const mode: CuePrepMode = req.body?.mode === 'studio' || req.body?.mode === 'balanced' || req.body?.mode === 'realtime'
-            ? req.body.mode
-            : 'balanced';
+        const mode = parseCuePrepMode(req.body?.mode);
         if (!diff || candidates.length === 0) {
             res.json({ cues: [] });
             return;

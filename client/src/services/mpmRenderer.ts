@@ -1,15 +1,9 @@
 import { MidiFile, read } from "midifile-ts";
 import { exportMPM, MPM } from "mpm-ts";
 import type { Range } from "../mpm/types";
+import { assertOk } from "./api";
 
 const BASE_URL = 'http://localhost:8080';
-
-const assertOk = async (r: Response) => {
-    if (r.ok) return;
-    let text = '';
-    try { text = await r.text(); } catch { /* ignore */ }
-    throw new Error(`HTTP ${r.status} ${r.statusText}${text ? `: ${text}` : ''}`);
-};
 
 const readMidiBase64 = (b64: string): MidiFile => {
     const binary = atob(b64);

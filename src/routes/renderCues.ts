@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { parseCuePrepMode } from '../config';
 import { ELEVEN_V3_MODEL_ID, sanitizeCueForSpeech } from '../shared/tts';
 import { synthesizeCueAudio } from '../tts/synthesize';
 import { readCueLibrary } from '../tts/cueLibrary';
@@ -9,9 +10,7 @@ renderCuesRouter.post('/render-cues', async (req, res) => {
     try {
         const startedAt = Date.now();
         const cues = Array.isArray(req.body?.cues) ? req.body.cues : [];
-        const mode = req.body?.mode === 'studio' || req.body?.mode === 'balanced' || req.body?.mode === 'realtime'
-            ? req.body.mode
-            : 'balanced';
+        const mode = parseCuePrepMode(req.body?.mode);
         const libraryOnly = req.body?.libraryOnly === true;
         const apiKey = process.env.ELEVENLABS_API_KEY;
         if (cues.length === 0) {

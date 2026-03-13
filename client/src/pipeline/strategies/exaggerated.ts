@@ -113,7 +113,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
     const performStartedAt = Date.now();
     const [moodPerf, correctionPerf] = await Promise.all([
         moodPlan
-            ? performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm as any, moodPlan.range)
+            ? performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
             : Promise.resolve(undefined),
         performTeacherPlayback(ctx.mei, ctx.baseMsm, take.referenceMpmClone, take.range),
     ]);

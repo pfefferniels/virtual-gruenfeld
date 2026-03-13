@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MPM, type Dynamics, type Ornament } from 'mpm-ts';
+import { MPM, type Dynamics, type Ornament, type Tempo, type Movement, type OrnamentDef } from 'mpm-ts';
 import { MSM } from 'mpmify';
 import { buildJudgementMoodRenderPlan } from './judgementMood';
 
@@ -63,32 +63,32 @@ describe('buildJudgementMoodRenderPlan', () => {
         expect(plan?.range.from).toBe(719);
         expect(plan?.range.to).toBe(1478);
 
-        const [tempo] = plan!.mpm.getInstructions('tempo', 'global');
+        const [tempo] = plan!.mpm.getInstructions<Tempo>('tempo', 'global');
         expect(tempo.bpm).toBe(30);
         expect(tempo.beatLength).toBe(0.25);
         expect(tempo.date).toBe(719);
 
-        const [dynamics] = plan!.mpm.getInstructions('dynamics', 'global');
+        const [dynamics] = plan!.mpm.getInstructions<Dynamics>('dynamics', 'global');
         expect(dynamics.volume).toBe(86);
 
         const [style] = plan!.mpm.getStyles('ornament', 'global');
         expect(style.date).toBe(719);
         expect(style['name.ref']).toBe('performance_style');
 
-        const [ornamentDef] = plan!.mpm.getDefinitions('ornamentDef', 'global');
+        const [ornamentDef] = plan!.mpm.getDefinitions<OrnamentDef>('ornamentDef', 'global');
         expect(ornamentDef.name).toBe('reference_arpeggio');
-        expect(ornamentDef.temporalSpread['time.unit']).toBe('milliseconds');
-        expect(ornamentDef.temporalSpread['frame.start']).toBe(0);
-        expect(ornamentDef.temporalSpread.frameLength).toBe(700);
+        expect(ornamentDef.temporalSpread!['time.unit']).toBe('milliseconds');
+        expect(ornamentDef.temporalSpread!['frame.start']).toBe(0);
+        expect(ornamentDef.temporalSpread!.frameLength).toBe(700);
 
-        const [ornament] = plan!.mpm.getInstructions('ornament', 'global');
+        const [ornament] = plan!.mpm.getInstructions<Ornament>('ornament', 'global');
         expect(ornament.date).toBe(720);
         expect(ornament['name.ref']).toBe('reference_arpeggio');
         expect(ornament['note.order']).toBe('#r2 #r1 #r3');
         expect(ornament.scale).toBe(1);
 
-        const movements = plan!.mpm.getInstructions('movement', 'global');
-        expect(movements.map((movement: any) => [movement.date, movement.position, movement['transition.to'] ?? null])).toEqual([
+        const movements = plan!.mpm.getInstructions<Movement>('movement', 'global');
+        expect(movements.map((movement) => [movement.date, movement.position, movement['transition.to'] ?? null])).toEqual([
             [719, 0, 1],
             [720, 1, null],
             [1476, 1, 0],
@@ -107,9 +107,9 @@ describe('buildJudgementMoodRenderPlan', () => {
         const plan = buildJudgementMoodRenderPlan(reductionMsm, baseMsm, referenceMpm, 1440);
 
         expect(plan).not.toBeNull();
-        const [ornamentDef] = plan!.mpm.getDefinitions('ornamentDef', 'global');
+        const [ornamentDef] = plan!.mpm.getDefinitions<OrnamentDef>('ornamentDef', 'global');
         expect(ornamentDef.name).toBe('judgement_mood_default_ornament');
-        const [ornament] = plan!.mpm.getInstructions('ornament', 'global');
+        const [ornament] = plan!.mpm.getInstructions<Ornament>('ornament', 'global');
         expect(ornament['note.order']).toBe('#r1 #r2');
     });
 });

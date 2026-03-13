@@ -1,83 +1,5 @@
 import type { MSM } from 'mpmify';
-
-type Scope = string;
-
-type Dynamics = {
-    type: 'dynamics';
-    'xml:id': string;
-    date: number;
-    volume: number | string;
-    'transition.to'?: number;
-};
-
-type Movement = {
-    type: 'movement';
-    'xml:id': string;
-    date: number;
-    position: number;
-    'transition.to'?: number;
-    controller: 'sustain' | 'soft';
-};
-
-type Tempo = {
-    type: 'tempo';
-    'xml:id': string;
-    date: number;
-    bpm: number;
-    beatLength: number;
-};
-
-type StyleInstruction = {
-    type: 'style';
-    'xml:id': string;
-    date: number;
-    'name.ref': string;
-};
-
-type Ornament = {
-    type: 'ornament';
-    'xml:id': string;
-    date: number;
-    'name.ref': string;
-    'note.order'?: string;
-    frameLength?: number;
-    'frame.start'?: number;
-    'noteoff.shift'?: boolean | 'monophonic';
-    intensity?: number;
-    'transition.from'?: number;
-    'transition.to'?: number;
-    'time.unit'?: 'ticks' | 'milliseconds';
-    scale?: number;
-};
-
-type OrnamentDef = {
-    type: 'ornamentDef';
-    name: string;
-    temporalSpread?: {
-        type: 'temporalSpread';
-        'frame.start': number;
-        frameLength: number;
-        'time.unit': 'ticks' | 'milliseconds';
-        'noteoff.shift': boolean | 'monophonic';
-        intensity?: number;
-    };
-    dynamicsGradient?: {
-        type: 'dynamicsGradient';
-        'transition.from': number;
-        'transition.to': number;
-    };
-};
-
-type MpmLike = {
-    setPerformanceName(name: string): void;
-    insertDefinition(definition: unknown, scope: unknown): unknown;
-    insertStyle(style: unknown, instructionType: string, scope: unknown): void;
-    insertInstructions(instructions: unknown[], scope: unknown): void;
-    getInstructions(type?: string, scope?: unknown): any[];
-    getStyles(instructionType: string, scope: unknown): any[];
-    getDefinition(type: string, name: string): unknown;
-    getDefinitions(type: string, scope?: unknown): any[];
-};
+import { MPM, type Dynamics, type Movement, type Ornament, type Tempo, type Style, type OrnamentDef, type Scope, type AnyInstruction } from 'mpm-ts';
 
 const FIXED_JUDGEMENT_BPM = 30;
 const FIXED_BEAT_LENGTH = 0.25;
@@ -108,7 +30,7 @@ type SpreadWindow = {
 };
 
 type JudgementMoodRenderPlan = {
-    mpm: MpmLike;
+    mpm: MPM;
     range: { from: number; to: number };
     chordDate: number;
     renderFrom: number;
@@ -179,10 +101,10 @@ const pickReductionChord = (
 };
 
 const pickMoodOrnament = (
-    referenceMpm: MpmLike,
+    referenceMpm: MPM,
     targetDate: number,
 ): Ornament | null => {
-    const ornaments = referenceMpm.getInstructions('ornament') as Ornament[];
+    const ornaments = referenceMpm.getInstructions<Ornament>('ornament');
     const exact = ornaments
         .filter((ornament) => ornament.date === targetDate)
         .sort((a, b) => (numericValue(b.scale) ?? 1) - (numericValue(a.scale) ?? 1));
@@ -199,7 +121,7 @@ const pickMoodOrnament = (
     return previous[0] ?? null;
 };
 
-const findEffectiveInstruction = <T extends { date: number }>(
+const findEffectiveInstruction = <T extends AnyInstruction>(
     items: T[],
     targetDate: number,
 ): T | null =>
@@ -208,10 +130,10 @@ const findEffectiveInstruction = <T extends { date: number }>(
         .sort((a, b) => b.date - a.date)[0] ?? null;
 
 const resolveMoodDynamics = (
-    referenceMpm: MpmLike,
+    referenceMpm: MPM,
     targetDate: number,
 ): number => {
-    const effective = findEffectiveInstruction(referenceMpm.getInstructions('dynamics') as Dynamics[], targetDate);
+    const effective = findEffectiveInstruction(referenceMpm.getInstructions<Dynamics>('dynamics'), targetDate);
     if (!effective) return 72;
     return clampMidi(numericValue(effective['transition.to']) ?? numericValue(effective.volume) ?? 72, 72);
 };
@@ -340,7 +262,7 @@ const estimateSpreadWindow = (
 };
 
 const insertPedalEnvelope = (
-    mpm: MpmLike,
+    mpm: MPM,
     scope: Scope,
     downDate: number,
     upDate: number,
@@ -381,10 +303,9 @@ const insertPedalEnvelope = (
 export const buildJudgementMoodRenderPlan = (
     reductionMsm: MSM,
     baseMsm: MSM,
-    referenceMpm: MpmLike,
+    referenceMpm: MPM,
     targetDate: number,
     options: JudgementMoodOptions = {},
-    createMpm: () => MpmLike = () => new ((referenceMpm as any).constructor as new () => MpmLike)(),
 ): JudgementMoodRenderPlan | null => {
     const chord = pickReductionChord(reductionMsm, targetDate);
     if (!chord) return null;
@@ -418,7 +339,7 @@ export const buildJudgementMoodRenderPlan = (
     );
     const renderTo = pedalReleaseDate + PEDAL_RAMP_TICKS + 1;
 
-    const mpm = createMpm();
+    const mpm = new MPM();
     mpm.setPerformanceName('judgement_mood');
     mpm.insertDefinition(effectiveDef, 'global');
 
@@ -429,7 +350,7 @@ export const buildJudgementMoodRenderPlan = (
         bpm: FIXED_JUDGEMENT_BPM,
         beatLength: FIXED_BEAT_LENGTH,
     };
-    const ornamentStyle: StyleInstruction = {
+    const ornamentStyle: Style = {
         type: 'style',
         'xml:id': 'judgement_mood_ornament_style',
         date: renderFrom,

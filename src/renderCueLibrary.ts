@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import 'dotenv/config';
 import { DEFAULT_CUE_LIBRARY_TEXTS } from './cueLibraryManifest';
-import { ELEVEN_V3_MODEL_ID, sanitizeCueForSpeech } from './shared/tts';
+import { ELEVEN_V3_MODEL_ID } from './shared/tts';
 
 const synthesizeCueAudio = async (
     text: string,
@@ -18,7 +18,7 @@ const synthesizeCueAudio = async (
             Accept: 'audio/mpeg',
         },
         body: JSON.stringify({
-            text: sanitizeCueForSpeech(text, modelId),
+            text,
             model_id: modelId,
             voice_settings: {
                 stability: 0.7,
@@ -48,7 +48,7 @@ const main = async () => {
 
     for (const text of DEFAULT_CUE_LIBRARY_TEXTS) {
         const audio_b64 = await synthesizeCueAudio(text, apiKey, voiceId, modelId);
-        entries.push({ text: sanitizeCueForSpeech(text, modelId), audio_b64 });
+        entries.push({ text, audio_b64 });
         console.log(`rendered ${text}`);
     }
 

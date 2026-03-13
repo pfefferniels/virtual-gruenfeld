@@ -1,5 +1,3 @@
-import { sanitizeCueForSpeech } from '../shared/tts';
-
 const cueAudioCache = new Map<string, string>();
 
 export const synthesizeCueAudio = async (
@@ -8,8 +6,7 @@ export const synthesizeCueAudio = async (
     voiceId: string,
     modelId: string,
 ): Promise<string> => {
-    const sanitizedText = sanitizeCueForSpeech(text, modelId);
-    const cacheKey = `${voiceId}::${modelId}::${sanitizedText}`;
+    const cacheKey = `${voiceId}::${modelId}::${text}`;
     const cached = cueAudioCache.get(cacheKey);
     if (cached) return cached;
 
@@ -21,7 +18,7 @@ export const synthesizeCueAudio = async (
             Accept: 'audio/mpeg',
         },
         body: JSON.stringify({
-            text: sanitizedText,
+            text,
             model_id: modelId,
             voice_settings: {
                 stability: 0.7,

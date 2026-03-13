@@ -392,8 +392,10 @@ function mixTeacherWithCues(
             return `[${index + 1}:a]volume=0.55,adelay=${delayMs}|${delayMs}[cue${index}]`;
         })
         .join(';');
+    const n = cues.length + 1;
     const mixInputs = ['[0:a]', ...cues.map((_, index) => `[cue${index}]`)].join('');
-    const filter = `${delayed};${mixInputs}amix=inputs=${cues.length + 1}:duration=first:normalize=0[out]`;
+    const weights = [n, ...cues.map(() => n)].join(' ');
+    const filter = `${delayed};${mixInputs}amix=inputs=${n}:duration=first:weights=${weights}:normalize=0[out]`;
 
     execSync(
         `ffmpeg -y ${inputs} -filter_complex "${filter}" -map "[out]" -c:a pcm_s16le "${outputWav}"`,
@@ -414,7 +416,7 @@ function mixNarrationOverWav(
 
     execSync(
         `ffmpeg -y -i "${narrationAudioPath}" -i "${backgroundWav}" ` +
-        `-filter_complex "[1:a]volume=${backgroundVolume}[bg];[0:a][bg]amix=inputs=2:duration=longest:normalize=0[out]" ` +
+        `-filter_complex "[0:a]volume=0.35,apad[narr];[1:a]volume=${backgroundVolume},pan=mono|c0=0.5*c0+0.5*c1[bg];[narr][bg]amerge=inputs=2,pan=mono|c0=c0+c1[out]" ` +
         `-map "[out]" -c:a pcm_s16le "${outputWav}"`,
         { stdio: 'pipe' },
     );
@@ -1380,7 +1382,7 @@ for (const scenario of scenarios) {
         midiToWav(studentMidPath, studentWav);
         midiToWav(finalMidPath, teacherWav);
         mixTeacherWithCues(teacherWav, finalCueFiles, teacherMixedWav);
-        mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.42);
+        mixNarrationOverWav(judgementAudioPath, teacherMixedWav, teacherIntroWav, 0.85);
 
         const mp3Path = `${OUT_DIR}/${scenario.name}.mp3`;
         combineToMp3(studentWav, teacherIntroWav, mp3Path);

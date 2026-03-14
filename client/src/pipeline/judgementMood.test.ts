@@ -69,7 +69,7 @@ describe('buildJudgementMoodRenderPlan', () => {
         expect(tempo.date).toBe(719);
 
         const [dynamics] = plan!.mpm.getInstructions<Dynamics>('dynamics', 'global');
-        expect(dynamics.volume).toBe(86);
+        expect(dynamics.volume).toBe(30);
 
         const [style] = plan!.mpm.getStyles('ornament', 'global');
         expect(style.date).toBe(719);

@@ -1,17 +1,19 @@
 import { exaggerate } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
 import { fallbackImmediateJudgement } from '../../judgement';
-import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from '../../pianosound/midiSequence';
-import {
-    buildJudgementMoodRenderPlan,
-    JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
-} from '../judgementMood';
+import { appendMidiWithOffset, appendSustainTail, delayMidi, millisecondsToMidiTicks, prepareMoodChordMidi } from '../../pianosound/midiSequence';
+import { buildJudgementMoodRenderPlan } from '../judgementMood';
 import { requestVocalStream, scheduleVocalStream } from '../teacherVocalStream';
 import type { VocalChunk } from '../chunker';
 import type { TeacherStrategy } from '../types';
 
-/** Small breathing room between JUDGE narration ending and correction piano entry. */
-const JUDGE_TO_CORRECTION_BUFFER_MS = 200;
+/** Breathing room between JUDGE narration ending and correction piano entry. */
+const JUDGE_TO_CORRECTION_BUFFER_MS = 3000;
+
+/** Pedal ramp starts this many ms before the judgement ends. */
+const PEDAL_RAMP_PRE_JUDGEMENT_MS = 1000;
+/** Total pedal ramp duration: 1s before + 2s after judgement = 3s. */
+const PEDAL_RAMP_DURATION_MS = 3000;
 
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
     const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement } = controls;
@@ -39,6 +41,9 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
     log(`PLAY: correction perform_ms=${Date.now() - performStartedAt}`);
     if (isCancelled() || !correctionPerf) return;
 
+    // Sustain tail: hold pedal 2.5s after last note, then slow release
+    correctionPerf.midi = appendSustainTail(correctionPerf.midi);
+
     const vocalChunks = await vocalStreamPromise;
     if (isCancelled()) return;
 
@@ -65,7 +70,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             ctx.baseMsm,
             take.referenceMpmClone,
             take.range.from,
-            { minimumPedalHoldMs: correctionEntryMs + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
+            { minimumPedalHoldMs: correctionEntryMs },
         )
         : null;
 
@@ -74,6 +79,12 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         ? await performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
         : undefined;
     if (isCancelled()) return;
+
+    // Short staccato notes sustained by pedal, with gradual 3s pedal lift
+    if (moodPerf) {
+        const rampStartMs = judgeDurationMs - PEDAL_RAMP_PRE_JUDGEMENT_MS;
+        moodPerf.midi = prepareMoodChordMidi(moodPerf.midi, rampStartMs, PEDAL_RAMP_DURATION_MS);
+    }
 
     log(`PLAY: time_to_play_ms=${Date.now() - takeStartedAt}`);
 

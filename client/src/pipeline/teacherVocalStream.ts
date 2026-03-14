@@ -60,7 +60,6 @@ export const requestVocalStream = async (
 // ── Layout (Pool Adjacent Violators) ──
 
 const MIN_CUE_GAP_SEC = 0.25;
-const END_GAP_SEC = 1.5;
 const CUE_DELAY_DEFAULT_REGION = 2.0;
 
 type LayoutItem = {
@@ -154,22 +153,10 @@ export const scheduleVocalStream = (
     }
     positional.sort((a, b) => a.ideal - b.ideal);
 
-    // Build layout items (positional cues + END)
+    // Build layout items (positional cues only — no END marker)
     const layoutItems: { chunk: VocalChunk; ideal: number; gapAfter: number }[] = positional.map(
         (p) => ({ ...p, gapAfter: MIN_CUE_GAP_SEC }),
     );
-
-    const endChunk = chunks.find((c) => c.marker === 'END');
-    if (endChunk) {
-        if (layoutItems.length > 0) {
-            layoutItems[layoutItems.length - 1].gapAfter = END_GAP_SEC;
-        }
-        const lastPos = positional[positional.length - 1];
-        const endIdeal = lastPos
-            ? lastPos.ideal + lastPos.chunk.audioBuffer.duration + END_GAP_SEC
-            : judgementDurationOffset + END_GAP_SEC;
-        layoutItems.push({ chunk: endChunk, ideal: endIdeal, gapAfter: 0 });
-    }
 
     if (layoutItems.length === 0) return;
 

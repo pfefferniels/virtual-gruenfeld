@@ -93,6 +93,20 @@ teacherStreamRouter.post('/teacher-stream', async (req, res) => {
         // 2. Parse anchors
         let { anchors, cleanedText } = parseAnchors(rawText);
 
+        // Ensure JUDGE ends with a period → falling intonation in ElevenLabs TTS
+        const judgeIdx = anchors.findIndex(a => a.marker === 'JUDGE');
+        if (judgeIdx !== -1) {
+            const judge = anchors[judgeIdx];
+            if (judge.text && !/[.!?…]$/.test(judge.text)) {
+                const insertAt = judge.charOffset + judge.text.length;
+                cleanedText = cleanedText.slice(0, insertAt) + '.' + cleanedText.slice(insertAt);
+                judge.text += '.';
+                for (const a of anchors) {
+                    if (a.charOffset > judge.charOffset) a.charOffset += 1;
+                }
+            }
+        }
+
         // Fallback: if no anchors, treat entire text as JUDGE
         if (anchors.length === 0 && cleanedText.trim()) {
             const sanitized = sanitizeJudgementText(cleanedText) || cleanedText.trim();
@@ -102,7 +116,7 @@ teacherStreamRouter.post('/teacher-stream', async (req, res) => {
 
         // 3. TTS with timestamps
         const apiKey = process.env.ELEVENLABS_API_KEY;
-        const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
+        const voiceId = process.env.ELEVENLABS_VOICE_ID || 'a4oYSRgmiY0auDgVfso5';
         const modelId = process.env.ELEVENLABS_MODEL_ID || ELEVEN_V3_MODEL_ID;
 
         let audioBase64 = '';

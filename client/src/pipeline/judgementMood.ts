@@ -3,7 +3,6 @@ import { MPM, type Dynamics, type Movement, type Ornament, type Tempo, type Styl
 
 const FIXED_JUDGEMENT_BPM = 30;
 const FIXED_BEAT_LENGTH = 0.25;
-export const JUDGEMENT_MOOD_PEDAL_BUFFER_MS = 500;
 const ORNAMENT_LOOKAHEAD_TICKS = 720;
 const PEDAL_RAMP_TICKS = 1;
 const ARPEGGIO_STEP_MS = 300;
@@ -129,13 +128,17 @@ const findEffectiveInstruction = <T extends AnyInstruction>(
         .filter((item) => item.date <= targetDate)
         .sort((a, b) => b.date - a.date)[0] ?? null;
 
+const MOOD_DYNAMICS_SCALE = 0.35;
+
 const resolveMoodDynamics = (
     referenceMpm: MPM,
     targetDate: number,
 ): number => {
     const effective = findEffectiveInstruction(referenceMpm.getInstructions<Dynamics>('dynamics'), targetDate);
-    if (!effective) return 72;
-    return clampMidi(numericValue(effective['transition.to']) ?? numericValue(effective.volume) ?? 72, 72);
+    const base = effective
+        ? (numericValue(effective['transition.to']) ?? numericValue(effective.volume) ?? 72)
+        : 72;
+    return clampMidi(Math.round(base * MOOD_DYNAMICS_SCALE), 25);
 };
 
 const buildPitchById = (msm: MSM): Map<string, number> => {

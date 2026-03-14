@@ -162,3 +162,283 @@ export const millisecondsToMidiTicks = (
     const remainingMs = Math.max(0, milliseconds - elapsedMs);
     return currentTick + Math.round(remainingMs * 1000 * midi.header.ticksPerBeat / currentTempo);
 };
+
+// ── Sustain tail ──
+
+const CC_SUSTAIN = 64;
+const RAMP_STEPS = 8;
+
+/**
+ * Append a sustain-pedal tail to the MIDI: hold the damper pedal from the last
+ * note-on through `holdMs` after the piece ends, then ramp CC64 from 127→0
+ * over `rampMs` (gradual half-pedaling on hardware; Tone.js lifts at the
+ * first value ≤63).
+ */
+export const appendSustainTail = (
+    midi: MidiFile,
+    holdMs: number = 2500,
+    rampMs: number = 1500,
+): MidiFile => {
+    const ppq = midi.header.ticksPerBeat;
+
+    // Last tempo for ms→tick conversion at end of piece
+    let lastTempo = 500000; // default 120 BPM
+    for (const track of midi.tracks) {
+        for (const event of track) {
+            if (event.type === 'meta' && event.subtype === 'setTempo') {
+                lastTempo = event.microsecondsPerBeat;
+            }
+        }
+    }
+    const msToTick = (ms: number) => Math.round(ms * 1000 * ppq / lastTempo);
+
+    // Find the track with the last note-on and its channel
+    let lastNoteOnTick = -1;
+    let noteTrackIdx = -1;
+    let noteChannel = 0;
+
+    for (let t = 0; t < midi.tracks.length; t++) {
+        let tick = 0;
+        for (const event of midi.tracks[t]) {
+            tick += event.deltaTime;
+            if (
+                event.type === 'channel' &&
+                event.subtype === 'noteOn' &&
+                (event.velocity ?? 0) > 0 &&
+                tick > lastNoteOnTick
+            ) {
+                lastNoteOnTick = tick;
+                noteTrackIdx = t;
+                noteChannel = event.channel ?? 0;
+            }
+        }
+    }
+
+    if (noteTrackIdx === -1) return midi; // no notes
+
+    // Total tick length of the note track (excluding endOfTrack)
+    let trackEndTick = 0;
+    for (const event of midi.tracks[noteTrackIdx]) {
+        trackEndTick += event.deltaTime;
+    }
+
+    // Collect existing events as absolute-tick pairs (drop endOfTrack — re-added later)
+    const timed: { tick: number; event: AnyEvent }[] = [];
+    let tick = 0;
+    for (const event of midi.tracks[noteTrackIdx]) {
+        tick += event.deltaTime;
+        if (event.type === 'meta' && event.subtype === 'endOfTrack') continue;
+        timed.push({ tick, event: { ...event } });
+    }
+
+    // Strip CC64 events at or after the last note-on (we override pedaling from here)
+    const filtered = timed.filter((e) => {
+        if (e.tick < lastNoteOnTick) return true;
+        if (
+            e.event.type === 'channel' &&
+            e.event.subtype === 'controller' &&
+            (e.event.controllerType ?? 0) === CC_SUSTAIN
+        ) {
+            return false;
+        }
+        return true;
+    });
+
+    // Pedal down at the last note-on
+    filtered.push({
+        tick: lastNoteOnTick,
+        event: {
+            deltaTime: 0,
+            type: 'channel',
+            subtype: 'controller',
+            channel: noteChannel,
+            controllerType: CC_SUSTAIN,
+            value: 127,
+        },
+    });
+
+    // Gradual ramp-down after hold period
+    const holdEndTick = trackEndTick + msToTick(holdMs);
+    const stepTicks = Math.round(msToTick(rampMs) / RAMP_STEPS);
+    for (let step = 1; step <= RAMP_STEPS; step++) {
+        filtered.push({
+            tick: holdEndTick + step * stepTicks,
+            event: {
+                deltaTime: 0,
+                type: 'channel',
+                subtype: 'controller',
+                channel: noteChannel,
+                controllerType: CC_SUSTAIN,
+                value: Math.round(127 * (1 - step / RAMP_STEPS)),
+            },
+        });
+    }
+
+    // Sort by tick, rebuild delta times
+    filtered.sort((a, b) => a.tick - b.tick);
+    const newTrack: AnyEvent[] = [];
+    let prev = 0;
+    for (const e of filtered) {
+        newTrack.push({ ...e.event, deltaTime: e.tick - prev });
+        prev = e.tick;
+    }
+    newTrack.push({ deltaTime: 0, type: 'meta', subtype: 'endOfTrack' });
+
+    const tracks = midi.tracks.map((t, i) => (i === noteTrackIdx ? newTrack : t));
+    return { header: { ...midi.header }, tracks };
+};
+
+// ── Mood chord post-processing ──
+
+const MOOD_NOTE_DURATION_MS = 300;
+const MOOD_PEDAL_RAMP_STEPS = 16;
+const MOOD_PEDAL_DOWN_RAMP_MS = 400;
+
+/**
+ * Post-process mood chord MIDI:
+ * 1. Shift all events forward to make room for a smooth pedal-down ramp
+ * 2. Shorten note durations (sustain pedal carries the sound, not held keys)
+ * 3. Replace pedal envelope with smooth press → hold → gradual release
+ */
+export const prepareMoodChordMidi = (
+    midi: MidiFile,
+    rampStartMs: number,
+    rampDurationMs: number,
+    noteDurationMs: number = MOOD_NOTE_DURATION_MS,
+    pedalDownRampMs: number = MOOD_PEDAL_DOWN_RAMP_MS,
+): MidiFile => {
+    const ppq = midi.header.ticksPerBeat;
+
+    let lastTempo = 500000;
+    for (const track of midi.tracks) {
+        for (const event of track) {
+            if (event.type === 'meta' && event.subtype === 'setTempo') {
+                lastTempo = event.microsecondsPerBeat;
+            }
+        }
+    }
+    const msToTick = (ms: number) => Math.round(ms * 1000 * ppq / lastTempo);
+
+    const noteDurationTicks = Math.max(1, msToTick(noteDurationMs));
+    const pedalDownTicks = msToTick(pedalDownRampMs);
+    const clampedRampStart = Math.max(0, rampStartMs);
+    const rampStartTick = msToTick(clampedRampStart);
+    const rampEndTick = msToTick(clampedRampStart + rampDurationMs);
+
+    // Find the note track (track with most note-ons)
+    let noteTrackIdx = -1;
+    let maxNoteOns = 0;
+    for (let t = 0; t < midi.tracks.length; t++) {
+        let count = 0;
+        for (const event of midi.tracks[t]) {
+            if (event.type === 'channel' && event.subtype === 'noteOn' && (event.velocity ?? 0) > 0) {
+                count++;
+            }
+        }
+        if (count > maxNoteOns) {
+            maxNoteOns = count;
+            noteTrackIdx = t;
+        }
+    }
+
+    if (noteTrackIdx === -1) return midi;
+
+    const tracks = midi.tracks.map((track, trackIndex) => {
+        if (trackIndex !== noteTrackIdx) return track;
+
+        // Convert to absolute ticks, drop endOfTrack
+        const timed: { tick: number; event: AnyEvent }[] = [];
+        let tick = 0;
+        for (const event of track) {
+            tick += event.deltaTime;
+            if (event.type === 'meta' && event.subtype === 'endOfTrack') continue;
+            timed.push({ tick, event: { ...event } });
+        }
+
+        // Shift all events forward by pedalDownTicks to make room for the press
+        const noteOns = new Map<string, number>();
+        const result: { tick: number; event: AnyEvent }[] = [];
+        let pedalChannel = 0;
+
+        for (const item of timed) {
+            const ev = item.event;
+            const shifted = item.tick + pedalDownTicks;
+
+            // Strip existing CC64 (sustain) events — we insert our own
+            if (
+                ev.type === 'channel' &&
+                ev.subtype === 'controller' &&
+                (ev.controllerType ?? 0) === CC_SUSTAIN
+            ) {
+                pedalChannel = ev.channel ?? 0;
+                continue;
+            }
+
+            if (ev.type === 'channel' && ev.subtype === 'noteOn' && (ev.velocity ?? 0) > 0) {
+                const key = `${ev.channel}-${ev.noteNumber}`;
+                noteOns.set(key, shifted);
+                pedalChannel = ev.channel ?? 0;
+                result.push({ tick: shifted, event: ev });
+            } else if (
+                ev.type === 'channel' &&
+                (ev.subtype === 'noteOff' || (ev.subtype === 'noteOn' && (ev.velocity ?? 0) === 0))
+            ) {
+                const key = `${ev.channel}-${ev.noteNumber}`;
+                const onTick = noteOns.get(key);
+                if (onTick != null) {
+                    result.push({ tick: onTick + noteDurationTicks, event: ev });
+                    noteOns.delete(key);
+                } else {
+                    result.push({ tick: shifted, event: ev });
+                }
+            } else {
+                result.push({ tick: shifted, event: ev });
+            }
+        }
+
+        // Smooth pedal-down ramp (0→127 over pedalDownTicks, completing before first note)
+        for (let step = 0; step <= MOOD_PEDAL_RAMP_STEPS; step++) {
+            result.push({
+                tick: Math.round(step * pedalDownTicks / MOOD_PEDAL_RAMP_STEPS),
+                event: {
+                    deltaTime: 0,
+                    type: 'channel',
+                    subtype: 'controller',
+                    channel: pedalChannel,
+                    controllerType: CC_SUSTAIN,
+                    value: Math.round(127 * step / MOOD_PEDAL_RAMP_STEPS),
+                },
+            });
+        }
+
+        // Gradual pedal release ramp (127→0)
+        const releaseStepTicks = Math.max(1, Math.round((rampEndTick - rampStartTick) / MOOD_PEDAL_RAMP_STEPS));
+        for (let step = 1; step <= MOOD_PEDAL_RAMP_STEPS; step++) {
+            result.push({
+                tick: rampStartTick + step * releaseStepTicks,
+                event: {
+                    deltaTime: 0,
+                    type: 'channel',
+                    subtype: 'controller',
+                    channel: pedalChannel,
+                    controllerType: CC_SUSTAIN,
+                    value: Math.round(127 * (1 - step / MOOD_PEDAL_RAMP_STEPS)),
+                },
+            });
+        }
+
+        // Sort and rebuild delta times
+        result.sort((a, b) => a.tick - b.tick);
+        const newTrack: AnyEvent[] = [];
+        let prev = 0;
+        for (const e of result) {
+            newTrack.push({ ...e.event, deltaTime: e.tick - prev });
+            prev = e.tick;
+        }
+        newTrack.push({ deltaTime: 0, type: 'meta', subtype: 'endOfTrack' });
+
+        return newTrack;
+    });
+
+    return { header: { ...midi.header }, tracks };
+};

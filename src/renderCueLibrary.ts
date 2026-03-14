@@ -42,7 +42,7 @@ const main = async () => {
         throw new Error('Missing ELEVENLABS_API_KEY');
     }
 
-    const voiceId = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM';
+    const voiceId = process.env.ELEVENLABS_VOICE_ID || 'a4oYSRgmiY0auDgVfso5';
     const modelId = process.env.ELEVENLABS_MODEL_ID || ELEVEN_V3_MODEL_ID;
     const entries: Array<{ text: string; audio_b64: string }> = [];
 

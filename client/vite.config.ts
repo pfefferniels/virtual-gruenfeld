@@ -8,6 +8,9 @@ export default defineConfig({
   test: {
     globals: true,
   },
+  optimizeDeps: {
+    include: ['events'],
+  },
   server: {
     port: 3000,
     fs: {
@@ -31,6 +34,14 @@ export default defineConfig({
       },
       '/teacher-stream': {
         target: 'http://localhost:3002',
+        changeOrigin: true
+      },
+      '/convert': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      },
+      '/perform': {
+        target: 'http://localhost:8080',
         changeOrigin: true
       }
     }

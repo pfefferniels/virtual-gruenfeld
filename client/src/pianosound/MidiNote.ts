@@ -8,31 +8,71 @@ function midiTickToMilliseconds(ticks: number, microsecondsPerBeat: number, ppq:
 type AbsoluteEvent = AnyEvent & { abs: number };
 
 export const addAbsoluteTime = (file: MidiFile): AbsoluteEvent[] => {
-    type Tempo = { atTick: number; microsecondsPerBeat: number };
-    const tempoMap: Tempo[] = [];
-    const newEvents: AbsoluteEvent[] = [];
+    const ppq = file.header.ticksPerBeat;
 
-    for (let i = 0; i < file.tracks.length; i++) {
-        const track = file.tracks[i];
-        let currentTick = 0;
-
+    // First pass: collect all tempo changes across all tracks
+    type TempoChange = { atTick: number; microsecondsPerBeat: number };
+    const rawTempos: TempoChange[] = [];
+    for (const track of file.tracks) {
+        let tick = 0;
         for (const event of track) {
-            currentTick += event.deltaTime;
-
+            tick += event.deltaTime;
             if (event.type === 'meta' && event.subtype === 'setTempo') {
-                tempoMap.push({
-                    atTick: currentTick,
-                    microsecondsPerBeat: event.microsecondsPerBeat,
-                });
+                rawTempos.push({ atTick: tick, microsecondsPerBeat: event.microsecondsPerBeat });
             }
+        }
+    }
+    rawTempos.sort((a, b) => a.atTick - b.atTick);
 
-            const currentTempo = tempoMap.slice().reverse().find((tempo) => tempo.atTick <= currentTick);
-            if (!currentTempo) continue;
+    // Deduplicate: keep last tempo at each tick position
+    const tempoChanges: TempoChange[] = [];
+    for (const t of rawTempos) {
+        if (tempoChanges.length > 0 && tempoChanges[tempoChanges.length - 1].atTick === t.atTick) {
+            tempoChanges[tempoChanges.length - 1] = t;
+        } else {
+            tempoChanges.push(t);
+        }
+    }
 
-            newEvents.push({
-                ...event,
-                abs: midiTickToMilliseconds(currentTick, currentTempo.microsecondsPerBeat, file.header.ticksPerBeat),
-            });
+    // Pre-compute cumulative absolute time at each tempo change point
+    type TempoPoint = { atTick: number; atMs: number; microsecondsPerBeat: number };
+    const points: TempoPoint[] = [];
+    {
+        let ms = 0;
+        let prevTick = 0;
+        let prevTempo = 500000; // MIDI default: 120 BPM
+        for (const tc of tempoChanges) {
+            if (tc.atTick > prevTick) {
+                ms += midiTickToMilliseconds(tc.atTick - prevTick, prevTempo, ppq);
+            }
+            points.push({ atTick: tc.atTick, atMs: ms, microsecondsPerBeat: tc.microsecondsPerBeat });
+            prevTick = tc.atTick;
+            prevTempo = tc.microsecondsPerBeat;
+        }
+    }
+
+    // Convert a tick position to absolute milliseconds, accumulating across
+    // tempo changes rather than applying a single tempo to all ticks.
+    const tickToMs = (tick: number): number => {
+        let baseMs = 0;
+        let baseTick = 0;
+        let tempo = 500000;
+        for (const p of points) {
+            if (p.atTick > tick) break;
+            baseMs = p.atMs;
+            baseTick = p.atTick;
+            tempo = p.microsecondsPerBeat;
+        }
+        return baseMs + midiTickToMilliseconds(tick - baseTick, tempo, ppq);
+    };
+
+    // Second pass: convert all events to absolute time
+    const newEvents: AbsoluteEvent[] = [];
+    for (const track of file.tracks) {
+        let tick = 0;
+        for (const event of track) {
+            tick += event.deltaTime;
+            newEvents.push({ ...event, abs: tickToMs(tick) });
         }
     }
 

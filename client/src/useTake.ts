@@ -5,6 +5,7 @@ import { waitForPlayingSafe } from './midi';
 import { boot } from './pipeline/boot';
 import { runTake } from './pipeline/takeRunner';
 import { exaggeratedStrategy } from './pipeline/strategies/exaggerated';
+import { probeTeacherService } from './services/api';
 import type { PlayFn } from './pipeline/types';
 
 type PianoControls = {
@@ -21,6 +22,7 @@ export const useTake = (piano: PianoControls) => {
     const [quickJudgement, setQuickJudgement] = useState('');
     const [lastDiff, setLastDiff] = useState('');
     const [debugLines, setDebugLines] = useState<string[]>([]);
+    const [aiAvailable, setAiAvailable] = useState(false);
     const seqRef = useRef(0);
 
     const log = useMemo(() => {
@@ -41,10 +43,16 @@ export const useTake = (piano: PianoControls) => {
     const playRef = useRef(piano.play);
     const stopRef = useRef(piano.stop);
     const cuePrepModeRef = useRef<CuePrepMode>(cuePrepMode);
+    const aiAvailableRef = useRef(aiAvailable);
     const takeSeqRef = useRef(0);
     playRef.current = piano.play;
     stopRef.current = piano.stop;
     cuePrepModeRef.current = cuePrepMode;
+    aiAvailableRef.current = aiAvailable;
+
+    useEffect(() => {
+        probeTeacherService().then(setAiAvailable);
+    }, []);
 
     useEffect(() => {
         if (!started) return;
@@ -73,6 +81,7 @@ export const useTake = (piano: PianoControls) => {
                         isCancelled: () => cancelled || takeSeqRef.current !== takeId,
                         onDiff: setLastDiff,
                         onJudgement: setQuickJudgement,
+                        aiAvailable: aiAvailableRef.current,
                     });
                 }, log, () => {
                     const last = lastMatchRef.current;
@@ -112,5 +121,6 @@ export const useTake = (piano: PianoControls) => {
         lastDiff,
         debugLines,
         clearDebugLines,
+        aiAvailable,
     };
 };

@@ -1,6 +1,23 @@
 import type { CuePrepMode } from "../cueLibrary";
 import type { ImmediateJudgementPayload } from "../judgement";
 
+// ── AI service availability ──
+
+const TEACHER_URL = import.meta.env.VITE_TEACHER_URL || 'http://localhost:3002';
+
+/** Probe whether the local AI teacher service is reachable. */
+export const probeTeacherService = async (): Promise<boolean> => {
+    try {
+        const r = await fetch(`${TEACHER_URL}/teacher-stream`, {
+            method: 'OPTIONS',
+            signal: AbortSignal.timeout(2000),
+        });
+        return r.ok || r.status === 204 || r.status === 405;
+    } catch {
+        return false;
+    }
+};
+
 export const assertOk = async (r: Response) => {
     if (r.ok) return;
     let text = '';
@@ -30,7 +47,7 @@ export const fetchTeacherStream = async (
     candidates: Array<Record<string, unknown>>,
     mode: CuePrepMode,
 ): Promise<TeacherStreamResponsePayload> => {
-    const response = await fetch('/teacher-stream', {
+    const response = await fetch(`${TEACHER_URL}/teacher-stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ judgement, diff, candidates, mode }),

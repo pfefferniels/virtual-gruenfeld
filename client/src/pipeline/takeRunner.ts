@@ -54,6 +54,7 @@ export const runTake = async (
             playbackDeadlineAt,
             takeStartedAt,
             onJudgement: controls.onJudgement,
+            aiAvailable: controls.aiAvailable,
         });
     } catch (e) {
         controls.log(`PERFORM error: ${e}`);

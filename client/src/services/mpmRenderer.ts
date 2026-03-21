@@ -3,7 +3,7 @@ import { exportMPM, MPM } from "mpm-ts";
 import type { Range } from "../mpm/types";
 import { assertOk } from "./api";
 
-const BASE_URL = '';
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 const readMidiBase64 = (b64: string): MidiFile => {
     const binary = atob(b64);

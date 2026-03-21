@@ -16,23 +16,25 @@ const PEDAL_RAMP_PRE_JUDGEMENT_MS = 1000;
 const PEDAL_RAMP_DURATION_MS = 3000;
 
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
-    const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement } = controls;
+    const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement, aiAvailable } = controls;
 
     exaggerate(take.referenceMpmClone, take.studentMpm, take.range, 0.2, log);
 
-    // Kick off vocal stream + correction rendering in parallel
-    const vocalStreamPromise = requestVocalStream(
-        take.judgementSummary,
-        take.diffSummary,
-        take.structuredDiff,
-        undefined, // timingMap not yet available; candidates will be built from diffEvents
-        mode,
-        audioContext,
-        log,
-    ).catch((e) => {
-        log(`VOCAL: stream error: ${e}`);
-        return [] as VocalChunk[];
-    });
+    // Kick off vocal stream (only when AI service is running)
+    const vocalStreamPromise = aiAvailable
+        ? requestVocalStream(
+            take.judgementSummary,
+            take.diffSummary,
+            take.structuredDiff,
+            undefined, // timingMap not yet available; candidates will be built from diffEvents
+            mode,
+            audioContext,
+            log,
+        ).catch((e) => {
+            log(`VOCAL: stream error: ${e}`);
+            return [] as VocalChunk[];
+        })
+        : Promise.resolve([] as VocalChunk[]);
 
     const performStartedAt = Date.now();
     const correctionPerf = await performTeacherPlayback(
@@ -46,6 +48,14 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     const vocalChunks = await vocalStreamPromise;
     if (isCancelled()) return;
+
+    // Without AI service: just play the correction
+    if (!aiAvailable) {
+        log('PLAY: instrumental-only (no AI service)');
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        play(correctionPerf.midi as any, undefined, () => {});
+        return;
+    }
 
     // Extract JUDGE chunk info
     const judgeChunk = vocalChunks.find((c) => c.marker === 'JUDGE');

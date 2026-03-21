@@ -50,6 +50,7 @@ export type StrategyControls = {
     playbackDeadlineAt: number | undefined;
     takeStartedAt: number;
     onJudgement: (value: string | ((prev: string) => string)) => void;
+    aiAvailable: boolean;
 };
 
 export type TeacherStrategy = (
@@ -68,4 +69,5 @@ export type TakeRunnerControls = {
     isCancelled: () => boolean;
     onDiff: (text: string) => void;
     onJudgement: (value: string | ((prev: string) => string)) => void;
+    aiAvailable: boolean;
 };

@@ -20,22 +20,6 @@ export default defineConfig({
       ],
     },
     proxy: {
-      '/explain': {
-        target: 'http://localhost:3002',
-        changeOrigin: true
-      },
-      '/render-cues': {
-        target: 'http://localhost:3002',
-        changeOrigin: true
-      },
-      '/plan-cues': {
-        target: 'http://localhost:3002',
-        changeOrigin: true
-      },
-      '/teacher-stream': {
-        target: 'http://localhost:3002',
-        changeOrigin: true
-      },
       '/convert': {
         target: 'http://localhost:8080',
         changeOrigin: true

@@ -5,17 +5,22 @@ import type { ImmediateJudgementPayload } from "../judgement";
 
 const TEACHER_URL = import.meta.env.VITE_TEACHER_URL || 'http://localhost:3002';
 
-/** Probe whether the local AI teacher service is reachable. */
+/** Probe whether the local AI teacher service is reachable (retries for slow startup). */
 export const probeTeacherService = async (): Promise<boolean> => {
-    try {
-        const r = await fetch(`${TEACHER_URL}/teacher-stream`, {
-            method: 'OPTIONS',
-            signal: AbortSignal.timeout(2000),
-        });
-        return r.ok || r.status === 204 || r.status === 405;
-    } catch {
-        return false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const r = await fetch(`${TEACHER_URL}/teacher-stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+                signal: AbortSignal.timeout(2000),
+            });
+            // 400 = server is there but rejected our empty payload — that's fine
+            if (r.ok || r.status === 400) return true;
+        } catch { /* server not ready yet */ }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
     }
+    return false;
 };
 
 export const assertOk = async (r: Response) => {

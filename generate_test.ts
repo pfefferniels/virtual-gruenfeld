@@ -24,8 +24,10 @@ import { layoutCues } from './client/src/pipeline/teacherVocalStream';
 import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from './client/src/pianosound/midiSequence';
 import {
     buildJudgementMoodRenderPlan,
-    JUDGEMENT_MOOD_PEDAL_BUFFER_MS,
 } from './client/src/pipeline/judgementMood';
+
+/** Extra sustain-pedal hold after the correction entry point (ms). */
+const JUDGEMENT_MOOD_PEDAL_BUFFER_MS = 3000;
 
 // Import from TypeScript source directly — the compiled lib has a CJS/ESM
 // mismatch (ESM syntax without "type":"module" in package.json) that breaks
@@ -270,7 +272,78 @@ const audioDurationSec = (audioPath: string): number => {
     return duration;
 };
 
-// (Old separate judge/render/plan helpers removed — using unified /teacher-stream now)
+// ── MIDI extraction for visualization ──
+
+function buildTickToSecFn(midi: any): (tick: number) => number {
+    const ppq = midi.header.ticksPerBeat;
+    const tempos: Array<{ tick: number; usPerBeat: number }> = [];
+    for (const track of midi.tracks) {
+        let tick = 0;
+        for (const event of track) {
+            tick += event.deltaTime;
+            if (event.type === 'meta' && event.subtype === 'setTempo') {
+                tempos.push({ tick, usPerBeat: event.microsecondsPerBeat });
+            }
+        }
+    }
+    tempos.sort((a, b) => a.tick - b.tick);
+    if (tempos.length === 0 || tempos[0].tick > 0) tempos.unshift({ tick: 0, usPerBeat: 500000 });
+
+    return (target: number): number => {
+        let sec = 0, prev = 0, tempo = tempos[0].usPerBeat;
+        for (const tc of tempos) {
+            if (tc.tick > target) break;
+            if (tc.tick > prev) sec += (tc.tick - prev) * tempo / ppq / 1_000_000;
+            prev = tc.tick;
+            tempo = tc.usPerBeat;
+        }
+        return sec + (target - prev) * tempo / ppq / 1_000_000;
+    };
+}
+
+function extractMidiNoteEvents(midi: any): Array<{ pitch: number; onset: number; duration: number; velocity: number }> {
+    const tickToSec = buildTickToSecFn(midi);
+    const notes: Array<{ pitch: number; onset: number; duration: number; velocity: number }> = [];
+    for (const track of midi.tracks) {
+        const pending = new Map<string, { tick: number; vel: number }>();
+        let tick = 0;
+        for (const event of track) {
+            tick += event.deltaTime;
+            if (event.type !== 'channel') continue;
+            const key = `${event.channel}-${event.noteNumber}`;
+            if (event.subtype === 'noteOn' && (event.velocity ?? 0) > 0) {
+                pending.set(key, { tick, vel: event.velocity });
+            } else if (event.subtype === 'noteOff' || (event.subtype === 'noteOn' && (event.velocity ?? 0) === 0)) {
+                const on = pending.get(key);
+                if (on) {
+                    notes.push({
+                        pitch: event.noteNumber,
+                        onset: tickToSec(on.tick),
+                        duration: Math.max(0.001, tickToSec(tick) - tickToSec(on.tick)),
+                        velocity: on.vel,
+                    });
+                    pending.delete(key);
+                }
+            }
+        }
+    }
+    return notes.sort((a, b) => a.onset - b.onset || a.pitch - b.pitch);
+}
+
+function extractPedalEvents(midi: any): Array<{ time: number; value: number }> {
+    const tickToSec = buildTickToSecFn(midi);
+    const events: Array<{ time: number; value: number }> = [];
+    for (const track of midi.tracks) {
+        let tick = 0;
+        for (const event of track) {
+            tick += event.deltaTime;
+            if (event.type === 'channel' && event.subtype === 'controller' && (event.controllerType ?? 0) === 64) {
+                events.push({ time: tickToSec(tick), value: event.value ?? 0 });
+            }
+        }
+    }
+    return events.sort((a, b) => a.time - b.time);
+}
 
 function resolveSoundfont(): string | null {
     const candidates = [
@@ -1335,6 +1408,46 @@ for (const scenario of scenarios) {
             fs.writeFileSync(teacherMidPath, Buffer.from(writeMidi(delayedMidi.tracks, delayedMidi.header.ticksPerBeat)));
             finalMidPath = teacherMidPath;
         }
+
+        // Export visualization data for render_teacher_pianoroll.py
+        const teacherVizBytes = fs.readFileSync(finalMidPath);
+        const teacherVizMidi = readMidi(
+            teacherVizBytes.buffer.slice(
+                teacherVizBytes.byteOffset,
+                teacherVizBytes.byteOffset + teacherVizBytes.byteLength,
+            ),
+        );
+        const teacherNotes = extractMidiNoteEvents(teacherVizMidi);
+        const pedalEvents = extractPedalEvents(teacherVizMidi);
+        const vizData = {
+            scenario: scenario.name,
+            correctionEntrySec,
+            hasMoodChord: !!moodPlan,
+            notes: teacherNotes.map(n => ({
+                ...n,
+                source: n.onset < correctionEntrySec - 0.05 ? 'mood' : 'correction',
+            })),
+            pedal: pedalEvents,
+            scheduledChunks: finalScheduledChunks.map(c => {
+                const chunk = vocalChunks.find(vc => vc.marker === c.marker);
+                return {
+                    marker: c.marker,
+                    atSec: c.atSec,
+                    audioStartSec: chunk?.startSec ?? 0,
+                    audioEndSec: chunk?.endSec ?? 0,
+                    durationSec: chunk?.durationSec ?? 0,
+                    text: chunk?.text ?? '',
+                };
+            }),
+            vocalAudioPath: teacherStreamResp.audioBase64
+                ? `${OUT_DIR}/${scenario.name}_vocal_full.mp3`
+                : null,
+        };
+        fs.writeFileSync(
+            `${OUT_DIR}/${scenario.name}_teacher_viz.json`,
+            JSON.stringify(vizData, null, 2),
+        );
+        console.log(`    Visualization: ${scenario.name}_teacher_viz.json`);
 
         midiToWav(studentMidPath, studentWav);
         midiToWav(finalMidPath, teacherWav);

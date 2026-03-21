@@ -7,13 +7,48 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Special+Elite&display=swap" rel="stylesheet" />
+  <style>
+    /* SVG filter for hand-drawn / wobbly borders */
+    .sketchy-filter { position: absolute; width: 0; height: 0; }
+
+    .sketchy {
+      filter: url(#sketchy-filter);
+    }
+    .sketch-box {
+      border: 2px solid #333 !important;
+      border-radius: 2px !important;
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.08);
+    }
+    .sketch-btn {
+      border: 2px solid #333 !important;
+      border-radius: 2px !important;
+      background: #fff !important;
+      box-shadow: 2px 2px 0 rgba(0,0,0,0.1);
+      transition: transform 0.1s ease;
+    }
+    .sketch-btn:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 3px 3px 0 rgba(0,0,0,0.15) !important;
+    }
+    .sketch-btn:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 rgba(0,0,0,0.1) !important;
+    }
+  </style>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Virtual Grünfeld</title>
   <meta name="description"
     content="Alfred Grünfeld's ghost reflecting on Schumann's Träumerei" />
 </head>
 
-<body>
+<body style="margin:0; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif; background:#fff; color:#1f2328;">
+  <!-- SVG filter for hand-drawn wobble effect -->
+  <svg class="sketchy-filter" xmlns="http://www.w3.org/2000/svg">
+    <filter id="sketchy-filter">
+      <feTurbulence type="turbulence" baseFrequency="0.015" numOctaves="2" seed="2" result="noise" />
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2" xChannelSelector="R" yChannelSelector="G" />
+    </filter>
+  </svg>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

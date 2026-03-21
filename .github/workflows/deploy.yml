@@ -1,0 +1,70 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Checkout virtual-gruenfeld
+        uses: actions/checkout@v4
+        with:
+          path: virtual-gruenfeld
+
+      - name: Checkout mpm-ts
+        uses: actions/checkout@v4
+        with:
+          repository: pfefferniels/mpm-ts
+          path: mpm-ts
+
+      - name: Checkout mpmify
+        uses: actions/checkout@v4
+        with:
+          repository: pfefferniels/mpmify
+          path: mpmify
+
+      - name: Checkout react-pianosound
+        uses: actions/checkout@v4
+        with:
+          repository: pfefferniels/react-pianosound
+          path: react-pianosound
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build mpm-ts
+        working-directory: mpm-ts
+        run: npm ci && npm run build
+
+      - name: Build mpmify
+        working-directory: mpmify
+        run: npm ci && npm run build
+
+      - name: Install react-pianosound deps
+        working-directory: react-pianosound
+        run: npm ci
+
+      - name: Install root dependencies
+        working-directory: virtual-gruenfeld
+        run: npm ci
+
+      - name: Install and build client
+        working-directory: virtual-gruenfeld/client
+        env:
+          VITE_API_URL: https://api.welte225.org
+        run: npm ci && npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy build --project-name=virtual-gruenfeld
+          workingDirectory: virtual-gruenfeld/client

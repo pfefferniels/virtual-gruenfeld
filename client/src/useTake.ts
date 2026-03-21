@@ -7,6 +7,7 @@ import { runTake } from './pipeline/takeRunner';
 import { exaggeratedStrategy } from './pipeline/strategies/exaggerated';
 import { probeTeacherService } from './services/api';
 import type { PlayFn } from './pipeline/types';
+import { addAbsoluteTime } from './pianosound/MidiNote';
 
 type PianoControls = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16,13 +17,15 @@ type PianoControls = {
     audioContext: AudioContext;
 };
 
-export const useTake = (piano: PianoControls) => {
+export const useTake = (piano: PianoControls, inputId?: string | null) => {
     const [started, setStarted] = useState(false);
     const [cuePrepMode, setCuePrepMode] = useState<CuePrepMode>('realtime');
     const [quickJudgement, setQuickJudgement] = useState('');
     const [lastDiff, setLastDiff] = useState('');
     const [debugLines, setDebugLines] = useState<string[]>([]);
     const [aiAvailable, setAiAvailable] = useState(false);
+    const [teacherPlaying, setTeacherPlaying] = useState(false);
+    const teacherEndTimer = useRef<ReturnType<typeof setTimeout>>();
     const seqRef = useRef(0);
 
     const log = useMemo(() => {
@@ -73,8 +76,18 @@ export const useTake = (piano: PianoControls) => {
 
                     await runTake(ctx, studentMsm, range, exaggeratedStrategy, {
                         log,
-                        stop: () => stopRef.current(),
-                        play: ((...args: Parameters<PlayFn>) => playRef.current(...args)) as PlayFn,
+                        stop: () => { stopRef.current(); clearTimeout(teacherEndTimer.current); setTeacherPlaying(false); },
+                        play: ((...args: Parameters<PlayFn>) => {
+                            clearTimeout(teacherEndTimer.current);
+                            setTeacherPlaying(true);
+                            playRef.current(...args);
+                            // Compute playback duration to auto-clear ghost state
+                            try {
+                                const events = addAbsoluteTime(args[0]);
+                                const lastMs = events.reduce((m, e) => Math.max(m, e.abs), 0);
+                                teacherEndTimer.current = setTimeout(() => setTeacherPlaying(false), lastMs + 3000);
+                            } catch { /* fallback: stays on until next stop() */ }
+                        }) as PlayFn,
                         playAudioBuffer: piano.playAudioBuffer,
                         audioContext: piano.audioContext,
                         mode: cuePrepModeRef.current,
@@ -86,7 +99,7 @@ export const useTake = (piano: PianoControls) => {
                 }, log, () => {
                     const last = lastMatchRef.current;
                     return last ? (last.from + last.to) / 2 : undefined;
-                });
+                }, inputId);
 
                 if (!res.ok) {
                     log(`MIDI: failed -> ${res.error}`);
@@ -108,7 +121,7 @@ export const useTake = (piano: PianoControls) => {
             log('APP: unmount -> disposing MIDI');
             if (disposeMidi) disposeMidi();
         };
-    }, [log, started, piano.audioContext]);
+    }, [log, started, piano.audioContext, inputId]);
 
     const clearDebugLines = useMemo(() => () => setDebugLines([]), []);
 
@@ -122,5 +135,6 @@ export const useTake = (piano: PianoControls) => {
         debugLines,
         clearDebugLines,
         aiAvailable,
+        teacherPlaying,
     };
 };

@@ -13,6 +13,7 @@ export const waitForPlayingSafe = async (
     callback: (msm: MSM, range: Range) => void,
     log: (msg: string) => void,
     getDateHint?: () => number | undefined,
+    inputId?: string | null,
 ): Promise<MidiStartResult> => {
     if (!('requestMIDIAccess' in navigator) || typeof navigator.requestMIDIAccess !== 'function') {
         log('MIDI: navigator.requestMIDIAccess unavailable -> no Web MIDI support');
@@ -152,14 +153,16 @@ export const waitForPlayingSafe = async (
         log(`MIDI: access granted. inputs=${inputs.length}, outputs=${outputs.length}`);
         for (const inp of inputs) log(`MIDI: input available -> ${inputName(inp)}`);
 
-        access.inputs.forEach(attachInput);
+        const shouldAttach = (input: MIDIInput) => !inputId || input.id === inputId;
+
+        access.inputs.forEach(input => { if (shouldAttach(input)) attachInput(input); });
 
         access.onstatechange = (e) => {
             if (disposed) return;
             const port = e.port;
             log(`MIDI: statechange -> type=${port?.type}, state=${port?.state}, name=${(port as MIDIPort)?.name ?? ''}`);
 
-            if (port && port.type === 'input' && port.state === 'connected') {
+            if (port && port.type === 'input' && port.state === 'connected' && shouldAttach(port as MIDIInput)) {
                 attachInput(port as MIDIInput);
             }
         };

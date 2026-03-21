@@ -64,8 +64,12 @@ const isSoftPedalOff = (e: AnyEvent) =>
 
 type MIDIOutputLike = MIDIOutput | null;
 
-function getFirstOutput(access: MIDIAccess | null): MIDIOutputLike {
+function getOutput(access: MIDIAccess | null, preferredId?: string | null): MIDIOutputLike {
     if (!access) return null;
+    if (preferredId) {
+        const preferred = access.outputs.get(preferredId);
+        if (preferred) return preferred;
+    }
     for (const output of access.outputs.values()) return output;
     return null;
 }
@@ -104,12 +108,12 @@ function toMidiMessages(e: AnyEvent): Uint8Array[] {
     }
 }
 
-export const usePiano = () => {
+export const usePiano = (outputId?: string | null) => {
     const context = useContext(PianoContext);
     if (!context) throw new Error('usePiano must be used within a PianoContextProvider');
     const { piano, status } = context;
 
-    const [, setMidiAccess] = useState<MIDIAccess | null>(null);
+    const [midiAccessRef, setMidiAccess] = useState<MIDIAccess | null>(null);
     const [midiOutput, setMidiOutput] = useState<MIDIOutputLike>(null);
 
     const transport = Tone.getTransport();
@@ -128,9 +132,9 @@ export const usePiano = () => {
                 if (cancelled) return;
 
                 setMidiAccess(access);
-                setMidiOutput(getFirstOutput(access));
+                setMidiOutput(getOutput(access, outputId));
 
-                const onChange = () => setMidiOutput(getFirstOutput(access));
+                const onChange = () => setMidiOutput(getOutput(access, outputId));
                 access.addEventListener('statechange', onChange);
                 removeListener = () => access.removeEventListener('statechange', onChange);
             } catch {
@@ -147,6 +151,11 @@ export const usePiano = () => {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Re-select output when outputId changes
+    useEffect(() => {
+        if (midiAccessRef) setMidiOutput(getOutput(midiAccessRef, outputId));
+    }, [outputId, midiAccessRef]);
 
     const stopActiveCueSources = () => {
         for (const source of activeCueSources) {

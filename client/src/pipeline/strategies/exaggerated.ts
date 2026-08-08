@@ -1,10 +1,17 @@
-import { exaggerate } from '../../mpm';
+import { allDimensions, exaggerate } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
+import { isAgenticTeacher } from '../../featureFlags';
 import { fallbackImmediateJudgement } from '../../judgement';
+import { describePlan, type LessonPlan } from '../../lessonPlan';
 import { appendMidiWithOffset, appendSustainTail, delayMidi, millisecondsToMidiTicks, prepareMoodChordMidi } from '../../pianosound/midiSequence';
 import { buildJudgementMoodRenderPlan } from '../judgementMood';
-import { requestVocalStream, scheduleVocalStream } from '../teacherVocalStream';
-import type { VocalChunk } from '../chunker';
+import {
+    requestVocalStream,
+    scheduleTalkOnly,
+    scheduleVocalStream,
+    talkOnlyDurationSec,
+    type VocalStreamResult,
+} from '../teacherVocalStream';
 import type { TeacherStrategy } from '../types';
 
 /** Breathing room between JUDGE narration ending and correction piano entry. */
@@ -15,12 +22,19 @@ const PEDAL_RAMP_PRE_JUDGEMENT_MS = 1000;
 /** Total pedal ramp duration: 1s before + 2s after judgement = 3s. */
 const PEDAL_RAMP_DURATION_MS = 3000;
 
+const NO_STREAM: VocalStreamResult = { chunks: [], plan: null };
+
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
-    const { log, isCancelled, play, audioContext, mode, takeStartedAt, onJudgement, aiAvailable } = controls;
+    const { log, isCancelled, play, playAudioBuffer, audioContext, mode, takeStartedAt, onJudgement, aiAvailable } = controls;
 
-    exaggerate(take.referenceMpmClone, take.studentMpm, take.range, 0.2, log);
+    // With fixed pedagogy the demo is known before the teacher speaks, so it is
+    // shaped here and renders while the model is still thinking. Agentic takes
+    // cannot: the plan arrives with the monologue, so the two steps serialize.
+    const agentic = aiAvailable && isAgenticTeacher();
+    if (!agentic) {
+        exaggerate(take.referenceMpmClone, take.studentMpm, take.range, allDimensions(), log);
+    }
 
-    // Kick off vocal stream (only when AI service is running)
     const vocalStreamPromise = aiAvailable
         ? requestVocalStream(
             take.judgementSummary,
@@ -31,30 +45,59 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             mode,
             audioContext,
             log,
+            agentic,
         ).catch((e) => {
             log(`VOCAL: stream error: ${e}`);
-            return [] as VocalChunk[];
+            return NO_STREAM;
         })
-        : Promise.resolve([] as VocalChunk[]);
+        : Promise.resolve(NO_STREAM);
 
-    const performStartedAt = Date.now();
-    const correctionPerf = await performTeacherPlayback(
-        ctx.mei, ctx.baseMsm, take.referenceMpmClone, take.range,
-    );
-    log(`PLAY: correction perform_ms=${Date.now() - performStartedAt}`);
-    if (isCancelled() || !correctionPerf) return;
+    let plan: LessonPlan | null = null;
+    let earlyStream: VocalStreamResult | null = null;
+    if (agentic) {
+        earlyStream = await vocalStreamPromise;
+        if (isCancelled()) return;
+        plan = earlyStream.plan;
+        if (plan) {
+            log(`PLAN: ${describePlan(plan)}`);
+        } else {
+            log('PLAN: none returned — demonstrating as usual');
+        }
+    }
 
-    // Sustain tail: hold pedal 2.5s after last note, then slow release
-    correctionPerf.midi = appendSustainTail(correctionPerf.midi);
+    const demoMode = plan?.mode ?? 'exaggerated';
+    const demoRange = plan?.range ?? take.range;
 
-    const vocalChunks = await vocalStreamPromise;
+    if (agentic && demoMode === 'exaggerated') {
+        const dimensions = plan && plan.dimensions.length > 0 ? plan.dimensions : allDimensions();
+        exaggerate(take.referenceMpmClone, take.studentMpm, demoRange, dimensions, log);
+    }
+
+    // `none` skips the render entirely; `reference` plays Grünfeld untouched.
+    let demoPerf: Awaited<ReturnType<typeof performTeacherPlayback>> = undefined;
+    if (demoMode !== 'none') {
+        const performStartedAt = Date.now();
+        demoPerf = await performTeacherPlayback(
+            ctx.mei,
+            ctx.baseMsm,
+            demoMode === 'reference' ? ctx.referenceMpm : take.referenceMpmClone,
+            demoRange,
+        );
+        log(`PLAY: ${demoMode === 'reference' ? 'reference' : 'correction'} perform_ms=${Date.now() - performStartedAt}`);
+        if (isCancelled() || !demoPerf) return;
+
+        // Sustain tail: hold pedal 2.5s after last note, then slow release
+        demoPerf.midi = appendSustainTail(demoPerf.midi);
+    }
+
+    const { chunks: vocalChunks } = earlyStream ?? await vocalStreamPromise;
     if (isCancelled()) return;
 
     // Without AI service: just play the correction
     if (!aiAvailable) {
         log('PLAY: instrumental-only (no AI service)');
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        play(correctionPerf.midi as any, undefined, () => {});
+        play(demoPerf!.midi as any, undefined, () => {});
         return;
     }
 
@@ -71,8 +114,12 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         onJudgement(fallback);
     }
 
-    const correctionEntryMs = judgeDurationMs + JUDGE_TO_CORRECTION_BUFFER_MS;
-    const correctionEntrySec = correctionEntryMs / 1000;
+    // Talking-only takes need the chord to carry the whole monologue, not just
+    // the JUDGE — nothing follows it that could take over.
+    const narrationMs = demoMode === 'none'
+        ? talkOnlyDurationSec(vocalChunks) * 1000
+        : judgeDurationMs + JUDGE_TO_CORRECTION_BUFFER_MS;
+    const correctionEntrySec = narrationMs / 1000;
 
     // Build mood chord from harmonic reduction (if available)
     const moodPlan = ctx.reductionMei && ctx.reductionMsm
@@ -80,8 +127,8 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             ctx.reductionMsm,
             ctx.baseMsm,
             take.referenceMpmClone,
-            take.range.from,
-            { minimumPedalHoldMs: correctionEntryMs },
+            demoRange.from,
+            { minimumPedalHoldMs: narrationMs },
         )
         : null;
 
@@ -93,23 +140,47 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     // Short staccato notes sustained by pedal, with gradual 3s pedal lift
     if (moodPerf) {
-        const rampStartMs = judgeDurationMs - PEDAL_RAMP_PRE_JUDGEMENT_MS;
+        const rampStartMs = narrationMs - PEDAL_RAMP_PRE_JUDGEMENT_MS;
         moodPerf.midi = prepareMoodChordMidi(moodPerf.midi, rampStartMs, PEDAL_RAMP_DURATION_MS);
     }
 
     log(`PLAY: time_to_play_ms=${Date.now() - takeStartedAt}`);
+
+    if (demoMode === 'none') {
+        if (vocalChunks.length === 0) {
+            log('PLAY: nothing to say and nothing to play');
+            return;
+        }
+        if (moodPerf) {
+            log(`PLAY: talk-only over mood chord (${vocalChunks.length} segments, ${correctionEntrySec.toFixed(1)}s)`);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            play(moodPerf.midi as any, undefined, ({ scheduleAudioCue }) => {
+                scheduleTalkOnly(vocalChunks, scheduleAudioCue, log);
+            });
+            return;
+        }
+        // No chord to speak over — the voice carries the take on its own.
+        log(`PLAY: talk-only, unaccompanied (${vocalChunks.length} segments)`);
+        for (const chunk of vocalChunks) {
+            if (isCancelled()) return;
+            await playAudioBuffer(chunk.audioBuffer, () => log(`VOCAL: playing "${chunk.marker}" "${chunk.text.slice(0, 30)}"`));
+        }
+        return;
+    }
+
+    const correctionPerf = demoPerf!;
 
     if (moodPerf && moodPlan && vocalChunks.length > 0) {
         // Mood chord → vocal stream over chord → corrective playback
         const connectedMidi = appendMidiWithOffset(
             moodPerf.midi,
             correctionPerf.midi,
-            millisecondsToMidiTicks(moodPerf.midi, correctionEntryMs),
+            millisecondsToMidiTicks(moodPerf.midi, narrationMs),
         );
 
         log(
             `PLAY: mood chord (date=${moodPlan.chordDate}, notes=${moodPlan.noteCount}, ` +
-            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(correctionEntryMs)})`,
+            `range=[${moodPlan.renderFrom}, ${moodPlan.renderTo}], entry_ms=${Math.round(narrationMs)})`,
         );
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -126,7 +197,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         // No mood chord — delay correction MIDI so JUDGE narration finishes first
         const delayedMidi = delayMidi(
             correctionPerf.midi,
-            millisecondsToMidiTicks(correctionPerf.midi, correctionEntryMs),
+            millisecondsToMidiTicks(correctionPerf.midi, narrationMs),
         );
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         play(delayedMidi as any, undefined, ({ scheduleAudioCue }) => {

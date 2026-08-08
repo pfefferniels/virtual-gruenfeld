@@ -18,6 +18,7 @@ const {
     __resetSessionStore, buildTakeRecord, flushProfileUpdates, readSession, recordTake,
 } = await import('../sessions');
 const { openai } = await import('../config');
+const { ELEVEN_ASK_MODEL_ID, ELEVEN_V3_MODEL_ID } = await import('../shared/tts');
 
 const SESSION = 'b34f50c6-490c-4999-860e-52fd563d150c';
 const QUESTION = 'Warum wird es in Takt vier langsamer?';
@@ -224,6 +225,30 @@ describe('answering a question', () => {
         expect(result.audioBase64).toBe('');
         // …and the exchange is still part of the lesson.
         expect(readSession(SESSION)?.qa).toHaveLength(1);
+    });
+
+    it('speaks answers with the fast model, and lets the env override it', async () => {
+        await ask();
+        expect(synthesizeCueAudio).toHaveBeenCalledWith(
+            ANSWER, 'test-key', expect.any(String), ELEVEN_ASK_MODEL_ID,
+        );
+
+        // The take path's model must not leak in here — that is the 10s model.
+        process.env.ELEVENLABS_MODEL_ID = ELEVEN_V3_MODEL_ID;
+        synthesizeCueAudio.mockClear();
+        await ask();
+        expect(synthesizeCueAudio).toHaveBeenCalledWith(
+            ANSWER, 'test-key', expect.any(String), ELEVEN_ASK_MODEL_ID,
+        );
+        delete process.env.ELEVENLABS_MODEL_ID;
+
+        process.env.ELEVENLABS_ASK_MODEL_ID = 'eleven_flash_v2_5';
+        synthesizeCueAudio.mockClear();
+        await ask();
+        expect(synthesizeCueAudio).toHaveBeenCalledWith(
+            ANSWER, 'test-key', expect.any(String), 'eleven_flash_v2_5',
+        );
+        delete process.env.ELEVENLABS_ASK_MODEL_ID;
     });
 
     it('does not reach for the voice at all without a key', async () => {

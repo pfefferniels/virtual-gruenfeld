@@ -4,7 +4,7 @@ import { transcribeQuestion, type QuestionAudio } from '../audio/transcribe';
 import { openai, CORPUS_DEPTH, DEFAULT_CUE_MODELS, parseCuePrepMode, type CuePrepMode } from '../config';
 import { buildTeacherSystemPrompt } from '../prompts/teacherStream';
 import { formatSessionHistory, isValidSessionId, readSession, recordQa } from '../sessions';
-import { ELEVEN_V3_MODEL_ID } from '../shared/tts';
+import { ELEVEN_ASK_MODEL_ID } from '../shared/tts';
 import type { TeacherAskResponse } from '../shared/teacherAsk';
 import { synthesizeCueAudio } from '../tts/synthesize';
 
@@ -13,7 +13,7 @@ export const teacherAskRouter = Router();
 /** Long enough for any spoken question; short enough that nobody pastes an essay. */
 const MAX_QUESTION_CHARS = 800;
 
-export type TeacherAskRequest = {
+type TeacherAskRequest = {
     /** Ties the question to the takes of the same sitting. */
     sessionId?: string;
     /** The question as text. Takes precedence over `audio` when both arrive. */
@@ -122,12 +122,11 @@ export const runTeacherAsk = async (body: TeacherAskRequest): Promise<TeacherAsk
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
     const voiceId = process.env.ELEVENLABS_VOICE_ID || 'a4oYSRgmiY0auDgVfso5';
-    // An answer is prose with no cue timestamps to slice, so it does not need v3:
-    // measured at ~10s for 300 characters, it is the slowest leg of the turn. This
-    // knob swaps in a faster model for answers without touching the take path.
-    const modelId = process.env.ELEVENLABS_ASK_MODEL_ID
-        || process.env.ELEVENLABS_MODEL_ID
-        || ELEVEN_V3_MODEL_ID;
+    // An answer is prose with no cue timestamps to slice, so it does not need v3.
+    // Deliberately not falling back to ELEVENLABS_MODEL_ID: that variable belongs
+    // to the take path, and inheriting it here would silently hand the answer back
+    // to the 10s model (see ELEVEN_ASK_MODEL_ID).
+    const modelId = process.env.ELEVENLABS_ASK_MODEL_ID || ELEVEN_ASK_MODEL_ID;
 
     let audioBase64 = '';
     let ttsMs = 0;

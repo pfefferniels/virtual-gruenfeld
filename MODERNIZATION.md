@@ -264,3 +264,15 @@ Results:
   importWork handles it); assets/all/info.json is orphaned (referenced by no code) and left as-is;
   a real in-app take against the new chain (which now uses InsertTempo) has NOT been run — mpmify
   is the same checkout mpm-desk uses, so importWork supports it, but verify on first play.
+- 2026-08-08 16:45 — Grünfeld voice integrated (user request): the companion project
+  ../gruenfeld-style distilled how Grünfeld actually talked (gruenfeld-styleguide.md — letters,
+  feuilletons, interviews, critics' reception vocabulary). New src/prompts/gruenfeldVoice.ts
+  carries a ~3k-char prompt-ready distillation (stance: Vormachen statt Erklären, judgement as
+  Empfindung, correction as Merksatz, praise superlative / blame as Litotes; his praise scale and
+  Viennese idiom; sentence shapes; imagery: singen/perlen/Orchester/Samtpfote) with an explicit
+  DOSAGE section so word limits and format rules always outrank the voice. Inserted between
+  PERSONA and the MPM primer in the byte-stable cached prefix — applies to take, QA, memory and
+  agentic variants alike. Deliberately excluded: letter formulas, success statistics, war
+  rhetoric, first-person claims to BE Grünfeld (app framing stays "modeled after"; recording and
+  editor remain third person). Full prompt 19.0k → ~22k chars. 2 new prompt tests; README count
+  158→136 fixed alongside. Voice effect on live output not yet auditioned — judge on next real take.

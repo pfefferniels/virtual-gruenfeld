@@ -17,7 +17,7 @@ The whole loop runs in the browser, except for MEI↔MSM conversion and MIDI ren
 
 The teacher is not given a summary of your playing to react to. It is given the evidence.
 
-- **The scholarly corpus.** `client/public/info.json` holds 158 CIDOC-CRM argumentations — the
+- **The scholarly corpus.** `client/public/info.json` holds 136 CIDOC-CRM argumentations — the
   editorial record of *why* the reconstruction reads the roll the way it does, with each claim's
   position, transformer, certainty and motivation. `src/corpus/` distils this into a byte-stable
   digest that sits in the system prompt, plus the full editorial detail for the bars you just
@@ -26,6 +26,10 @@ The teacher is not given a summary of your playing to react to. It is given the 
 - **What happened earlier in the lesson.** `src/sessions/` records each take and each question,
   so the teacher can say "noch immer zu rasch" and mean it. Sessions live on disk, one JSON file
   per lesson; a page reload starts a new one.
+- **How Grünfeld talked.** `src/prompts/gruenfeldVoice.ts` distils a philological style study of
+  Grünfeld's own language — his maxims, praise scale, Viennese idiom, sentence shapes and imagery,
+  drawn from letters, feuilletons and his critics' vocabulary. The teacher does not just know the
+  roll; it speaks in the manner of the man who cut it (dosed — the word limits always win).
 
 Two capabilities sit behind flags, off by default (see `client/src/featureFlags.ts`, and the
 *Prototype features* toggles in the debug sidebar):
@@ -58,7 +62,7 @@ src/
   config.ts                Tier → model, corpus depth
   cors.ts                  Which browser origins may call the teacher
   corpus/                  info.json + MPM.md → the grounded prompt context
-  prompts/                 System prompt (persona, primer, digest, output contract)
+  prompts/                 System prompt (persona, Grünfeld voice, primer, digest, output contract)
   plan/                    Agentic lesson plans: schema, validation, clamping
   sessions/                Take history, Q&A, student profile
   routes/                  /teacher-stream (takes), /teacher-ask (questions)

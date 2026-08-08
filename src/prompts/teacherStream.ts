@@ -1,5 +1,6 @@
 import { OUTPUT_LANGUAGE } from '../config';
 import { getScholarlyDigest, MPM_CONCEPT_PRIMER } from '../corpus';
+import { GRUENFELD_VOICE } from './gruenfeldVoice';
 
 const PERSONA = `You are a piano teacher giving a continuous, stream-of-consciousness monologue during a demonstration.
 You react to how the student just played, then narrate musical cues as the demonstration unfolds.
@@ -114,7 +115,7 @@ type TeacherPromptOptions = {
 const promptCache = new Map<string, string>();
 
 /**
- * Assemble the system prompt: persona, MPM primer, scholarly digest, output contract.
+ * Assemble the system prompt: persona, Grünfeld voice, MPM primer, scholarly digest, output contract.
  * Every part is static, so the whole string is byte-stable per variant and can serve
  * as a cached prompt prefix. The volatile per-take material goes in the input.
  */
@@ -126,6 +127,7 @@ export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): st
 
     const prompt = [
         PERSONA,
+        GRUENFELD_VOICE,
         MPM_CONCEPT_PRIMER,
         getScholarlyDigest({ onlyInterpretive: options.compactCorpus }),
         OUTPUT_CONTRACT,

@@ -131,11 +131,20 @@ describe('system prompt', () => {
         expect(buildTeacherSystemPrompt()).toBe(buildTeacherSystemPrompt());
     });
 
-    it('carries persona, primer, corpus and output contract in that order', () => {
+    it('carries persona, voice, primer, corpus and output contract in that order', () => {
         const prompt = buildTeacherSystemPrompt();
         expect(prompt.indexOf('You are a piano teacher')).toBe(0);
+        expect(prompt.indexOf('VOICE — you are modeled on Alfred Grünfeld')).toBeLessThan(prompt.indexOf('MPM CONCEPTS'));
         expect(prompt.indexOf('MPM CONCEPTS')).toBeLessThan(prompt.indexOf('SCHOLARLY CORPUS'));
         expect(prompt.indexOf('SCHOLARLY CORPUS')).toBeLessThan(prompt.indexOf('OUTPUT FORMAT'));
+    });
+
+    it('gives the teacher Grünfeld\'s documented manner of speaking, dosed', () => {
+        const prompt = buildTeacherSystemPrompt();
+        expect(prompt.indexOf('VOICE — you are modeled on Alfred Grünfeld')).toBeGreaterThan(0);
+        expect(prompt).toContain('Der Rhythmus ist die Seele der Musik');
+        expect(prompt).toContain('kleine Dosen');
+        expect(prompt).toContain('Every word limit and format rule below outranks the voice.');
     });
 
     it('retires the DIFF GLOSSARY in favour of the primer', () => {

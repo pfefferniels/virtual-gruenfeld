@@ -1,3 +1,5 @@
+import type { LessonPlan } from '../plan/types';
+
 export type StreamAnchor = {
     marker: string;
     charOffset: number;
@@ -17,6 +19,11 @@ export type TeacherStreamResponse = {
     audioBase64: string;
     alignment: TeacherStreamAlignment;
     model: string;
+    /**
+     * The validated lesson plan. Present only for agentic requests — a request
+     * without `agentic` gets exactly the payload it got before Phase 3.
+     */
+    plan?: LessonPlan;
     stats: {
         llmMs: number;
         ttsMs: number;

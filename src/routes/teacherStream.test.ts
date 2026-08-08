@@ -314,6 +314,115 @@ describe('a session across two takes', () => {
     });
 });
 
+describe('the agentic turn', () => {
+    const MONOLOGUE = '«JUDGE» Zu hastig, aber warm «m2.2» [softly] ruhiger atmen';
+
+    let create: ReturnType<typeof vi.spyOn>;
+
+    const answer = (payload: unknown) => {
+        create = vi.spyOn(openai.responses, 'create').mockImplementation((async () => ({
+            output_text: typeof payload === 'string' ? payload : JSON.stringify(payload),
+        })) as never);
+    };
+
+    const take = (overrides: Record<string, unknown> = {}) => runTeacherStream({
+        judgement: JUDGEMENT,
+        candidates: CANDIDATES,
+        structuredDiff: EVENTS,
+        range: RANGE,
+        mode: 'realtime',
+        skipTts: true,
+        ...overrides,
+    } as Parameters<typeof runTeacherStream>[0]);
+
+    const lastCall = () => create.mock.calls[create.mock.calls.length - 1][0] as {
+        instructions: string;
+        input: string;
+        text?: { format: { type: string; name: string; strict: boolean } };
+    };
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('asks for the strict lesson-plan schema only when the request is agentic', async () => {
+        answer({ monologue: MONOLOGUE, demo: { mode: 'none', range: null, dimensions: null } });
+
+        await take({ agentic: true });
+        expect(lastCall().text?.format).toMatchObject({ type: 'json_schema', name: 'lesson_plan', strict: true });
+
+        await take();
+        expect(lastCall().text).toBeUndefined();
+    });
+
+    it('leaves the non-agentic prompt byte-identical and the response plan-free', async () => {
+        answer(MONOLOGUE);
+        const plain = await take();
+        const plainInstructions = lastCall().instructions;
+
+        answer({ monologue: MONOLOGUE, demo: { mode: 'exaggerated', range: null, dimensions: [] } });
+        const agentic = await take({ agentic: true });
+        const agenticInstructions = lastCall().instructions;
+
+        expect(plainInstructions).not.toContain('DEMONSTRATION PLAN');
+        expect(agenticInstructions.startsWith(plainInstructions)).toBe(true);
+        expect(agenticInstructions).toContain('Teach ONE thing per take');
+        expect('plan' in plain).toBe(false);
+        expect(agentic.plan).toBeDefined();
+    });
+
+    it('parses the monologue inside the JSON exactly as it parses free text', async () => {
+        answer(MONOLOGUE);
+        const freeText = await take();
+
+        answer({ monologue: MONOLOGUE, demo: { mode: 'reference', range: null, dimensions: null } });
+        const structured = await take({ agentic: true });
+
+        expect(structured.rawText).toBe(freeText.rawText);
+        expect(structured.cleanedText).toBe(freeText.cleanedText);
+        expect(structured.anchors).toEqual(freeText.anchors);
+    });
+
+    it('validates the plan against the take range and the measured diff types', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        answer({
+            monologue: MONOLOGUE,
+            demo: {
+                mode: 'exaggerated',
+                range: { from: 'm3.1', to: 'm9.1' },
+                dimensions: [
+                    { type: 'tempo', strength: 5 },
+                    { type: 'ornament', strength: 0.3 },
+                ],
+            },
+        });
+
+        const result = await take({ agentic: true });
+        // m9.1 is past the take's m5.4; ornament was never measured in EVENTS.
+        expect(result.plan).toEqual({
+            mode: 'exaggerated',
+            range: { from: 5760, to: RANGE.to },
+            dimensions: [{ type: 'tempo', strength: 0.5 }],
+        });
+    });
+
+    it('keeps the take when the model answers with something that is not a plan', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        answer(MONOLOGUE);
+
+        const result = await take({ agentic: true });
+        expect(result.cleanedText).toBe('Zu hastig, aber warm. [softly] ruhiger atmen');
+        expect(result.plan).toEqual({ mode: 'exaggerated', range: null, dimensions: [] });
+    });
+
+    it('only turns agentic when the body says so literally', () => {
+        expect(parseTeacherStreamBody({ judgement: JUDGEMENT, diff: 'x', agentic: true })?.agentic).toBe(true);
+        for (const agentic of ['true', 1, undefined, false]) {
+            expect(parseTeacherStreamBody({ judgement: JUDGEMENT, diff: 'x', agentic })?.agentic).toBeUndefined();
+        }
+    });
+});
+
 describe('judgement sanitizer', () => {
     it('leaves speakable text untouched', () => {
         expect(sanitizeJudgementText('Guter Ansatz, Timing noch wackelig.')).toBe('Guter Ansatz, Timing noch wackelig.');

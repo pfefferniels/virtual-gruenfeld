@@ -4,6 +4,14 @@ import { buildTeacherSystemPrompt } from '../prompts/teacherStream';
 import { sanitizeJudgementText } from '../prompts/judgement';
 import { getRangeDetail } from '../corpus';
 import {
+    DEFAULT_PLAN,
+    LESSON_PLAN_FORMAT,
+    describePlan,
+    parseAgenticResponse,
+    validatePlan,
+    type LessonPlan,
+} from '../plan';
+import {
     buildTakeRecord,
     formatSessionHistory,
     isValidSessionId,
@@ -35,6 +43,12 @@ export type TeacherStreamRequest = {
      * the probe) means a stateless take: no history in, nothing recorded out.
      */
     sessionId?: string;
+    /**
+     * Ask the model to decide the demonstration too: the answer comes back as a
+     * lesson plan under a strict JSON schema instead of free monologue text.
+     * Absent means the pre-Phase-3 turn, byte-for-byte.
+     */
+    agentic?: boolean;
     /** Skip TTS — used by the smoke script to time the LLM call alone. */
     skipTts?: boolean;
 };
@@ -120,6 +134,17 @@ export const buildUserInput = (
 };
 
 /**
+ * The deviation types the diff actually reported. The plan may only shape these;
+ * a legacy request without a structured diff constrains nothing.
+ */
+const diffTypesOf = (body: TeacherStreamRequest): string[] | undefined => {
+    if (!body.structuredDiff) return undefined;
+    return body.structuredDiff
+        .map((event) => event.type)
+        .filter((type): type is string => typeof type === 'string');
+};
+
+/**
  * The whole teacher turn: prompt assembly, one LLM call, anchor parsing, TTS.
  * Exported so tests and the smoke script can drive it without a socket.
  */
@@ -131,19 +156,45 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
     const sessionId = body.sessionId;
     const history = sessionId ? formatSessionHistory(readSession(sessionId)) : '';
 
+    const agentic = body.agentic === true;
+
     const llmStartedAt = Date.now();
     const response = await openai.responses.create({
         model,
         instructions: buildTeacherSystemPrompt({
             compactCorpus: depth.compactCorpus,
             memory: Boolean(sessionId),
+            agentic,
         }),
         input: buildUserInput(body, depth.rangeDetail, history),
+        ...(agentic ? { text: LESSON_PLAN_FORMAT } : {}),
     });
 
-    const rawText = response.output_text ?? '';
+    let rawText = response.output_text ?? '';
     const llmMs = Date.now() - llmStartedAt;
     console.log('teacher-stream llm', { model, llm_ms: llmMs, raw_length: rawText.length, history_chars: history.length });
+
+    let plan: LessonPlan | undefined;
+    if (agentic) {
+        const parsed = parseAgenticResponse(rawText);
+        if (parsed) {
+            rawText = parsed.monologue;
+            const validated = validatePlan(parsed.demo, {
+                takeRange: body.range,
+                diffTypes: diffTypesOf(body),
+            });
+            plan = validated.plan;
+            if (validated.warnings.length > 0) {
+                console.warn('teacher-stream plan corrected', { warnings: validated.warnings });
+            }
+            console.log('teacher-stream plan', { plan: describePlan(plan) });
+        } else {
+            // Structured outputs make the shape likely, not certain. Rather than
+            // lose the take, keep whatever text came back and demo as before.
+            console.warn('teacher-stream agentic answer was not a lesson plan, using it as the monologue');
+            plan = { ...DEFAULT_PLAN };
+        }
+    }
 
     let { anchors, cleanedText } = parseAnchors(rawText);
 
@@ -215,7 +266,16 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
     const totalMs = Date.now() - totalStartedAt;
     const ttsMs = totalMs - llmMs;
 
-    return { rawText, anchors, cleanedText, audioBase64, alignment, model, stats: { llmMs, ttsMs, totalMs } };
+    return {
+        rawText,
+        anchors,
+        cleanedText,
+        audioBase64,
+        alignment,
+        model,
+        ...(plan ? { plan } : {}),
+        stats: { llmMs, ttsMs, totalMs },
+    };
 };
 
 /**
@@ -226,7 +286,7 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
  */
 export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | null => {
     const body = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-    const { judgement, candidates, diff, structuredDiff, range, mode, sessionId } = body;
+    const { judgement, candidates, diff, structuredDiff, range, mode, sessionId, agentic } = body;
 
     const hasStructuredDiff = Array.isArray(structuredDiff) && structuredDiff.length > 0;
     if (typeof judgement !== 'object' || judgement === null) return null;
@@ -240,6 +300,7 @@ export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | nul
         range: isRange(range) ? range : undefined,
         mode: parseCuePrepMode(mode),
         sessionId: isValidSessionId(sessionId) ? sessionId : undefined,
+        ...(agentic === true ? { agentic: true } : {}),
     };
 };
 
@@ -258,6 +319,7 @@ teacherStreamRouter.post('/teacher-stream', async (req, res) => {
             mode: request.mode,
             anchors: result.anchors.length,
             grounded: Boolean(request.structuredDiff && request.range),
+            plan: result.plan ? describePlan(result.plan) : 'fixed',
             session: request.sessionId ?? 'none',
             total_ms: result.stats.totalMs,
             llm_ms: result.stats.llmMs,

@@ -58,11 +58,38 @@ const MEMORY_RULES = `CONTINUITY — you are hearing this student more than once
 - Remembering buys no extra words. «JUDGE» stays 3-8 words, every cue stays at most 5.
 - Never narrate the record itself: no take numbers, no scores, no counts. Just be a teacher who remembers.`;
 
+/**
+ * Only added when the request asks for a lesson plan. Like MEMORY_RULES it is a
+ * pure suffix, so every non-agentic prompt stays byte-identical to Phase 2's.
+ */
+const AGENTIC_RULES = `DEMONSTRATION PLAN — you also decide what the student hears after you have spoken.
+You return one JSON object: "monologue" plus "demo". The monologue field holds exactly the «MARKER»
+text specified above, unchanged — the format rules, the word limits and the position rules all still apply
+inside it. "demo" is the playback you are prescribing.
+
+- Teach ONE thing per take. Every part of the plan must serve that one thing.
+- demo.mode:
+  - "exaggerated" — the reconstruction pushed further AWAY from what the student did, so the divergence
+    becomes audible by contrast. The right choice when something needs to be heard, not just named.
+  - "reference" — the reconstruction exactly as it is. Choose it when the student is already close and
+    what they need is to hear the real Grünfeld, not a caricature of their own mistake.
+  - "none" — no playback at all; you only speak. Choose it when the take was excellent and a demonstration
+    would only dilute the praise, or when the point is conceptual and hearing it again adds nothing.
+- demo.range: the smallest passage that carries the point, as measure.beat positions inside the take range.
+  A single phrase teaches better than five bars. Use the whole take only when the point really is the whole take.
+- demo.dimensions: only the deviation types that serve the one thing — never a catalogue of everything measured.
+  Strength: 0.1 a subtle nudge, 0.2 clearly audible, 0.4 a strong caricature. Louder is not clearer; choose the
+  strength at which the point lands. Leave dimensions empty for "reference" and "none".
+- Choose by pedagogical clarity, not by size: a passage where the editor documented an intention beats a larger
+  number with nothing behind it. If the student has already been told something, spend this take on something else.`;
+
 export type TeacherPromptOptions = {
     /** Trim the digest to argumentations that carry a motivation or editorial prose. */
     compactCorpus?: boolean;
     /** The request belongs to a session, so the input may carry earlier takes. */
     memory?: boolean;
+    /** The model decides the demonstration too, and answers as a JSON lesson plan. */
+    agentic?: boolean;
 };
 
 const promptCache = new Map<string, string>();
@@ -73,7 +100,8 @@ const promptCache = new Map<string, string>();
  * as a cached prompt prefix. The volatile per-take material goes in the input.
  */
 export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): string => {
-    const key = `${options.compactCorpus ? 'compact' : 'full'}:${options.memory ? 'memory' : 'stateless'}`;
+    const key = `${options.compactCorpus ? 'compact' : 'full'}:${options.memory ? 'memory' : 'stateless'}`
+        + `:${options.agentic ? 'agentic' : 'fixed'}`;
     const cached = promptCache.get(key);
     if (cached) return cached;
 
@@ -83,6 +111,7 @@ export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): st
         getScholarlyDigest({ onlyInterpretive: options.compactCorpus }),
         OUTPUT_CONTRACT,
         ...(options.memory ? [MEMORY_RULES] : []),
+        ...(options.agentic ? [AGENTIC_RULES] : []),
     ].join('\n\n');
     promptCache.set(key, prompt);
     return prompt;

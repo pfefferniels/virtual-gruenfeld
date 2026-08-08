@@ -76,7 +76,32 @@ Findings (measured, not guessed):
 - Note for Phase 3: `playAudioBuffer` is threaded into StrategyControls but unused by the only
   strategy — structurally dead today, but "demo = pure reference" may want it. Left in place.
 
-### Phase 1 — Grounded teacher  [status: TODO]
+### Phase 1 — Grounded teacher  [status: DONE 2026-08-08, commits 136524f..a833f7d]
+Results:
+- `src/corpus/`: 158 argumentations distilled (digest 2,937 tok full / 2,443 compact; primer 697 tok;
+  range detail ~2.5k tok per 5-bar take). Deterministic + byte-stable (tested). Position conventions
+  handled: absolute from/to, rubato date/length, pedal anchor-relative. 5 note-ID argumentations
+  remain unplaced (listed at digest tail), 2 piece-wide.
+- Prompt: persona + MPM primer + digest + output contract, memoized/byte-stable (prefix-cacheable);
+  DIFF GLOSSARY deleted (primer replaces it). Route accepts `structuredDiff` + `range` with legacy
+  `diff`-string fallback; handler factored into `runTeacherStream()` (in-process testable).
+- Client sends FULL structured diff + range (top-3 truncation no longer limits what the model sees).
+- Latency (grounded prompt, medians): realtime gpt-5.4-mini ~1.3s · terra ~2.0-3.7s · luna 4.7-6.0s
+  and more generic → **balanced remapped to gpt-5.6-terra** (both non-realtime tiers on terra,
+  differing in corpus depth; Dialog.tsx hints updated). Legacy gpt-5-mini measured 15-21s on this
+  prompt shape — Phase 0's 3.2s was prompt-dependent.
+- Grounding verified in 36/36 contract-clean smoke runs: cues trace to specific argumentations
+  ("Zum c hinflüstern", "Von oben lösen", "zum B-Dur hin") vs legacy generic adjectives.
+- Sanitizers: strip-and-log instead of silent rejection; 5-word cap + no-digits kept.
+- Tests: 151 (105 pre-existing + 46 new).
+Caveats carried forward:
+- `normalizeCueText`/`normalizeV3Tag` are NOT on the live vocal-stream path (tests only) — prompt
+  rule added (English tags); consider wiring into live path or deleting in Phase 3/5.
+- `assets/all/info.json` (160 args) vs `client/public/info.json` (158, the one used) drift —
+  cosmetic; regenerate together if ever regenerated.
+- `scripts/` outside root tsconfig include — smoke script checked by tsx only.
+- Studio == balanced model-wise for now; future differentiation candidates: gpt-5.5(-pro),
+  reasoning effort, richer range detail.
 The core inversion: model sees evidence, not conclusions.
 - `src/corpus/` module: assemble grounded context — clean score MEI, reference MPM, a distilled
   structured rendering of `info.json` argumentations (position, transformer, certainty, motivation,
@@ -138,3 +163,7 @@ The core inversion: model sees evidence, not conclusions.
   model inventory measured — current tiering latency-inverted; new mapping recorded above.
   Checks verified independently by orchestrator: type-check clean, client tsc clean, 105/105 tests.
   Phase 1 agent being briefed.
+- 2026-08-08 10:25 — Phase 1 DONE (commits 136524f..a833f7d, 5 logical units): teacher grounded in
+  scholarly corpus at no latency cost (~1.3s realtime); grounding verified in smoke outputs;
+  balanced tier remapped luna→terra on measurement. Orchestrator verified independently: type-check
+  clean, client tsc clean, 151/151 tests. Phase 2 agent being briefed.

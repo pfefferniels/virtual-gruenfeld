@@ -47,10 +47,13 @@ become tool calls it makes mid-conversation (`getRangeDetail(range)` is already 
 shape); how a realtime session survives a page reload; and cost per minute of an open
 socket versus per question asked.
 
-**Cheap intermediate step**, if the full rewrite is not worth it: keep the push-to-talk
-architecture and swap only the slow leg. `ELEVENLABS_ASK_MODEL_ID` already exists for
-exactly this — point it at a flash-class model and the 8–10 s drops to roughly 1 s, at some
-cost in warmth. Streaming the answer's audio as it is generated would help just as much.
+**The cheap intermediate step has since been taken** (Phase 5): the answer path now defaults
+to `eleven_turbo_v2_5`, which renders the same 314-character German answer in 650 ms instead
+of v3's 10.2 s, with no loss of intelligibility and a brisker delivery. That removes the
+single worst leg but not the turn-taking — the student still waits out a finished MP3 and
+still cannot interrupt. What remains unexplored is **streaming** the answer's audio as it is
+generated, which would hide most of the remaining latency without any of the rearchitecting
+above.
 
 ## 2. RUMAA as a check on the matcher
 
@@ -103,3 +106,12 @@ feeding score MEI to a general model as text.
   wrong for a Worker that starts cold per request.
 - **Page reload starts a new lesson** (`client/src/session.ts`). Deliberate;
   `sessionStorage` would change it in one line if the prototype ever wants continuity.
+- **No component-level tests** (Phases 4–5). The client has no jsdom environment, so
+  "the voice UI renders nothing when the flag is off" is asserted through the flag logic
+  and the single `showVoice` gate rather than by rendering `Dialog`. Adding jsdom is not
+  the 30-minute job it sounds like: `Dialog` pulls in `usePiano` → Tone.js → WebAudio and
+  WebMIDI, all of which would need mocking before the first assertion. Worth doing the day
+  the UI grows a second branch worth testing; not before.
+- **The session store is a directory of JSON files.** Bounded per session (50 takes, 20
+  questions) and swept at process start, which is enough for a prototype on one host. A
+  second instance behind a load balancer would need shared storage — see DEPLOYMENT.md §5.

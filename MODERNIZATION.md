@@ -185,15 +185,29 @@ Caveats carried forward:
 - knip additions: MAX_QA_PER_SESSION, HISTORY_MAX_QA, QA_HEADING, PREFERRED_MIME_TYPES,
   audioExtension.
 
-### Phase 5 — Deployability + handoff PR  [status: TODO]
-- Make the teacher service deployable: `worker/` Cloudflare Worker (or documented alternative)
-  proxying teacher-stream + TTS with server-side keys; `VITE_TEACHER_URL` wiring in client config
-  + deploy workflow (branch only — DO NOT deploy, DO NOT merge).
-- Write `DEPLOYMENT.md` (exact steps for the user to flip it on).
-- Final sweep: knip dead-code pass, README update, FUTURE.md (realtime voice, RUMAA comparison,
-  Pianist Transformer notes).
-- Open a PR `ai-modernization` → `main` with a full description. Merging is the user's decision.
-- Acceptance: PR open, CI-equivalent checks green, ledger closed out.
+### Phase 5 — Deployability + handoff PR  [status: DONE 2026-08-08, commits 760982a..7f46d36]
+Results:
+- **Worker rejected with reasoning** (fs corpus, disk sessions, process-lifetime caches are what
+  make the latency numbers real): DEPLOYMENT.md documents Node service on the api.welte225.org
+  host — systemd unit, Caddy AND nginx configs, 15-var env table (verified against source),
+  CORS (`TEACHER_CORS_ORIGIN`, new src/cors.ts, subdomain/scheme-attack tested), rollback.
+- Teacher URL resolution: `localStorage.TEACHER_URL` > `VITE_TEACHER_URL` > localhost-if-DEV —
+  preserves the documented SPOKEN_FEEDBACK.md local workflow (brief's mixed-content premise was
+  Safari-only) while production visitors stop paying failing probes. Deploy workflow exports repo
+  vars only-when-non-empty (Vite env precedence gotcha).
+- ElevenLabs ask default → `eleven_turbo_v2_5`: 650ms vs v3's 10240ms medians (15.8x), 0% WER
+  loopback on all candidates; v3's extra 36% audio duration is pacing/warmth — documented,
+  `ELEVENLABS_ASK_MODEL_ID=eleven_v3` is the way back. Take path untouched (v3 + timestamps).
+- 30s recording auto-stop; sidebar toggles for agentic/voice (voice applies immediately);
+  debug sidebar de-beiged (#f3f4f6/#e5e7eb).
+- knip fully clean, zero ignores added: uuid removed (root), vitest added (was unlisted!),
+  midifile-ts kept (config fixed — genuinely used), 59 "unused exports" were barrel re-exports
+  (trimmed), stale .env.example rewritten from a grep of process.env.
+- jsdom skipped with reasoning (Tone.js/WebMIDI transitive weight) → FUTURE.md.
+- Verified: type-check + client tsc clean, 346/346 tests, knip clean, production build succeeds,
+  bundle contains no localhost:3002 by default and bakes VITE_TEACHER_URL correctly.
+- Cost measured: ~7-8k input tok/take, ~4-4.5k of it cache-hittable; ElevenLabs is the real
+  per-use line item.
 
 ## Progress log (append-only, newest last)
 
@@ -221,3 +235,7 @@ Caveats carried forward:
   live-verified with audio loopback (perfect transcription; grounded answers beat ungrounded
   control); ElevenLabs v3 identified as the answer-latency bottleneck (lever added). Orchestrator
   verified: 326/326 tests, both tsc clean. Phase 5 (final) agent being briefed.
+- 2026-08-08 12:45 — Phase 5 DONE (commits 760982a..7f46d36, 5 logical units): deployment path
+  documented end-to-end, ElevenLabs turbo default (15.8x), knip clean, production build verified.
+  Orchestrator verified the full battery independently. ALL PHASES COMPLETE — handoff PR being
+  opened; merging and deploying remain the user's decision. Baseline 105 tests → final 346.

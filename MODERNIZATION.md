@@ -52,13 +52,29 @@ Full analysis: `~/.claude/projects/-Users-nielspfeffer-Projects-virtual-gruenfel
 
 ## Phases
 
-### Phase 0 — Baseline & housekeeping  [status: IN PROGRESS]
-- Verify local `.env`: which keys exist (OPENAI_API_KEY, ELEVENLABS_*). Never print values.
-- Query OpenAI `GET /v1/models` with the local key; record actually-available current model IDs here
-  (do not trust guesses; config currently pins `gpt-5.2` which may be stale).
-- Remove dead code: unused cue-library runtime path, `REALTIME_PLAYBACK_DEADLINE_MS` plumbing.
-  Keep `renderCueLibrary.ts` only if something imports it.
-- Acceptance: checks green, ledger updated with model list, dead code gone.
+### Phase 0 — Baseline & housekeeping  [status: DONE 2026-08-08, commit 118a997]
+Findings (measured, not guessed):
+- Env keys present in root `.env`: OPENAI_API_KEY, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID,
+  PERFORM_BIN, MODIFY_BIN, PIANOTEQ_BIN, RENDER_AUDIO_FORMAT, RENDER_MAX_SECONDS, PORT, NODE_ENV.
+  Absent (defaults live): OPENAI_CUE_MODEL_*, OUTPUT_LANGUAGE, ELEVENLABS_MODEL_ID.
+- Model inventory (126 served): pinned gpt-4.1-mini / gpt-5-mini / gpt-5.2 all still exist but the
+  tiering is latency-INVERTED — gpt-5-mini ("balanced") is the slowest tested (3.2s median, burns
+  128-256 hidden reasoning tokens); gpt-4.1-mini ("realtime") is 2x slower than gpt-5.4-mini.
+  Latency medians (3x, realistic prompt): gpt-5.4-mini 1009ms · gpt-5.6-luna 1304ms · gpt-5.2 1887ms
+  · gpt-5.6-terra 1979ms · gpt-4.1-mini 2095ms · gpt-5.5 2110ms · gpt-5.4-nano 2164ms (NOT faster
+  than mini) · gpt-5.6-sol 2473ms · gpt-5-mini 3230ms.
+- **Phase 1 tier mapping**: realtime → `gpt-5.4-mini`, balanced → `gpt-5.6-luna`,
+  studio → `gpt-5.6-terra`. (luna/terra capability ranking inferred, confirm in Phase 1 smoke test.
+  No mini/nano variants exist for 5.5/5.6.) Voice for Phase 4: `gpt-transcribe` /
+  `gpt-live-transcribe` (2026-07-27); realtime family: `gpt-realtime-2.1(-mini)`.
+- Dead code removed: server/cue-library.json + cueLibraryManifest.ts + renderCueLibrary.ts +
+  npm script; REALTIME_PLAYBACK_DEADLINE_MS plumbing end-to-end. `client/src/cueLibrary.ts` kept
+  (one line: `CuePrepMode` type, imported by 5 modules — rename/fold is Phase 5 cleanup).
+- Deferred to Phase 5 (knip): unused deps `uuid`, `midifile-ts`; unused exports
+  TeacherStreamResponsePayload, TeacherCue, TeacherCueDraft, CuePrepMode (server twin);
+  knip.json ignoreDependencies cleanup.
+- Note for Phase 3: `playAudioBuffer` is threaded into StrategyControls but unused by the only
+  strategy — structurally dead today, but "demo = pure reference" may want it. Left in place.
 
 ### Phase 1 — Grounded teacher  [status: TODO]
 The core inversion: model sees evidence, not conclusions.
@@ -117,4 +133,8 @@ The core inversion: model sees evidence, not conclusions.
 - 2026-08-08 09:40 — Baseline verified: type-check clean, 105/105 tests green on `main`.
 - 2026-08-08 09:47 — Snapshot branch `pre-ai-modernization` pushed (viz scripts committed);
   working branch `ai-modernization` created and pushed.
-- 2026-08-08 09:50 — Ledger created. Phase 0 agent being briefed.
+- 2026-08-08 09:50 — Ledger created. Phase 0 agent briefed.
+- 2026-08-08 10:00 — Phase 0 DONE (commit 118a997): dead code removed (-155 lines), env audited,
+  model inventory measured — current tiering latency-inverted; new mapping recorded above.
+  Checks verified independently by orchestrator: type-check clean, client tsc clean, 105/105 tests.
+  Phase 1 agent being briefed.

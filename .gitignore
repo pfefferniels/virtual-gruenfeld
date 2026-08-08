@@ -19,6 +19,9 @@ build/
 renders/
 *.log
 
+# Session memory (per-student take history, never committed)
+data/
+
 # IDE files
 .vscode/settings.json
 .idea/

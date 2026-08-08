@@ -138,15 +138,30 @@ Caveats carried forward:
 - knip: test-only exports buildTeacherSaid, SESSION_TTL_MS, updateStudentProfile,
   buildProfileInput → Phase 5 sweep list.
 
-### Phase 3 — Agentic pedagogy  [status: TODO]
-- Replace fixed choreography constants with model decisions: new structured response schema
-  (lesson plan): { reaction, cues[], demo: { range, dimensions: [{type, strength}], mode:
-  exaggerated|reference|none } }. Server validates against safety bounds
-  (tempoSafety/dynamicsSafety logic).
-- Client `strategies/` executes the plan: `exaggerate()` takes model-chosen dimensions/strength
-  instead of global 0.2; demo can be the pure reference; demo can be skipped (talk only).
-- Feature flag `TEACHER_AGENTIC=1`; legacy path remains default until smoke-validated.
-- Acceptance: plan-driven take runs end-to-end in a scripted client test with mocked LLM; live smoke ok.
+### Phase 3 — Agentic pedagogy  [status: DONE 2026-08-08, commits 28b21b9..61d89bf]
+Results:
+- `src/plan/`: strict structured-output schema { monologue, demo{mode, range, dimensions} };
+  validator clamps strength [0.05,0.5], ranges to take bounds, filters dimensions to measured
+  types. Live clamp fired unprompted and was caught. Agentic = request flag; non-agentic prompt
+  AND response byte-compatible (tested); «MARKER» parser reused, not forked.
+- Client: `exaggerate()` takes per-dimension strengths; EXAGGERATION_TUNING caps proven inviolable
+  vs adversarial strengths up to MAX_SAFE_INTEGER; `allDimensions(0.2)` reproduces pre-Phase-3
+  numbers exactly. Strategy executes exaggerated / pure-reference / talk-only (mood chord holds
+  through monologue; `playAudioBuffer` now genuinely used — closes Phase 0 note).
+- Flag: `VITE_TEACHER_AGENTIC` env, `localStorage.TEACHER_AGENTIC` override, default OFF.
+- Plans are pedagogically sensible: strength tracks severity; ranges genuinely narrowed; studio
+  names ONE dimension where realtime names 2-3; studio chose `reference` 6/6 on the near-perfect
+  fixture and never for needs_work. Realtime agentic 1.5-2.0s (under bar).
+- Tests: 278 (190 → +88).
+Caveats carried forward:
+- **Serialized render**: in agentic mode the /perform render waits for the plan (legacy overlapped
+  it) — wall-clock time-to-play grows by ~one render. Fix ideas: speculative render or split call.
+- `none` mode never triggered live (no zero-deviation fixture); unit-tested only.
+- Strategy tested at its own seam (mocked renderer/vocal/mood) — full runTake needs Java /perform.
+- No UI toggle for the flag (Phase 5 item); `03_timid` range narrowing was trivial (one beat) —
+  prompt could name a bar count if tighter wanted.
+- knip sweep list grows: DEFAULT_EXAGGERATION_STRENGTH, MIN_DEMO_TICKS, STRENGTH_MIN/MAX,
+  LESSON_PLAN_SCHEMA, describePlan (client).
 
 ### Phase 4 — Voice input (push-to-talk)  [status: TODO]
 - Feature-flagged push-to-talk: mic → transcription (OpenAI audio transcription) → question enters
@@ -183,3 +198,7 @@ Caveats carried forward:
   student profile working and verified live ("Noch immer...", progress recognition 3/3); zero
   latency cost; stateless path byte-stable. Orchestrator verified: 190/190 tests, both tsc clean.
   Phase 3 agent being briefed.
+- 2026-08-08 11:35 — Phase 3 DONE (commits 28b21b9..61d89bf, 6 logical units): model now plans the
+  lesson (mode/range/dimensions/strength) with hard safety ceilings; plans verified sensible in
+  24 live runs (studio: reference-demo 6/6 on near-perfect). Flag default OFF. Orchestrator
+  verified: 278/278 tests, both tsc clean. Phase 4 agent being briefed.

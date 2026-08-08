@@ -195,8 +195,10 @@ Results:
   preserves the documented SPOKEN_FEEDBACK.md local workflow (brief's mixed-content premise was
   Safari-only) while production visitors stop paying failing probes. Deploy workflow exports repo
   vars only-when-non-empty (Vite env precedence gotcha).
-- ElevenLabs ask default → `eleven_turbo_v2_5`: 650ms vs v3's 10240ms medians (15.8x), 0% WER
-  loopback on all candidates; v3's extra 36% audio duration is pacing/warmth — documented,
+- ElevenLabs ask default → `eleven_turbo_v2_5`: re-measured after the network warning with an
+  interleaved 4-round A/B timed to response headers (bandwidth-proof): v3 generation 9667ms
+  (spread 1.15x) vs turbo 796ms — 12.1x; network instability appeared only in transfer times as
+  expected. 0% WER loopback; v3's extra 36% audio duration is pacing/warmth — documented,
   `ELEVENLABS_ASK_MODEL_ID=eleven_v3` is the way back. Take path untouched (v3 + timestamps).
 - 30s recording auto-stop; sidebar toggles for agentic/voice (voice applies immediately);
   debug sidebar de-beiged (#f3f4f6/#e5e7eb).

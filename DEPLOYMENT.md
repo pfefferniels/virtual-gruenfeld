@@ -259,20 +259,38 @@ Two things to know:
 
 ## 6. The answer voice
 
-Measured 2026-08-08 on a 314-character German answer (3 runs each, medians):
+Measured 2026-08-08 on a 314-character German answer. First pass, 3 runs per model, total
+wall-clock:
 
 | Model | Median | Audio produced |
 |---|---|---|
-| `eleven_turbo_v2_5` | **650 ms** | 18.1 s |
+| `eleven_turbo_v2_5` | 650 ms | 18.1 s |
 | `eleven_flash_v2_5` | 725 ms | 16.3 s |
 | `eleven_multilingual_v2` | 3134 ms | — |
 | `eleven_v3` | 10240 ms | 24.6 s |
 
-The answer path now defaults to **`eleven_turbo_v2_5`**, a 15.8x cut to what was the slowest
-leg of a spoken question by a wide margin — the thinking took 1.4–3.7 s and the voice took ten.
+Those runs happened on an unreliable connection, so the two finalists were re-measured properly:
+**interleaved** A/B over 4 rounds (alternating which model goes first, so drift in conditions
+hits both equally), timing **to response headers** so the server's generation time is separated
+from body transfer:
 
-The tradeoff is delivery, not intelligibility: transcribing all four renders back gave a 0%
-word error rate, so nothing is mispronounced. What changes is pacing — v3 spends 24.6 s on the
+| Model | Generation (to headers) | Spread | Transfer (median) |
+|---|---|---|---|
+| `eleven_turbo_v2_5` | **796 ms** (618 / 758 / 834, plus a 1940 ms first call) | 3.1x | 670 ms |
+| `eleven_v3` | **9667 ms** (8905–10247) | **1.15x** | 568 ms |
+
+This is the more trustworthy read, and it says the same thing: **12x on medians, and 4.6x
+comparing v3's fastest run against turbo's slowest.** The network's unreliability shows up
+exactly where you would expect — in the transfer column, which swung 18.6x for v3 including one
+6.6 s outlier — and nowhere near enough to touch the verdict. v3's generation time was the
+single most stable number in the whole exercise: four calls, all within 1.15x, all around ten
+seconds. That is the model thinking, not the train.
+
+The answer path therefore defaults to **`eleven_turbo_v2_5`**, cutting what was by a wide margin
+the slowest leg of a spoken question — the thinking took 1.4–3.7 s and the voice took ten.
+
+The tradeoff is delivery, not intelligibility: transcribing every render back through
+`gpt-transcribe` gave a 0% word error rate, so nothing is mispronounced. What changes is pacing — v3 spends 24.6 s on the
 sentence turbo says in 18.1 s, and that extra time is pauses and unhurried phrasing. If you
 want the warmth back at the cost of the wait, set `ELEVENLABS_ASK_MODEL_ID=eleven_v3`.
 

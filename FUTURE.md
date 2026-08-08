@@ -48,8 +48,9 @@ shape); how a realtime session survives a page reload; and cost per minute of an
 socket versus per question asked.
 
 **The cheap intermediate step has since been taken** (Phase 5): the answer path now defaults
-to `eleven_turbo_v2_5`, which renders the same 314-character German answer in 650 ms instead
-of v3's 10.2 s, with no loss of intelligibility and a brisker delivery. That removes the
+to `eleven_turbo_v2_5`, which generates the same 314-character German answer in ~0.8 s instead
+of v3's ~9.7 s (interleaved A/B, timed to response headers), with no loss of intelligibility
+and a brisker delivery. That removes the
 single worst leg but not the turn-taking — the student still waits out a finished MP3 and
 still cannot interrupt. What remains unexplored is **streaming** the answer's audio as it is
 generated, which would hide most of the remaining latency without any of the rearchitecting

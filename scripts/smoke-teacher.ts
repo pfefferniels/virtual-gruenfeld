@@ -19,6 +19,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { openai, DEFAULT_CUE_MODELS, type CuePrepMode } from '../src/config';
+import { describePlan } from '../src/plan';
 import { buildTeacherSystemPrompt } from '../src/prompts/teacherStream';
 import { buildUserInput, runTeacherStream, type TeacherStreamRequest } from '../src/routes/teacherStream';
 import { estimateTokens } from '../src/corpus';
@@ -121,6 +122,35 @@ const parseFixture = (name: string): Fixture => {
     if (events.length === 0) throw new Error(`${name}: no events parsed`);
     return { name, range, events, diffText };
 };
+
+/**
+ * A take with almost nothing wrong with it. Every committed fixture is
+ * needs_work, so without this the "reference" and "none" demos never meet a
+ * situation that could call for them.
+ */
+const NEAR_PERFECT = '04_near_perfect';
+
+const nearPerfectFixture = (): Fixture => {
+    const base = parseFixture('01_robotic');
+    const events = base.events
+        .filter((event, index) => index < 2)
+        .map((event, index) => ({
+            ...event,
+            id: `${event.type}_near_${index}`,
+            severity: 'slight' as const,
+            magnitude: Math.abs(event.refValue) * 0.03,
+            studentValue: Number((event.refValue * 1.03).toFixed(2)),
+        }));
+    return {
+        name: NEAR_PERFECT,
+        range: base.range,
+        events,
+        diffText: `${events.length} deviations in m1.2–m5.4:\n(synthesised: a take that is essentially right)`,
+    };
+};
+
+const loadFixture = (name: string): Fixture =>
+    name === NEAR_PERFECT ? nearPerfectFixture() : parseFixture(name);
 
 /** Same grouping `requestVocalStream` applies when no timing map exists yet. */
 const buildCandidates = (events: StructuredDiffEvent[]): Array<Record<string, unknown>> => {
@@ -242,6 +272,76 @@ const runIsolation = async (fixtures: Fixture[]) => {
     }
 };
 
+// ── Phase 3: does the teacher plan a sensible demonstration? ──
+
+/**
+ * Agentic vs fixed, interleaved per run so API drift hits both equally. What the
+ * plan costs in latency is one question; whether it fits the fixture's dominant
+ * problem is the other, and only reading the plans answers that.
+ */
+const runAgentic = async (fixtures: Fixture[], tiers: CuePrepMode[]) => {
+    const transcript: string[] = [];
+    const say = (line: string) => { console.log(line); transcript.push(line); };
+    const summary: Record<string, unknown>[] = [];
+
+    for (const fixture of fixtures) {
+        const judgement = summarizeImmediateJudgement(fixture.events, fixture.range);
+        const dominant = judgement.dominantTypes.map((t) => `${t.type}(${t.count}, ${t.worstSeverity})`).join(', ');
+        say(`\n=== ${fixture.name} — ${judgement.verdict} ${judgement.score}, dominant: ${dominant} ===`);
+
+        for (const mode of tiers) {
+            const fixed: number[] = [];
+            const agentic: number[] = [];
+            const plans: string[] = [];
+
+            for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+                const before = await runTeacherStream(buildRequest(fixture, mode));
+                fixed.push(before.stats.llmMs);
+
+                const after = await runTeacherStream({ ...buildRequest(fixture, mode), agentic: true });
+                agentic.push(after.stats.llmMs);
+                const plan = after.plan ? describePlan(after.plan) : '(no plan returned)';
+                plans.push(plan);
+                say(`  [${mode} run ${run + 1}] ${after.stats.llmMs}ms  plan: ${plan}`);
+                say(`      ${after.rawText.replace(/\n+/g, ' ')}`);
+            }
+
+            say(
+                `  ${mode}/${DEFAULT_CUE_MODELS[mode]} median: fixed ${median(fixed)}ms (${fixed.join('/')})  `
+                + `agentic ${median(agentic)}ms (${agentic.join('/')})`,
+            );
+            summary.push({
+                fixture: fixture.name,
+                mode,
+                model: DEFAULT_CUE_MODELS[mode],
+                verdict: judgement.verdict,
+                dominantTypes: judgement.dominantTypes.map((t) => t.type),
+                fixedLatencies: fixed,
+                agenticLatencies: agentic,
+                fixedMedianMs: median(fixed),
+                agenticMedianMs: median(agentic),
+                plans,
+            });
+        }
+    }
+
+    say('\n=== SUMMARY (LLM latency, TTS excluded) ===');
+    say('fixture              tier       fixed    agentic  delta');
+    for (const row of summary) {
+        const fixedMs = row.fixedMedianMs as number;
+        const agenticMs = row.agenticMedianMs as number;
+        say(
+            `${String(row.fixture).padEnd(20)} ${String(row.mode).padEnd(10)} `
+            + `${String(fixedMs).padStart(6)}   ${String(agenticMs).padStart(6)}   `
+            + `${agenticMs - fixedMs >= 0 ? '+' : ''}${agenticMs - fixedMs}ms`,
+        );
+    }
+
+    writeFileSync(join(OUT_DIR, 'phase3_agentic.txt'), transcript.join('\n'));
+    writeFileSync(join(OUT_DIR, 'phase3_summary.json'), JSON.stringify(summary, null, 2));
+    console.log(`\nWrote ${OUT_DIR}/phase3_agentic.txt and phase3_summary.json`);
+};
+
 // ── Phase 2: does the teacher remember the previous take? ──
 
 const SESSION_DIR = join(OUT_DIR, 'phase2_sessions');
@@ -322,7 +422,17 @@ const main = async () => {
     const args = process.argv.slice(2);
     const isolateOnly = args.includes('--isolate');
     const twoTake = args.includes('--two-take');
+    const agentic = args.includes('--agentic');
     const names = args.filter((arg) => !arg.startsWith('--'));
+
+    if (agentic) {
+        const modeArg = args.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length);
+        await runAgentic(
+            (names.length > 0 ? names : ['01_robotic', '02_rushing_loud', '03_timid', NEAR_PERFECT]).map(loadFixture),
+            modeArg ? [modeArg as CuePrepMode] : ['realtime', 'studio'],
+        );
+        return;
+    }
 
     if (isolateOnly) {
         await runIsolation((names.length > 0 ? names : ['01_robotic', '02_rushing_loud', '03_timid']).map(parseFixture));

@@ -15,13 +15,14 @@
  */
 
 import 'dotenv/config';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { openai, DEFAULT_CUE_MODELS, type CuePrepMode } from '../src/config';
 import { buildTeacherSystemPrompt } from '../src/prompts/teacherStream';
 import { buildUserInput, runTeacherStream, type TeacherStreamRequest } from '../src/routes/teacherStream';
 import { estimateTokens } from '../src/corpus';
+import { __resetSessionStore, flushProfileUpdates, formatSessionHistory, readSession } from '../src/sessions';
 import { summarizeImmediateJudgement } from '../client/src/judgement';
 import { positionToTick } from '../client/src/shared/constants';
 import type { StructuredDiffEvent } from '../client/src/mpm/types';
@@ -241,6 +242,76 @@ const runIsolation = async (fixtures: Fixture[]) => {
     }
 };
 
+// ── Phase 2: does the teacher remember the previous take? ──
+
+const SESSION_DIR = join(OUT_DIR, 'phase2_sessions');
+const SESSION_ID = 'smoke5555-2222-4444-8888-aaaaaaaaaaaa';
+
+/**
+ * The same student plays twice. Take 1 seeds the session; take 2 is then run
+ * both stateless and with the session attached, so the latency cost of carrying
+ * the history — and whether the «JUDGE» actually uses it — are both visible.
+ */
+const runTwoTake = async (first: Fixture, second: Fixture, mode: CuePrepMode) => {
+    process.env.SESSIONS_DIR = SESSION_DIR;
+    rmSync(SESSION_DIR, { recursive: true, force: true });
+    mkdirSync(SESSION_DIR, { recursive: true });
+    __resetSessionStore();
+
+    const transcript: string[] = [];
+    const say = (line: string) => { console.log(line); transcript.push(line); };
+
+    say(`=== TWO-TAKE SESSION (${mode}/${DEFAULT_CUE_MODELS[mode]}) ===`);
+    say(`take 1 = ${first.name}, take 2 = ${second.name}\n`);
+
+    // Baseline: take 2 with no session at all — today's behavior.
+    const statelessLatencies: number[] = [];
+    for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+        const response = await runTeacherStream(buildRequest(second, mode));
+        statelessLatencies.push(response.stats.llmMs);
+        say(`[stateless run ${run + 1}] ${response.stats.llmMs}ms\n${response.rawText}\n`);
+    }
+
+    // Take 1: seeds the session, then the profile side-channel catches up.
+    const takeOne = await runTeacherStream({ ...buildRequest(first, mode), sessionId: SESSION_ID });
+    say(`[take 1 · session] ${takeOne.stats.llmMs}ms\n${takeOne.rawText}\n`);
+    await flushProfileUpdates();
+    say(`profile after take 1: ${JSON.stringify(readSession(SESSION_ID)?.profile ?? null)}\n`);
+
+    // Take 2, repeatedly: the history grows by one take each run.
+    const sessionLatencies: number[] = [];
+    for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+        const history = formatSessionHistory(readSession(SESSION_ID));
+        const response = await runTeacherStream({ ...buildRequest(second, mode), sessionId: SESSION_ID });
+        sessionLatencies.push(response.stats.llmMs);
+        say(`[take ${run + 2} · session, history ${estimateTokens(history)} tok] ${response.stats.llmMs}ms\n${response.rawText}\n`);
+        await flushProfileUpdates();
+    }
+
+    const finalHistory = formatSessionHistory(readSession(SESSION_ID));
+    say('=== HISTORY AS THE MODEL LAST SAW IT ===');
+    say(finalHistory);
+    say('');
+    say('=== LATENCY (LLM only) ===');
+    say(`stateless median ${median(statelessLatencies)}ms (${statelessLatencies.join('/')})`);
+    say(`with history median ${median(sessionLatencies)}ms (${sessionLatencies.join('/')})`);
+    say(`history cost ${estimateTokens(finalHistory)} prompt tokens`);
+
+    writeFileSync(join(OUT_DIR, 'phase2_two_take.txt'), transcript.join('\n'));
+    writeFileSync(join(OUT_DIR, 'phase2_summary.json'), JSON.stringify({
+        mode,
+        model: DEFAULT_CUE_MODELS[mode],
+        fixtures: [first.name, second.name],
+        statelessLatencies,
+        sessionLatencies,
+        statelessMedianMs: median(statelessLatencies),
+        sessionMedianMs: median(sessionLatencies),
+        historyTokens: estimateTokens(finalHistory),
+        profile: readSession(SESSION_ID)?.profile ?? null,
+    }, null, 2));
+    console.log(`\nWrote ${OUT_DIR}/phase2_two_take.txt and phase2_summary.json`);
+};
+
 const main = async () => {
     if (!process.env.OPENAI_API_KEY) {
         console.log('OPENAI_API_KEY missing — skipping live smoke test.');
@@ -250,10 +321,18 @@ const main = async () => {
 
     const args = process.argv.slice(2);
     const isolateOnly = args.includes('--isolate');
+    const twoTake = args.includes('--two-take');
     const names = args.filter((arg) => !arg.startsWith('--'));
 
     if (isolateOnly) {
         await runIsolation((names.length > 0 ? names : ['01_robotic', '02_rushing_loud', '03_timid']).map(parseFixture));
+        return;
+    }
+
+    if (twoTake) {
+        const [first, second] = (names.length === 2 ? names : ['01_robotic', '02_rushing_loud']).map(parseFixture);
+        const modeArg = args.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length);
+        await runTwoTake(first, second, (modeArg as CuePrepMode) ?? 'realtime');
         return;
     }
 

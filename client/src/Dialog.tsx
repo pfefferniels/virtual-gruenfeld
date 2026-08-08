@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { usePiano } from "./pianosound";
 import { useTake } from "./useTake";
 import { useMidiDevices } from "./useMidiDevices";
 import type { MidiDeviceInfo } from "./useMidiDevices";
 import type { CuePrepMode } from "./cueLibrary";
+import { isVoiceTeacher } from "./featureFlags";
+import { useVoiceQuestion } from "./useVoiceQuestion";
 
 const CUE_MODE_OPTIONS: Array<{ value: CuePrepMode; label: string; hint: string }> = [
     { value: 'realtime', label: 'Realtime', hint: '~1.3s, compact scholarly context' },
@@ -84,7 +86,7 @@ export const Dialog = () => {
     const {
         started, setStarted,
         cuePrepMode, setCuePrepMode,
-        quickJudgement, lastDiff, debugLines, clearDebugLines,
+        quickJudgement, lastDiff, debugLines, clearDebugLines, log,
         aiAvailable,
         teacherPlaying,
     } = useTake({ play, playAudioBuffer, stop, audioContext }, midi.selectedInputId);
@@ -93,6 +95,18 @@ export const Dialog = () => {
     const hasOutput = midi.outputs.length > 0;
     const canStart = hasInput && midi.supported === true;
     const [showHelp, setShowHelp] = useState(false);
+
+    // Off by default: without the flag the page has no microphone UI at all, and
+    // the hook never asks for a device.
+    const voiceEnabled = useMemo(() => isVoiceTeacher(), []);
+    const voice = useVoiceQuestion({ mode: cuePrepMode, audioContext, playAudioBuffer, log });
+    const showVoice = voiceEnabled && aiAvailable;
+    const voiceAnswer = voiceEnabled ? voice.answer : null;
+
+    const askLabel = voice.recording ? 'Listening — release to ask'
+        : voice.thinking ? 'Thinking...'
+        : voice.speaking ? 'Answering...'
+        : 'Hold to ask';
 
     return (
         <>
@@ -273,10 +287,66 @@ export const Dialog = () => {
                         </div>
                     )}
 
-                    {aiAvailable && quickJudgement && (
+                    {showVoice && (
+                        <div className="sketch-box" style={{ padding: 14, background: '#fff', display: 'grid', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ask the teacher</strong>
+                                <span style={{ fontSize: 11, opacity: 0.45 }}>— hold the button and speak</span>
+                            </div>
+                            <div>
+                                <button
+                                    type="button"
+                                    className="sketch-btn"
+                                    disabled={!voice.supported || voice.thinking}
+                                    onPointerDown={(e) => { e.preventDefault(); void voice.start(); }}
+                                    onPointerUp={voice.stop}
+                                    onPointerLeave={voice.stop}
+                                    onPointerCancel={voice.stop}
+                                    style={{
+                                        padding: '10px 22px',
+                                        fontSize: 14,
+                                        fontFamily: 'inherit',
+                                        cursor: voice.supported && !voice.thinking ? 'pointer' : 'not-allowed',
+                                        color: '#222',
+                                        background: voice.recording ? '#f3f4f6' : '#fff',
+                                        borderWidth: voice.recording ? 3 : 2,
+                                        touchAction: 'none',
+                                        userSelect: 'none',
+                                        opacity: voice.supported ? 1 : 0.5,
+                                    }}
+                                >
+                                    {askLabel}
+                                </button>
+                            </div>
+                            {!voice.supported && (
+                                <div style={{ fontSize: 12, color: '#944' }}>
+                                    This browser cannot record audio, so spoken questions are unavailable.
+                                </div>
+                            )}
+                            {voice.message && (
+                                <div style={{ fontSize: 12, color: '#944' }}>{voice.message}</div>
+                            )}
+                        </div>
+                    )}
+
+                    {aiAvailable && (quickJudgement || voiceAnswer) && (
                         <div className="sketch-box" style={{ padding: 14, background: '#fff' }}>
                             <strong style={{ display: 'block', marginBottom: 6, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.45 }}>Teacher Reaction</strong>
-                            <div style={{ fontSize: 16, lineHeight: 1.5 }}>{quickJudgement}</div>
+                            {quickJudgement && (
+                                <div style={{ fontSize: 16, lineHeight: 1.5 }}>{quickJudgement}</div>
+                            )}
+                            {voiceAnswer && (
+                                <div style={{
+                                    marginTop: quickJudgement ? 12 : 0,
+                                    paddingTop: quickJudgement ? 10 : 0,
+                                    borderTop: quickJudgement ? '1px solid #e5e7eb' : 'none',
+                                }}>
+                                    <div style={{ fontSize: 12, opacity: 0.45, marginBottom: 4 }}>
+                                        You asked: "{voiceAnswer.transcript}"
+                                    </div>
+                                    <div style={{ fontSize: 16, lineHeight: 1.5 }}>{voiceAnswer.answerText}</div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

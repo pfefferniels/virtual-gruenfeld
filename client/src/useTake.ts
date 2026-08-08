@@ -136,6 +136,8 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
         lastDiff,
         debugLines,
         clearDebugLines,
+        /** The same sink the take pipeline writes to, for anything else on the page. */
+        log,
         aiAvailable,
         teacherPlaying,
     };

@@ -66,6 +66,53 @@ export type TeacherStreamRequestPayload = {
     agentic?: boolean;
 };
 
+// ── Teacher Ask (push-to-talk question) ──
+
+export type TeacherAskRequestPayload = {
+    /** The question as text. Wins over `audio` when both are sent. */
+    question?: string;
+    /** The recorded question, base64, as MediaRecorder produced it. */
+    audio?: { data: string; mimeType: string };
+    /** Puts the question in the same lesson as the takes (see `session.ts`). */
+    sessionId?: string;
+    mode?: CuePrepMode;
+};
+
+export type TeacherAskResponsePayload = {
+    /** What the server heard. Empty when nothing intelligible was said. */
+    transcript: string;
+    answerText: string;
+    /** Empty when TTS is unavailable or failed — the answer text still stands. */
+    audioBase64: string;
+    model: string;
+    stats: { transcribeMs: number; llmMs: number; ttsMs: number; totalMs: number };
+};
+
+export const askTeacher = async (
+    request: TeacherAskRequestPayload,
+): Promise<TeacherAskResponsePayload> => {
+    const response = await fetch(`${TEACHER_URL}/teacher-ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+    });
+    await assertOk(response);
+
+    const payload = await response.json();
+    return {
+        transcript: payload?.transcript ?? '',
+        answerText: payload?.answerText ?? '',
+        audioBase64: payload?.audioBase64 ?? '',
+        model: payload?.model ?? '',
+        stats: {
+            transcribeMs: payload?.stats?.transcribeMs ?? 0,
+            llmMs: payload?.stats?.llmMs ?? 0,
+            ttsMs: payload?.stats?.ttsMs ?? 0,
+            totalMs: payload?.stats?.totalMs ?? 0,
+        },
+    };
+};
+
 export const fetchTeacherStream = async (
     request: TeacherStreamRequestPayload,
 ): Promise<TeacherStreamResponsePayload> => {

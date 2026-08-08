@@ -163,12 +163,27 @@ Caveats carried forward:
 - knip sweep list grows: DEFAULT_EXAGGERATION_STRENGTH, MIN_DEMO_TICKS, STRENGTH_MIN/MAX,
   LESSON_PLAN_SCHEMA, describePlan (client).
 
-### Phase 4 — Voice input (push-to-talk)  [status: TODO]
-- Feature-flagged push-to-talk: mic → transcription (OpenAI audio transcription) → question enters
-  the same conversation → answer spoken via existing ElevenLabs path. No realtime API yet
-  (documented as future work in FUTURE.md with GPT-Realtime-2 / Gemini Live notes).
-- Degrades cleanly without keys/mic permission.
-- Acceptance: flag off = zero behavior change; flag on = ask "warum?" and get a grounded spoken answer.
+### Phase 4 — Voice input (push-to-talk)  [status: DONE 2026-08-08, commits a6443e5..1eba84f]
+Results:
+- `/teacher-ask`: typed or spoken questions (gpt-transcribe, webm accepted natively, language hint
+  from OUTPUT_LANGUAGE), answered by the same grounded teacher — prose, ≤60 words, shares the
+  cacheable prompt prefix with the take path (tested: askInstructions.startsWith(takeInstructions)).
+  Q&As recorded on the session (own qa[] array, kind-tagged); next take's history carries ≤3.
+- Grounded-vs-control verified: grounded answers describe THIS performance ("zieht er das Tempo
+  Schritt für Schritt zurück", "bei Grünfeld"); ungrounded control describes the score in general.
+- Audio loopback: TTS question → transcription verbatim → grounded answer. Latency: transcription
+  ~1.4-1.9s, answer LLM ~1.4-3.7s, **ElevenLabs v3 TTS 8-10s = 4x the thinking** —
+  `ELEVENLABS_ASK_MODEL_ID` lever added (default unchanged); flip to a flash-class model in Phase 5.
+- Client: hold-to-ask button behind TEACHER_VOICE flag (env + localStorage), default OFF = zero UI;
+  mic-denied graceful; blank transcript → no LLM call.
+- Tests: 326 (278 → +48). Take-prompt byte-identity tested across all five prompt variants.
+Caveats carried forward:
+- No jsdom → no component-level "flag off renders nothing" test (flag logic unit-tested; voice UI
+  hangs off one showVoice gate). jsdom = Phase 5 call (optional).
+- useVoiceQuestion hook untested as a whole (extractable logic tested in voiceInput.ts).
+- No max recording length / auto-stop (10mb body limit is the backstop) → Phase 5 small item.
+- knip additions: MAX_QA_PER_SESSION, HISTORY_MAX_QA, QA_HEADING, PREFERRED_MIME_TYPES,
+  audioExtension.
 
 ### Phase 5 — Deployability + handoff PR  [status: TODO]
 - Make the teacher service deployable: `worker/` Cloudflare Worker (or documented alternative)
@@ -202,3 +217,7 @@ Caveats carried forward:
   lesson (mode/range/dimensions/strength) with hard safety ceilings; plans verified sensible in
   24 live runs (studio: reference-demo 6/6 on near-perfect). Flag default OFF. Orchestrator
   verified: 278/278 tests, both tsc clean. Phase 4 agent being briefed.
+- 2026-08-08 12:10 — Phase 4 DONE (commits a6443e5..1eba84f, 4 logical units): push-to-talk Q&A
+  live-verified with audio loopback (perfect transcription; grounded answers beat ungrounded
+  control); ElevenLabs v3 identified as the answer-latency bottleneck (lever added). Orchestrator
+  verified: 326/326 tests, both tsc clean. Phase 5 (final) agent being briefed.

@@ -47,7 +47,6 @@ export type StrategyControls = {
     playAudioBuffer: PlayAudioBufferFn;
     audioContext: AudioContext;
     mode: CuePrepMode;
-    playbackDeadlineAt: number | undefined;
     takeStartedAt: number;
     onJudgement: (value: string | ((prev: string) => string)) => void;
     aiAvailable: boolean;

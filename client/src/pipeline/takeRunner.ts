@@ -2,7 +2,6 @@ import type { MSM } from 'mpmify';
 import { mpmify, diff, diffStructured } from '../mpm';
 import type { Range } from '../mpm';
 import { summarizeImmediateJudgement } from '../judgement';
-import { REALTIME_PLAYBACK_DEADLINE_MS } from '../cueLibrary';
 import type { PipelineContext, TeacherStrategy, TakeRunnerControls } from './types';
 
 export const runTake = async (
@@ -30,9 +29,6 @@ export const runTake = async (
     controls.onJudgement('');
 
     const mode = controls.mode;
-    const playbackDeadlineAt = mode === 'realtime'
-        ? Date.now() + REALTIME_PLAYBACK_DEADLINE_MS
-        : undefined;
 
     controls.log(`CUE: mode=${mode}`);
 
@@ -51,7 +47,6 @@ export const runTake = async (
             playAudioBuffer: controls.playAudioBuffer,
             audioContext: controls.audioContext,
             mode,
-            playbackDeadlineAt,
             takeStartedAt,
             onJudgement: controls.onJudgement,
             aiAvailable: controls.aiAvailable,

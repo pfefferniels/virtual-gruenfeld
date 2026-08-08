@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { openai, DEFAULT_CUE_MODELS, type CuePrepMode } from '../src/config';
 import { describePlan } from '../src/plan';
 import { buildTeacherSystemPrompt } from '../src/prompts/teacherStream';
+import { runTeacherAsk } from '../src/routes/teacherAsk';
 import { buildUserInput, runTeacherStream, type TeacherStreamRequest } from '../src/routes/teacherStream';
 import { estimateTokens } from '../src/corpus';
 import { __resetSessionStore, flushProfileUpdates, formatSessionHistory, readSession } from '../src/sessions';
@@ -412,6 +413,157 @@ const runTwoTake = async (first: Fixture, second: Fixture, mode: CuePrepMode) =>
     console.log(`\nWrote ${OUT_DIR}/phase2_two_take.txt and phase2_summary.json`);
 };
 
+// ── Phase 4: can the student ask, and does the answer stay grounded? ──
+
+const ASK_SESSION_DIR = join(OUT_DIR, 'phase4_sessions');
+const ASK_SESSION_ID = 'smoke4444-1111-4444-8888-bbbbbbbbbbbb';
+const TEXT_QUESTION = 'Warum wird es zum Ende hin langsamer?';
+const SPOKEN_QUESTION = 'Warum wird es in Takt vier langsamer?';
+const FOLLOW_UP = 'Und was mache ich dann konkret mit der linken Hand?';
+
+/** The question as speech, so the microphone path can be exercised without a microphone. */
+const speakQuestion = async (text: string): Promise<{ data: string; mimeType: string; model: string; ms: number }> => {
+    const models = [process.env.OPENAI_SMOKE_TTS_MODEL, 'gpt-4o-mini-tts', 'tts-1'].filter(Boolean) as string[];
+    let lastError: unknown;
+
+    for (const model of models) {
+        const startedAt = Date.now();
+        try {
+            const response = await openai.audio.speech.create({
+                model,
+                voice: 'alloy',
+                input: text,
+                response_format: 'mp3',
+            });
+            const data = Buffer.from(await response.arrayBuffer()).toString('base64');
+            return { data, mimeType: 'audio/mpeg', model, ms: Date.now() - startedAt };
+        } catch (err) {
+            lastError = err;
+            console.log(`  (tts model ${model} unavailable, trying the next one)`);
+        }
+    }
+    throw lastError;
+};
+
+/** Transcription writes "Takt 4" where the speaker said "Takt vier"; both are correct. */
+const NUMBER_WORDS = ['null', 'eins', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn', 'elf', 'zwölf'];
+
+/** Same words, ignoring case, punctuation, spacing and how numbers are written. */
+const normalizeSpoken = (text: string): string => {
+    const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim().split(' ');
+    return words.map((word) => {
+        const asWord = NUMBER_WORDS.indexOf(word);
+        return asWord === -1 ? word : String(asWord);
+    }).join(' ');
+};
+
+/**
+ * The same question with no corpus in the prompt. Phase 1 measured grounding by
+ * comparing against the prompt that came before it; a question deserves the same
+ * control, or "the answer sounds knowledgeable" is just a vibe.
+ */
+const UNGROUNDED_ASK_PROMPT = `You are a piano teacher. A student who is playing Schumann's "Träumerei" stops and asks you a question.
+Answer in about 60 spoken words of plain German prose. No lists, no headings, no markers.`;
+
+const runUngroundedAnswer = async (question: string, mode: CuePrepMode): Promise<string> => {
+    const response = await openai.responses.create({
+        model: DEFAULT_CUE_MODELS[mode],
+        instructions: UNGROUNDED_ASK_PROMPT,
+        input: `=== STUDENT QUESTION ===\n${question}`,
+    });
+    return (response.output_text ?? '').trim();
+};
+
+const runAsk = async (fixture: Fixture, mode: CuePrepMode) => {
+    process.env.SESSIONS_DIR = ASK_SESSION_DIR;
+    rmSync(ASK_SESSION_DIR, { recursive: true, force: true });
+    mkdirSync(ASK_SESSION_DIR, { recursive: true });
+    __resetSessionStore();
+
+    const transcript: string[] = [];
+    const say = (line: string) => { console.log(line); transcript.push(line); };
+
+    say(`=== ASK (${mode}/${DEFAULT_CUE_MODELS[mode]}) — session seeded with ${fixture.name} ===\n`);
+
+    // The teacher has to have heard something before it can be asked about it.
+    const take = await runTeacherStream({ ...buildRequest(fixture, mode), sessionId: ASK_SESSION_ID });
+    say(`[take 1] ${take.stats.llmMs}ms\n${take.rawText}\n`);
+    await flushProfileUpdates();
+
+    // (a) The typed path — the same route, without paying for transcription.
+    const typed = await runTeacherAsk({ question: TEXT_QUESTION, sessionId: ASK_SESSION_ID, mode, skipTts: true });
+    say(`[text question] "${TEXT_QUESTION}"`);
+    say(`[answer] ${typed.stats.llmMs}ms, ${typed.answerText.split(/\s+/).length} words`);
+    say(typed.answerText);
+    say('');
+
+    const ungrounded = await runUngroundedAnswer(TEXT_QUESTION, mode);
+    say('[control — same question, same model, no corpus and no session]');
+    say(ungrounded);
+    say('');
+
+    // (b) The microphone path, loopbacked: question spoken by TTS, heard back by the route.
+    say('[audio loopback]');
+    const spoken = await speakQuestion(SPOKEN_QUESTION);
+    say(`spoken by ${spoken.model} in ${spoken.ms}ms, ${Math.round(spoken.data.length * 0.75 / 1024)} KB of mp3`);
+    const heard = await runTeacherAsk({
+        audio: { data: spoken.data, mimeType: spoken.mimeType },
+        sessionId: ASK_SESSION_ID,
+        mode,
+        skipTts: true,
+    });
+    const faithful = normalizeSpoken(heard.transcript) === normalizeSpoken(SPOKEN_QUESTION);
+    say(`said:  "${SPOKEN_QUESTION}"`);
+    say(`heard: "${heard.transcript}"  (${faithful ? 'verbatim' : 'DIFFERS'}, ${heard.stats.transcribeMs}ms)`);
+    say(`[answer] ${heard.stats.llmMs}ms, ${heard.answerText.split(/\s+/).length} words`);
+    say(heard.answerText);
+    say('');
+
+    // A third question: by now the teacher has a take and two answers behind it.
+    const followUp = await runTeacherAsk({ question: FOLLOW_UP, sessionId: ASK_SESSION_ID, mode, skipTts: true });
+    say(`[follow-up] "${FOLLOW_UP}"`);
+    say(`[answer] ${followUp.stats.llmMs}ms, ${followUp.answerText.split(/\s+/).length} words`);
+    say(followUp.answerText);
+    say('');
+
+    // The spoken answer itself, once, so the whole chain is proven end to end.
+    let ttsMs = 0;
+    let audioBytes = 0;
+    if (process.env.ELEVENLABS_API_KEY) {
+        const voiced = await runTeacherAsk({ question: TEXT_QUESTION, sessionId: ASK_SESSION_ID, mode });
+        ttsMs = voiced.stats.ttsMs;
+        audioBytes = Math.round(voiced.audioBase64.length * 0.75);
+        say(`[elevenlabs] ${ttsMs}ms, ${Math.round(audioBytes / 1024)} KB of mp3 for ${voiced.answerText.length} characters`);
+        say('');
+    } else {
+        say('[elevenlabs] no key — spoken answer skipped\n');
+    }
+
+    say('=== WHAT THE NEXT TAKE WILL SEE ===');
+    say(formatSessionHistory(readSession(ASK_SESSION_ID)));
+
+    writeFileSync(join(OUT_DIR, `phase4_ask_${mode}.txt`), transcript.join('\n'));
+    writeFileSync(join(OUT_DIR, `phase4_summary_${mode}.json`), JSON.stringify({
+        mode,
+        model: DEFAULT_CUE_MODELS[mode],
+        fixture: fixture.name,
+        text: { question: TEXT_QUESTION, answer: typed.answerText, llmMs: typed.stats.llmMs, ungrounded },
+        loopback: {
+            question: SPOKEN_QUESTION,
+            ttsModel: spoken.model,
+            transcript: heard.transcript,
+            faithful,
+            transcribeMs: heard.stats.transcribeMs,
+            answer: heard.answerText,
+            llmMs: heard.stats.llmMs,
+            totalMs: heard.stats.totalMs,
+        },
+        followUp: { question: FOLLOW_UP, answer: followUp.answerText, llmMs: followUp.stats.llmMs },
+        elevenlabs: { ttsMs, audioBytes },
+    }, null, 2));
+    console.log(`\nWrote ${OUT_DIR}/phase4_ask_${mode}.txt and phase4_summary_${mode}.json`);
+};
+
 const main = async () => {
     if (!process.env.OPENAI_API_KEY) {
         console.log('OPENAI_API_KEY missing — skipping live smoke test.');
@@ -423,7 +575,14 @@ const main = async () => {
     const isolateOnly = args.includes('--isolate');
     const twoTake = args.includes('--two-take');
     const agentic = args.includes('--agentic');
+    const ask = args.includes('--ask');
     const names = args.filter((arg) => !arg.startsWith('--'));
+
+    if (ask) {
+        const modeArg = args.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length);
+        await runAsk(loadFixture(names[0] ?? '02_rushing_loud'), (modeArg as CuePrepMode) ?? 'balanced');
+        return;
+    }
 
     if (agentic) {
         const modeArg = args.find((arg) => arg.startsWith('--mode='))?.slice('--mode='.length);

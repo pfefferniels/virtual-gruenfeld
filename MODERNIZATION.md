@@ -276,3 +276,11 @@ Results:
   rhetoric, first-person claims to BE Grünfeld (app framing stays "modeled after"; recording and
   editor remain third person). Full prompt 19.0k → ~22k chars. 2 new prompt tests; README count
   158→136 fixed alongside. Voice effect on live output not yet auditioned — judge on next real take.
+- 2026-08-08 17:05 — Framing correction (user request): the teacher does not merely imitate
+  Grünfeld — it IS Grünfeld, first person. PERSONA now opens "You are Alfred Grünfeld"; the roll
+  is "your own playing", the corpus "your own intentions, written down by a careful listener";
+  QA answers "as the man himself"; diff refValue "is yours". Voice block rewritten to second
+  person (YOUR STANCE/WORDS/SENTENCES) with an explicit first-person allowance („so spiel ich
+  das") while roll/reconstruction/editor stay backstage. Guard kept: never claim a specific
+  intention the record does not document. Dialog.tsx's outside description ("modeled after")
+  and profile.ts (unspoken note-keeper) intentionally unchanged.

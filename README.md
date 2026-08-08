@@ -28,8 +28,8 @@ The teacher is not given a summary of your playing to react to. It is given the 
   per lesson; a page reload starts a new one.
 - **How Grünfeld talked.** `src/prompts/gruenfeldVoice.ts` distils a philological style study of
   Grünfeld's own language — his maxims, praise scale, Viennese idiom, sentence shapes and imagery,
-  drawn from letters, feuilletons and his critics' vocabulary. The teacher does not just know the
-  roll; it speaks in the manner of the man who cut it (dosed — the word limits always win).
+  drawn from letters, feuilletons and his critics' vocabulary. The teacher *is* Grünfeld: it speaks
+  in the first person as the man who cut the roll (dosed — the word limits always win).
 
 Two capabilities sit behind flags, off by default (see `client/src/featureFlags.ts`, and the
 *Prototype features* toggles in the debug sidebar):

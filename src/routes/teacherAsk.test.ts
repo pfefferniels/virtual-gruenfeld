@@ -106,7 +106,7 @@ describe('the question prompt', () => {
         const ask = buildTeacherSystemPrompt({ qa: true });
         expect(ask).toContain('The «MARKER» output format above does NOT apply');
         expect(ask).toContain('About 60 spoken words');
-        expect(ask).toContain('Never invent a documented intention');
+        expect(ask).toContain('never claim a specific intention the record does not document');
         expect(ask).toContain('Write the answer in German');
     });
 

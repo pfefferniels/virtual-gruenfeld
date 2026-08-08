@@ -6,6 +6,7 @@ import { boot } from './pipeline/boot';
 import { runTake } from './pipeline/takeRunner';
 import { exaggeratedStrategy } from './pipeline/strategies/exaggerated';
 import { probeTeacherService } from './services/api';
+import { getSessionId } from './session';
 import type { PlayFn } from './pipeline/types';
 import { addAbsoluteTime } from './pianosound/MidiNote';
 
@@ -73,6 +74,7 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                     lastMatchRef.current = range;
 
                     const takeId = ++takeSeqRef.current;
+                    log(`TAKE #${takeId} (session ${getSessionId().slice(0, 8)})`);
 
                     await runTake(ctx, studentMsm, range, exaggeratedStrategy, {
                         log,

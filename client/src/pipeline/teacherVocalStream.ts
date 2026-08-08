@@ -5,6 +5,7 @@ import { pickCueCandidates, secAtDate, type TimingMapPoint } from '../teacherCue
 import { cueDelay } from '../teacherCues';
 import { positionToTick } from '../shared/constants';
 import { fetchTeacherStream } from '../services/api';
+import { getSessionId } from '../session';
 import { chunkVocalStream, type VocalChunk } from './chunker';
 import type { ScheduledCue } from './types';
 
@@ -57,6 +58,7 @@ export const requestVocalStream = async (
         mode,
         structuredDiff: diffEvents,
         range,
+        sessionId: getSessionId(),
     });
     log(`VOCAL: stream received (llm_ms=${response.stats.llmMs}, tts_ms=${response.stats.ttsMs}, anchors=${response.anchors.length})`);
 

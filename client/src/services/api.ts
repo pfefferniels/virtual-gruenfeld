@@ -57,6 +57,8 @@ export type TeacherStreamRequestPayload = {
     structuredDiff?: StructuredDiffEvent[];
     /** Take range in ticks, so the server can attach the passage's scholarly record. */
     range?: Range;
+    /** Ties this take to the earlier ones of the same sitting (see `session.ts`). */
+    sessionId?: string;
 };
 
 export const fetchTeacherStream = async (

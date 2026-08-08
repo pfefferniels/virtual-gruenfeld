@@ -241,3 +241,14 @@ Results:
   documented end-to-end, ElevenLabs turbo default (15.8x), knip clean, production build verified.
   Orchestrator verified the full battery independently. ALL PHASES COMPLETE — handoff PR being
   opened; merging and deploying remain the user's decision. Baseline 105 tests → final 346.
+- 2026-08-08 13:10 — Post-run correction (user request): motivation vocabulary aligned with
+  mpmify's canonical four-step scale `intensify (++) / move (+) / calm (-) / relax (--)`
+  (mpmify Transformer.ts activityMotivations; semantics from mpm-desk intensityCurve.ts sign/gain;
+  both repos share the same file:../mpmify checkout). Corpus parser maps the legacy export
+  vocabulary onto the scale WITHOUT keeping legacy labels (user decision): intensification→
+  intensify, relaxation/relax→relax, forward-lilt→move, shading/resonance/pianissimo→calm.
+  Mapped distribution over the 158 argumentations: intensify 28, move 10, calm 18, relax 27,
+  unknown 75. Primer rewritten to the four categories. Fixed a Phase 1 bug that normalized the
+  CANONICAL 'relax' to legacy 'relaxation'. 346/346 tests, knip clean.
+  NOTE: client/public/info.json still carries the old vocabulary — when regenerated from
+  mpm-desk it will emit the canonical four natively and the mapping becomes a pass-through.

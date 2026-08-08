@@ -16,11 +16,10 @@ MPM encodes HOW music is played, separately from the score. All positions are ti
 - asynchrony: \`milliseconds.offset\` — one hand deliberately ahead of or behind the other.
 - pedal: sustain depth over a span.
 
-SCHOLARLY VOCABULARY — the reconstruction's own terms for WHY a passage is played that way:
-- intensification: driving forward, building tension (Steigerung).
-- relaxation: releasing, settling, letting the line come to rest.
-- shading: giving a chord or after-beat its own colour, usually by arpeggiating and grading its velocities (schattieren).
-- forward-lilt: leaning ahead into the next downbeat or phrase (Hinspielen).
-- resonance: letting the instrument ring — short touch plus pedal, or overlapping fingering.
-- pianissimo: a dynamic level below what the Welte roll system could capture, reconstructed from the acoustic record.
+SCHOLARLY VOCABULARY — the reconstruction's terms for WHY a passage is played that way.
+Every motivation sits on one four-step intensity scale, from strong build to full release:
+- intensify (++): driving forward strongly, building tension (Steigerung).
+- move (+): a gentle push ahead — leaning into the next downbeat or phrase (Hinspielen).
+- calm (-): a gentle settling — shading the colour down, letting the sound ring, easing the touch.
+- relax (--): releasing fully, letting the line come to rest (lösen).
 Certainty ladder, strongest first: authentic > likely > plausible > possible > speculative > unlikely.`;

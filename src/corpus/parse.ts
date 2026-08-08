@@ -1,4 +1,5 @@
-import type { Argumentation, CorpusCall, MpmElement, Span } from './types';
+import { CANONICAL_MOTIVATIONS } from './types';
+import type { Argumentation, CorpusCall, Motivation, MpmElement, Span } from './types';
 
 /**
  * Transformer name → the MPM concept it produces. Names come from the mpmify
@@ -59,11 +60,26 @@ const MPM_DATED_KINDS = [
 const flattenText = (value: unknown): string =>
     typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 
-/** `relax` appears once as a typo variant of the `relaxation` motivation. */
-const normalizeMotivation = (value: unknown): string => {
+/**
+ * Pre-reduction motivation words → the canonical four-step scale. The first two
+ * are pure renames; the rest are the editor's finer nuances, classified by the
+ * same sign/gain semantics mpm-desk's intensity curve assigns the scale.
+ */
+const LEGACY_MOTIVATIONS: Record<string, Motivation> = {
+    intensification: 'intensify',
+    relaxation: 'relax',
+    'forward-lilt': 'move',   // gentle lean toward the next downbeat (+)
+    shading: 'calm',          // gentle colouring downward (-)
+    resonance: 'calm',        // letting the sound settle and ring (-)
+    pianissimo: 'calm',       // below-roll dynamic level (-)
+};
+
+/** Map any motivation onto the canonical four-step vocabulary. */
+const normalizeMotivation = (value: unknown): Motivation => {
     const text = flattenText(value);
     if (!text) return 'unknown';
-    return text === 'relax' ? 'relaxation' : text;
+    if ((CANONICAL_MOTIVATIONS as readonly string[]).includes(text)) return text as Motivation;
+    return LEGACY_MOTIVATIONS[text] ?? 'unknown';
 };
 
 // ── Spans ──

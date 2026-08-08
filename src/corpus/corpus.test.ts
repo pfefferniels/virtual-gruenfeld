@@ -97,17 +97,34 @@ describe('corpus parsing', () => {
         expect(parseArgumentations(info)[0].scope).toBe('unplaced');
     });
 
-    it('normalises the relax motivation variant', () => {
+    it('keeps canonical motivations and maps legacy words onto the four-step scale', () => {
         const info = {
             creation: {
                 argumentations: [
                     { id: 'a1', conclusion: { motivation: 'relax' }, calls: [] },
-                    { id: 'a2', conclusion: {}, calls: [] },
+                    { id: 'a2', conclusion: { motivation: 'move' }, calls: [] },
+                    { id: 'a3', conclusion: { motivation: 'intensification' }, calls: [] },
+                    { id: 'a4', conclusion: { motivation: 'relaxation' }, calls: [] },
+                    { id: 'a5', conclusion: { motivation: 'shading' }, calls: [] },
+                    { id: 'a6', conclusion: { motivation: 'forward-lilt' }, calls: [] },
+                    { id: 'a7', conclusion: { motivation: 'resonance' }, calls: [] },
+                    { id: 'a8', conclusion: {}, calls: [] },
                 ],
             },
         };
         const parsed = parseArgumentations(info);
-        expect(parsed.map((a) => a.motivation).sort()).toEqual(['relaxation', 'unknown']);
+        const byId = new Map(parsed.map((a) => [a.id, a.motivation]));
+        // canonical values pass through untouched
+        expect(byId.get('a1')).toBe('relax');
+        expect(byId.get('a2')).toBe('move');
+        // pure renames
+        expect(byId.get('a3')).toBe('intensify');
+        expect(byId.get('a4')).toBe('relax');
+        // finer legacy nuances collapse onto the scale
+        expect(byId.get('a5')).toBe('calm');
+        expect(byId.get('a6')).toBe('move');
+        expect(byId.get('a7')).toBe('calm');
+        expect(byId.get('a8')).toBe('unknown');
     });
 
     it('merges overlapping spans', () => {
@@ -160,7 +177,9 @@ describe('scholarly digest', () => {
         const digest = getScholarlyDigest();
         expect(digest).toContain('Inegalité');
         expect(digest).toContain('authentic');
-        expect(digest).toContain('forward-lilt');
+        // legacy motivations collapse onto the canonical four-step scale
+        expect(digest).toMatch(/intensify \(\+\+\)|move \(\+\)|calm \(-\)|relax \(--\)/);
+        expect(digest).not.toContain('forward-lilt');
         expect(digest).toMatch(/m\d+\.\d+/);
     });
 
@@ -242,9 +261,12 @@ describe('concept primer', () => {
         expect(MPM_CONCEPT_PRIMER).toMatch(/intensity.{0,40}short-long/s);
     });
 
-    it('explains the corpus motivation vocabulary', () => {
-        for (const motivation of ['intensification', 'relaxation', 'shading', 'forward-lilt', 'resonance']) {
+    it('explains the four-step motivation scale', () => {
+        for (const motivation of ['intensify (++)', 'move (+)', 'calm (-)', 'relax (--)']) {
             expect(MPM_CONCEPT_PRIMER).toContain(motivation);
+        }
+        for (const legacy of ['intensification', 'relaxation', 'shading', 'forward-lilt', 'resonance']) {
+            expect(MPM_CONCEPT_PRIMER).not.toContain(`- ${legacy}:`);
         }
     });
 });

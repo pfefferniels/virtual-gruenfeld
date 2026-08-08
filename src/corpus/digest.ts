@@ -26,12 +26,20 @@ const positionLabel = (argumentation: Argumentation): string => {
 const conceptLabel = (argumentation: Argumentation): string =>
     argumentation.concepts.length > 0 ? argumentation.concepts.join('+') : '—';
 
+const MOTIVATION_MARKS: Record<string, string> = { intensify: '++', move: '+', calm: '-', relax: '--' };
+
+/** `intensify (++)` — the scale mark makes direction and weight visible at a glance. */
+const motivationText = (argumentation: Argumentation): string => {
+    const mark = MOTIVATION_MARKS[argumentation.motivation];
+    return mark ? `${argumentation.motivation} (${mark})` : argumentation.motivation;
+};
+
 const digestLine = (argumentation: Argumentation): string => {
     const fields = [
         positionLabel(argumentation),
         conceptLabel(argumentation),
         argumentation.certainty,
-        argumentation.motivation,
+        motivationText(argumentation),
     ];
     const prose = [argumentation.claim, truncate(argumentation.commentary, DIGEST_COMMENTARY_CHARS)]
         .filter(Boolean)
@@ -122,7 +130,7 @@ const callDetail = (argumentation: Argumentation, range: Range): string => {
 
 const detailBlock = (argumentation: Argumentation, range: Range): string => {
     const lines = [
-        `- ${positionLabel(argumentation)} | ${conceptLabel(argumentation)} | certainty: ${argumentation.certainty} | motivation: ${argumentation.motivation}`,
+        `- ${positionLabel(argumentation)} | ${conceptLabel(argumentation)} | certainty: ${argumentation.certainty} | motivation: ${motivationText(argumentation)}`,
     ];
     if (argumentation.claim) lines.push(`  claim: ${argumentation.claim}`);
     if (argumentation.commentary) lines.push(`  commentary: ${argumentation.commentary}`);

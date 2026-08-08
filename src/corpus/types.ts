@@ -2,6 +2,15 @@ export type Range = { from: number; to: number };
 
 export type Span = { from: number; to: number };
 
+/**
+ * The canonical motivation vocabulary (mpmify's `activityMotivations`): a four-step
+ * intensity scale — intensify (++), move (+), calm (-), relax (--). Older info.json
+ * exports carry a finer pre-reduction vocabulary, mapped onto the scale at parse time.
+ */
+export const CANONICAL_MOTIVATIONS = ['intensify', 'move', 'calm', 'relax'] as const;
+
+export type Motivation = (typeof CANONICAL_MOTIVATIONS)[number] | 'unknown';
+
 /** One transformer invocation recorded in an argumentation. */
 export type CorpusCall = {
     name: string;
@@ -25,7 +34,7 @@ export type Argumentation = {
     /** MPM concepts touched, in canonical order. */
     concepts: string[];
     certainty: string;
-    motivation: string;
+    motivation: Motivation;
     /** Short claim (conclusion note) — the interpretive one-liner. */
     claim: string;
     /** Longer editorial commentary (argumentation note). */

@@ -83,6 +83,23 @@ inside it. "demo" is the playback you are prescribing.
 - Choose by pedagogical clarity, not by size: a passage where the editor documented an intention beats a larger
   number with nothing behind it. If the student has already been told something, spend this take on something else.`;
 
+/**
+ * Only added when the student asked something out loud. A pure suffix like the
+ * two above, so a question shares its whole cached prefix with the take path —
+ * and it has to say plainly that the «MARKER» contract does not apply here.
+ */
+const QA_RULES = `ANSWERING A QUESTION — this turn is not a demonstration. The student has stopped playing and asked you something.
+
+- The «MARKER» output format above does NOT apply. Write plain spoken prose: no «», no position markers, no audio tags, no lists, no headings.
+- You are the same teacher with the same knowledge, now simply talking to the student in the room.
+- About 60 spoken words, fewer when fewer will do. Someone is waiting to play again — answer, do not lecture.
+- When the scholarly record above has something to say about what was asked, answer from it: what the roll actually does, what the editor read into it and why. Speak it as a teacher speaks — never name sources, certainty levels, MPM attribute names, or numbers.
+- When the record does not cover the question, answer as a musician and be honest about where documentation ends. Never invent a documented intention.
+- The input may carry what this student has already played and asked today; you may build on it. Refer only to what is actually recorded there — if there is none, this is the first you have heard from them.
+- No greeting, no sign-off, no meta-commentary.
+
+IMPORTANT: Write the answer in ${OUTPUT_LANGUAGE}.`;
+
 export type TeacherPromptOptions = {
     /** Trim the digest to argumentations that carry a motivation or editorial prose. */
     compactCorpus?: boolean;
@@ -90,6 +107,8 @@ export type TeacherPromptOptions = {
     memory?: boolean;
     /** The model decides the demonstration too, and answers as a JSON lesson plan. */
     agentic?: boolean;
+    /** The student asked a question; the answer is prose, not a cue monologue. */
+    qa?: boolean;
 };
 
 const promptCache = new Map<string, string>();
@@ -101,7 +120,7 @@ const promptCache = new Map<string, string>();
  */
 export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): string => {
     const key = `${options.compactCorpus ? 'compact' : 'full'}:${options.memory ? 'memory' : 'stateless'}`
-        + `:${options.agentic ? 'agentic' : 'fixed'}`;
+        + `:${options.agentic ? 'agentic' : 'fixed'}:${options.qa ? 'qa' : 'take'}`;
     const cached = promptCache.get(key);
     if (cached) return cached;
 
@@ -112,6 +131,7 @@ export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): st
         OUTPUT_CONTRACT,
         ...(options.memory ? [MEMORY_RULES] : []),
         ...(options.agentic ? [AGENTIC_RULES] : []),
+        ...(options.qa ? [QA_RULES] : []),
     ].join('\n\n');
     promptCache.set(key, prompt);
     return prompt;

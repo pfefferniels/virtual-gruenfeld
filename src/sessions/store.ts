@@ -1,12 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import type { SessionState, StudentProfile, TakeRecord } from './types';
+import type { QaRecord, SessionState, StudentProfile, TakeRecord } from './types';
 
 /** A session that has run this long is a different lesson; its file is deleted on load. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** Hard cap on stored takes. Only the last few ever reach the prompt anyway. */
 export const MAX_TAKES_PER_SESSION = 50;
+/** The same for spoken questions — cheap to keep, but not without a bound. */
+export const MAX_QA_PER_SESSION = 20;
 
 /** Session ids become filenames, so they must be boring. A UUID passes. */
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{8,100}$/;
@@ -21,9 +23,17 @@ const sessionPath = (id: string): string => join(sessionsDir(), `${id}.json`);
 const isoOr = (value: unknown, fallback: string): string =>
     typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback;
 
+const normalizeQa = (raw: unknown, now: string): QaRecord | null => {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const { question, answer, at } = raw as Record<string, unknown>;
+    if (typeof question !== 'string' || typeof answer !== 'string') return null;
+    return { kind: 'qa', at: isoOr(at, now), question, answer };
+};
+
 /**
  * Files on disk survive code changes, so nothing read back is trusted: anything
- * that does not fit the current shape is dropped rather than propagated.
+ * that does not fit the current shape is dropped rather than propagated. A file
+ * written before a field existed simply arrives without it.
  */
 const normalizeSession = (raw: unknown): SessionState | null => {
     if (typeof raw !== 'object' || raw === null) return null;
@@ -35,6 +45,10 @@ const normalizeSession = (raw: unknown): SessionState | null => {
         ? (record.takes.filter((take) => typeof take === 'object' && take !== null) as TakeRecord[])
         : [];
 
+    const qa = (Array.isArray(record.qa) ? record.qa : [])
+        .map((entry) => normalizeQa(entry, now))
+        .filter((entry): entry is QaRecord => entry !== null);
+
     const profile = typeof record.profile === 'object' && record.profile !== null
         ? (record.profile as StudentProfile)
         : null;
@@ -44,6 +58,7 @@ const normalizeSession = (raw: unknown): SessionState | null => {
         createdAt: isoOr(record.createdAt, now),
         updatedAt: isoOr(record.updatedAt, now),
         takes: takes.slice(-MAX_TAKES_PER_SESSION),
+        qa: qa.slice(-MAX_QA_PER_SESSION),
         profile,
     };
 };
@@ -104,7 +119,7 @@ const ensureSession = (id: string): SessionState => {
     const existing = map.get(id);
     if (existing) return existing;
     const now = new Date().toISOString();
-    const created: SessionState = { id, createdAt: now, updatedAt: now, takes: [], profile: null };
+    const created: SessionState = { id, createdAt: now, updatedAt: now, takes: [], qa: [], profile: null };
     map.set(id, created);
     return created;
 };
@@ -120,6 +135,19 @@ export const recordTake = (id: string, take: TakeRecord): number => {
     state.updatedAt = take.at;
     persist(state);
     return state.takes.length;
+};
+
+/** Append a spoken exchange. Returns how many this session now holds. */
+export const recordQa = (id: string, entry: QaRecord): number => {
+    if (!isValidSessionId(id)) return 0;
+    const state = ensureSession(id);
+    state.qa.push(entry);
+    if (state.qa.length > MAX_QA_PER_SESSION) {
+        state.qa = state.qa.slice(-MAX_QA_PER_SESSION);
+    }
+    state.updatedAt = entry.at;
+    persist(state);
+    return state.qa.length;
 };
 
 export const setStudentProfile = (id: string, profile: StudentProfile): void => {

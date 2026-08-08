@@ -7,10 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 process.env.OPENAI_API_KEY ||= 'smoke-test-placeholder';
 
 const { buildDiffDigest, buildTakeRecord, buildTeacherSaid } = await import('./record');
-const { formatSessionHistory, HISTORY_MAX_TAKES, HISTORY_HEADING, PROFILE_HEADING } = await import('./history');
 const {
-    __resetSessionStore, isValidSessionId, readSession, recordTake, setStudentProfile,
-    MAX_TAKES_PER_SESSION, SESSION_TTL_MS,
+    formatSessionHistory, HISTORY_MAX_TAKES, HISTORY_MAX_QA, HISTORY_HEADING, QA_HEADING, PROFILE_HEADING,
+} = await import('./history');
+const {
+    __resetSessionStore, isValidSessionId, readSession, recordQa, recordTake, setStudentProfile,
+    MAX_QA_PER_SESSION, MAX_TAKES_PER_SESSION, SESSION_TTL_MS,
 } = await import('./store');
 const { buildProfileInput, parseProfileResponse, updateStudentProfile } = await import('./profile');
 const { openai } = await import('../config');
@@ -198,7 +200,7 @@ describe('history formatter', () => {
         expect(formatSessionHistory(null)).toBe('');
         expect(formatSessionHistory(undefined)).toBe('');
         expect(formatSessionHistory({
-            id: SESSION, createdAt: '', updatedAt: '', takes: [], profile: null,
+            id: SESSION, createdAt: '', updatedAt: '', takes: [], qa: [], profile: null,
         })).toBe('');
     });
 
@@ -253,6 +255,112 @@ describe('history formatter', () => {
         });
         const session = readSession(SESSION)!;
         expect(formatSessionHistory({ ...session, takes: [] })).toBe(`${PROFILE_HEADING}\nin short: Ruhiger Spieler.`);
+    });
+});
+
+describe('spoken questions', () => {
+    const ask = (question: string, answer: string, minute = 0) => recordQa(SESSION, {
+        kind: 'qa',
+        at: new Date(Date.UTC(2026, 7, 8, 11, minute)).toISOString(),
+        question,
+        answer,
+    });
+
+    it('round-trips questions through disk alongside the takes', () => {
+        recordTake(SESSION, takeRecord());
+        expect(ask('Warum wird es hier langsamer?', 'Weil die Phrase zum Ziel hin nachgibt.')).toBe(1);
+
+        __resetSessionStore();
+        const reloaded = readSession(SESSION)!;
+        expect(reloaded.takes).toHaveLength(1);
+        expect(reloaded.qa).toEqual([{
+            kind: 'qa',
+            at: '2026-08-08T11:00:00.000Z',
+            question: 'Warum wird es hier langsamer?',
+            answer: 'Weil die Phrase zum Ziel hin nachgibt.',
+        }]);
+    });
+
+    it(`keeps only the last ${MAX_QA_PER_SESSION} questions`, () => {
+        for (let i = 0; i < MAX_QA_PER_SESSION + 4; i++) ask(`Frage ${i}?`, `Antwort ${i}.`, i);
+        const stored = readSession(SESSION)!;
+        expect(stored.qa).toHaveLength(MAX_QA_PER_SESSION);
+        expect(stored.qa[0].question).toBe('Frage 4?');
+    });
+
+    it('ignores an invalid session id rather than writing a file for it', () => {
+        expect(recordQa('../escape', { kind: 'qa', at: '', question: 'q', answer: 'a' })).toBe(0);
+        expect(readdirSync(dir)).toEqual([]);
+    });
+
+    it('loads a session written before questions existed', () => {
+        // Exactly the shape Phase 2/3 persisted: no `qa` key at all.
+        writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({
+            id: SESSION,
+            createdAt: '2026-08-08T10:00:00.000Z',
+            updatedAt: '2026-08-08T10:00:00.000Z',
+            takes: [takeRecord()],
+            profile: null,
+        }));
+        __resetSessionStore();
+
+        const loaded = readSession(SESSION)!;
+        expect(loaded.takes).toHaveLength(1);
+        expect(loaded.qa).toEqual([]);
+        expect(formatSessionHistory(loaded)).not.toContain(QA_HEADING);
+
+        // …and it can take one from here on.
+        expect(ask('Und warum?', 'Weil Grünfeld dort nachgibt.')).toBe(1);
+        expect(readSession(SESSION)?.qa).toHaveLength(1);
+    });
+
+    it('drops stored entries that are not question/answer pairs', () => {
+        writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({
+            id: SESSION,
+            createdAt: '2026-08-08T10:00:00.000Z',
+            updatedAt: '2026-08-08T10:00:00.000Z',
+            takes: [],
+            qa: [{ question: 'ok', answer: 'ok' }, { question: 'lonely' }, 'nonsense', null],
+            profile: null,
+        }));
+        __resetSessionStore();
+
+        const loaded = readSession(SESSION)!;
+        expect(loaded.qa).toHaveLength(1);
+        // A record from before `kind`/`at` existed is completed on load.
+        expect(loaded.qa[0].kind).toBe('qa');
+        expect(Number.isNaN(Date.parse(loaded.qa[0].at))).toBe(false);
+    });
+
+    it('puts the exchanges into the history, one line each, after the takes', () => {
+        recordTake(SESSION, takeRecord());
+        ask('Warum wird es in Takt vier langsamer?', 'Weil Grünfeld die Phrase\nzum Ziel hin loslässt.');
+
+        const text = formatSessionHistory(readSession(SESSION));
+        expect(text.indexOf(HISTORY_HEADING)).toBeLessThan(text.indexOf(QA_HEADING));
+
+        const line = text.split('\n').find((l) => l.startsWith('- asked'))!;
+        expect(line).toBe('- asked "Warum wird es in Takt vier langsamer?" — you answered "Weil Grünfeld die Phrase zum Ziel hin loslässt."');
+    });
+
+    it(`shows at most the last ${HISTORY_MAX_QA} exchanges`, () => {
+        for (let i = 0; i < HISTORY_MAX_QA + 2; i++) ask(`Frage ${i}?`, `Antwort ${i}.`, i);
+        const shown = (formatSessionHistory(readSession(SESSION)).match(/^- asked/gm) ?? []);
+        expect(shown).toHaveLength(HISTORY_MAX_QA);
+        expect(formatSessionHistory(readSession(SESSION))).toContain('Frage 2?');
+        expect(formatSessionHistory(readSession(SESSION))).not.toContain('Frage 1?');
+    });
+
+    it('cuts a long answer so one exchange stays one line', () => {
+        ask('Warum?', `${'sehr '.repeat(120)}lang`);
+        const line = formatSessionHistory(readSession(SESSION)).split('\n').find((l) => l.startsWith('- asked'))!;
+        expect(line.length).toBeLessThan(360);
+        expect(line.endsWith('…"')).toBe(true);
+    });
+
+    it('leaves the history untouched when nothing was asked', () => {
+        recordTake(SESSION, takeRecord());
+        expect(formatSessionHistory(readSession(SESSION))).not.toContain(QA_HEADING);
     });
 });
 

@@ -41,6 +41,20 @@ export type TakeRecord = {
     teacherSaid: TeacherSaid;
 };
 
+/**
+ * A question the student asked out loud and the answer it got. Tagged so takes
+ * and questions could be read back as one timeline later; today they are kept
+ * in separate lists.
+ */
+export type QaRecord = {
+    kind: 'qa';
+    at: string;
+    /** What the student asked, as transcribed. */
+    question: string;
+    /** What the teacher answered, as spoken. */
+    answer: string;
+};
+
 /** The slowly-moving picture of the player, refreshed by the side-channel call. */
 export type StudentProfile = {
     /** Problems that keep coming back across takes. */
@@ -59,5 +73,7 @@ export type SessionState = {
     createdAt: string;
     updatedAt: string;
     takes: TakeRecord[];
+    /** Spoken exchanges of this sitting. Absent from sessions stored before Phase 4. */
+    qa: QaRecord[];
     profile: StudentProfile | null;
 };

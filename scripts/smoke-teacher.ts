@@ -1,0 +1,318 @@
+/**
+ * smoke-teacher.ts — live comparison of the pre-Phase-1 prompt against the
+ * grounded one, across all three tiers.
+ *
+ * Inputs are reconstructed from the committed `test_output/*_diff.txt` fixtures:
+ * the ASCII diff table is parsed back into the `StructuredDiffEvent[]` the client
+ * sends, the judgement is recomputed with the real `summarizeImmediateJudgement`,
+ * and cue candidates are grouped exactly as `requestVocalStream` groups them.
+ * That keeps the run offline from the Java renderer while still exercising the
+ * real route handler in-process.
+ *
+ * TTS is skipped so the numbers are LLM latency only.
+ *
+ * Run: npx tsx scripts/smoke-teacher.ts [fixture...]
+ */
+
+import 'dotenv/config';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { openai, DEFAULT_CUE_MODELS, type CuePrepMode } from '../src/config';
+import { buildTeacherSystemPrompt } from '../src/prompts/teacherStream';
+import { buildUserInput, runTeacherStream, type TeacherStreamRequest } from '../src/routes/teacherStream';
+import { estimateTokens } from '../src/corpus';
+import { summarizeImmediateJudgement } from '../client/src/judgement';
+import { positionToTick } from '../client/src/shared/constants';
+import type { StructuredDiffEvent } from '../client/src/mpm/types';
+
+const OUT_DIR = 'test_output';
+const RUNS_PER_CONFIG = 3;
+const TIERS: CuePrepMode[] = ['realtime', 'balanced', 'studio'];
+
+// ── Fixture parsing ──
+
+const TYPE_BY_SECTION: Record<string, string> = {
+    TEMPO: 'tempo',
+    DYNAMICS: 'dynamics',
+    ARTICULATION: 'articulation',
+    RUBATO: 'rubato',
+    'ORNAMENTS (ARPEGGIO)': 'ornament',
+    'METRIC ACCENTS': 'accentuationPattern',
+    'VOICE ASYNCHRONY': 'asynchrony',
+};
+
+const PRIMARY_ATTR: Record<string, string> = {
+    tempo: 'bpm',
+    dynamics: 'volume',
+    articulation: 'relativeDuration',
+    rubato: 'intensity',
+    ornament: 'scale',
+    accentuationPattern: 'scale',
+    asynchrony: 'milliseconds.offset',
+};
+
+/** Mirrors `cueTextForDiff` in client/src/mpm/diff.ts for the types the fixtures contain. */
+const cueForDiff = (type: string, delta: number): { cueText: string; direction: 'more' | 'less' } => {
+    if (type === 'dynamics') return delta > 0 ? { cueText: 'leiser', direction: 'less' } : { cueText: 'lauter', direction: 'more' };
+    if (type === 'tempo') return delta > 0 ? { cueText: 'ruhiger', direction: 'less' } : { cueText: 'bewegter', direction: 'more' };
+    if (type === 'articulation') return delta < 0 ? { cueText: 'mehr Legato', direction: 'more' } : { cueText: 'kuerzer', direction: 'less' };
+    if (type === 'rubato') return delta > 0 ? { cueText: 'ruhiger im Puls', direction: 'less' } : { cueText: 'mehr atmen', direction: 'more' };
+    if (type === 'accentuationPattern') return delta > 0 ? { cueText: 'weniger betonen', direction: 'less' } : { cueText: 'mehr betonen', direction: 'more' };
+    if (type === 'ornament') return delta > 0 ? { cueText: 'gleichmaessiger', direction: 'less' } : { cueText: 'oben mehr zeigen', direction: 'more' };
+    return delta > 0 ? { cueText: 'weniger', direction: 'less' } : { cueText: 'mehr', direction: 'more' };
+};
+
+/** `29 bpm` → 29 · `pp(35)` → 35 · `scale: 2.3` → 2.3 */
+const cellValue = (cell: string): number => {
+    const parenthesised = /\(\s*(-?[\d.]+)\s*\)/.exec(cell);
+    if (parenthesised) return Number(parenthesised[1]);
+    const bare = /(-?[\d.]+)/.exec(cell);
+    return bare ? Number(bare[1]) : 0;
+};
+
+type Fixture = {
+    name: string;
+    range: { from: number; to: number };
+    events: StructuredDiffEvent[];
+    diffText: string;
+};
+
+const parseFixture = (name: string): Fixture => {
+    const diffText = readFileSync(join(OUT_DIR, `${name}_diff.txt`), 'utf8');
+    const lines = diffText.split('\n');
+
+    const header = /deviations in (m\d+\.\d+)–(m\d+\.\d+)/.exec(lines[0]);
+    if (!header) throw new Error(`${name}: cannot read range from "${lines[0]}"`);
+    const range = { from: positionToTick(header[1])!, to: positionToTick(header[2])! };
+
+    const events: StructuredDiffEvent[] = [];
+    let type = '';
+    for (const line of lines.slice(1)) {
+        const section = /^([A-Z][A-Z ()]*[A-Z)])\s*\(\d+\):/.exec(line.trim());
+        if (section) {
+            type = TYPE_BY_SECTION[section[1].toUpperCase()] ?? '';
+            continue;
+        }
+        const cells = line.split('|').map((cell) => cell.trim());
+        if (!type || cells.length < 4 || !/^m\d+\.\d+$/.test(cells[0])) continue;
+
+        const [position, severity, refCell, studentCell] = cells;
+        const refValue = cellValue(refCell);
+        const studentValue = cellValue(studentCell);
+        const delta = studentValue - refValue;
+        const cue = cueForDiff(type, delta);
+        events.push({
+            id: `${type}_${position}_${events.length}`,
+            date: positionToTick(position)!,
+            position,
+            type,
+            severity: severity as StructuredDiffEvent['severity'],
+            primaryAttr: PRIMARY_ATTR[type] ?? 'value',
+            magnitude: Math.abs(delta),
+            cueText: cue.cueText,
+            direction: cue.direction,
+            refValue,
+            studentValue,
+        });
+    }
+
+    if (events.length === 0) throw new Error(`${name}: no events parsed`);
+    return { name, range, events, diffText };
+};
+
+/** Same grouping `requestVocalStream` applies when no timing map exists yet. */
+const buildCandidates = (events: StructuredDiffEvent[]): Array<Record<string, unknown>> => {
+    const byPosition = new Map<string, StructuredDiffEvent[]>();
+    for (const event of events) {
+        const group = byPosition.get(event.position) ?? [];
+        group.push(event);
+        byPosition.set(event.position, group);
+    }
+    return Array.from(byPosition.entries()).map(([position, group]) => ({
+        position,
+        issues: group.map((event) => ({
+            type: event.type,
+            severity: event.severity,
+            direction: event.direction,
+            primaryAttr: event.primaryAttr,
+            refValue: event.refValue,
+            studentValue: event.studentValue,
+        })),
+    }));
+};
+
+const buildRequest = (fixture: Fixture, mode: CuePrepMode): TeacherStreamRequest => ({
+    judgement: summarizeImmediateJudgement(fixture.events, fixture.range) as unknown as Record<string, unknown>,
+    candidates: buildCandidates(fixture.events),
+    diff: fixture.diffText,
+    structuredDiff: fixture.events as unknown as Array<Record<string, unknown>>,
+    range: fixture.range,
+    mode,
+    skipTts: true,
+});
+
+// ── Baseline: the prompt as it stood before Phase 1 ──
+
+const LEGACY_SYSTEM_PROMPT = `You are a piano teacher giving a continuous, stream-of-consciousness monologue during a demonstration.
+You react to how the student just played, then narrate musical cues as the demonstration unfolds.
+
+OUTPUT FORMAT — use «MARKER» delimiters:
+«JUDGE» 3-8 word reaction to the student's playing...
+«m2.3» [softly] 1-4 word cue...
+«m4.1» filler or cue...
+
+DIFF GLOSSARY — terms that do NOT mean what you might assume:
+- ornament: NOT trills, mordents, or turns. Means ARPEGGIATION — the temporal spread and dynamic shading of notes within a chord. NEVER use the word "ornament" in your output — talk about the arpeggio or chord voicing instead.
+- rubato: a timing distortion governed by a power function (x^intensity) within a fixed-length frame. The timing self-compensates so the end of the frame is back in sync with the meter. intensity < 1 = short-long (notes at the start of the frame arrive early, notes at the end arrive late), intensity > 1 = long-short (notes at the start linger, notes at the end are compressed). intensity = 1 = no distortion.
+
+RULES:
+- Start with exactly one «JUDGE» marker: your immediate reaction (3-8 words). Honest, concise, encouraging or naming at most one problem area. No measure numbers, no digits.
+- Then 1-4 cue markers at the given positions. Each cue is 1-4 words, maximum 5.
+- Do NOT add any closing remark or end marker. The music speaks for itself.
+- Only use positions from the given candidates. Do not invent positions.
+- Each candidate has a direction field ("more" or "less") and a type. You MUST NOT reverse the direction.
+- Use fragmented, associative style. Use "..." for natural pauses.
+- You may optionally use Eleven-v3 audio tags per segment, e.g. [softly], [warmly], [sigh], [clears throat], [laughs], [whispers].
+- Shape a small emotional arc across the sequence.
+- Keep the flow natural — as if you are thinking aloud while playing. Use non-verbal fillers to sound human: "hmm...", "mhm...", "uhm...", [sigh], [clears throat]. Prefer these over verbal fillers.
+- Vary your wording. If several cues address similar topics, each must sound noticeably different.
+- Do not repeat the same v3 tag more than twice.
+- No full explanations, no introductions, no meta-commentary.
+
+IMPORTANT: Write everything in ${process.env.OUTPUT_LANGUAGE || 'German'}.
+Respond only with the monologue text using «MARKER» delimiters.`;
+
+/** The pre-Phase-1 input: judgement, the top-3-per-type ASCII table, candidates. */
+const legacyUserInput = (fixture: Fixture): string => {
+    const parts = ['=== JUDGEMENT SUMMARY ===', JSON.stringify(summarizeImmediateJudgement(fixture.events, fixture.range))];
+    parts.push('\n=== DIFF ===', fixture.diffText);
+    parts.push('\n=== CUE CANDIDATES ===');
+    for (const candidate of buildCandidates(fixture.events)) parts.push(JSON.stringify(candidate));
+    return parts.join('\n');
+};
+
+const runLegacy = async (fixture: Fixture, model = 'gpt-5-mini'): Promise<{ rawText: string; llmMs: number }> => {
+    const startedAt = Date.now();
+    const response = await openai.responses.create({
+        model,
+        instructions: LEGACY_SYSTEM_PROMPT,
+        input: legacyUserInput(fixture),
+    });
+    return { rawText: response.output_text ?? '', llmMs: Date.now() - startedAt };
+};
+
+// ── Driver ──
+
+const median = (values: number[]): number => {
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+};
+
+type Result = {
+    fixture: string;
+    variant: string;
+    model: string;
+    latencies: number[];
+    medianMs: number;
+    promptTokens: number;
+    samples: string[];
+};
+
+/**
+ * Prompt cost with the model held constant: how much of the latency change comes
+ * from the grounded prompt rather than from the new model pin.
+ */
+const runIsolation = async (fixtures: Fixture[]) => {
+    const model = DEFAULT_CUE_MODELS.realtime;
+    console.log(`\n=== PROMPT ISOLATION on ${model} (same model, old vs new prompt) ===`);
+    for (const fixture of fixtures) {
+        const old: number[] = [];
+        const grounded: number[] = [];
+        for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+            old.push((await runLegacy(fixture, model)).llmMs);
+            grounded.push((await runTeacherStream(buildRequest(fixture, 'realtime'))).stats.llmMs);
+        }
+        console.log(
+            `${fixture.name.padEnd(20)} old ${String(median(old)).padStart(5)}ms (${old.join('/')})   ` +
+            `grounded ${String(median(grounded)).padStart(5)}ms (${grounded.join('/')})`,
+        );
+    }
+};
+
+const main = async () => {
+    if (!process.env.OPENAI_API_KEY) {
+        console.log('OPENAI_API_KEY missing — skipping live smoke test.');
+        return;
+    }
+    mkdirSync(OUT_DIR, { recursive: true });
+
+    const args = process.argv.slice(2);
+    const isolateOnly = args.includes('--isolate');
+    const names = args.filter((arg) => !arg.startsWith('--'));
+
+    if (isolateOnly) {
+        await runIsolation((names.length > 0 ? names : ['01_robotic', '02_rushing_loud', '03_timid']).map(parseFixture));
+        return;
+    }
+
+    const fixtures = (names.length > 0 ? names : ['01_robotic', '02_rushing_loud', '03_timid']).map(parseFixture);
+    const results: Result[] = [];
+
+    for (const fixture of fixtures) {
+        console.log(`\n=== ${fixture.name} (${fixture.events.length} events, ticks ${fixture.range.from}–${fixture.range.to}) ===`);
+
+        // Baseline: old prompt, old model pin for the balanced tier.
+        const legacyModel = 'gpt-5-mini';
+        const legacy: Result = {
+            fixture: fixture.name, variant: 'legacy', model: legacyModel,
+            latencies: [], medianMs: 0,
+            promptTokens: estimateTokens(LEGACY_SYSTEM_PROMPT) + estimateTokens(legacyUserInput(fixture)),
+            samples: [],
+        };
+        for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+            const { rawText, llmMs } = await runLegacy(fixture, legacyModel);
+            legacy.latencies.push(llmMs);
+            legacy.samples.push(rawText);
+            console.log(`  legacy/${legacyModel} run ${run + 1}: ${llmMs}ms`);
+        }
+        legacy.medianMs = median(legacy.latencies);
+        results.push(legacy);
+        writeFileSync(join(OUT_DIR, `modernized_${fixture.name}_legacy.txt`), legacy.samples.join('\n---\n'));
+
+        for (const mode of TIERS) {
+            const request = buildRequest(fixture, mode);
+            const result: Result = {
+                fixture: fixture.name, variant: mode, model: DEFAULT_CUE_MODELS[mode],
+                latencies: [], medianMs: 0,
+                promptTokens: estimateTokens(buildTeacherSystemPrompt({ compactCorpus: mode === 'realtime' }))
+                    + estimateTokens(buildUserInput(request, true)),
+                samples: [],
+            };
+            for (let run = 0; run < RUNS_PER_CONFIG; run++) {
+                const response = await runTeacherStream(request);
+                result.latencies.push(response.stats.llmMs);
+                result.samples.push(response.rawText);
+                console.log(`  ${mode}/${result.model} run ${run + 1}: ${response.stats.llmMs}ms`);
+            }
+            result.medianMs = median(result.latencies);
+            results.push(result);
+            writeFileSync(join(OUT_DIR, `modernized_${fixture.name}_${mode}.txt`), result.samples.join('\n---\n'));
+        }
+    }
+
+    console.log('\n=== SUMMARY (LLM latency, TTS excluded) ===');
+    console.log('fixture              variant    model             median   runs               prompt_tok');
+    for (const r of results) {
+        console.log(
+            `${r.fixture.padEnd(20)} ${r.variant.padEnd(10)} ${r.model.padEnd(17)} ${String(r.medianMs).padStart(6)}   ` +
+            `${r.latencies.join('/').padEnd(18)} ${String(r.promptTokens).padStart(10)}`,
+        );
+    }
+
+    writeFileSync(join(OUT_DIR, 'modernized_summary.json'), JSON.stringify(results, null, 2));
+    console.log(`\nWrote ${OUT_DIR}/modernized_*.txt and modernized_summary.json`);
+};
+
+await main();

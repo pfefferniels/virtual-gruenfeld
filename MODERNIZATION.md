@@ -118,13 +118,25 @@ The core inversion: model sees evidence, not conclusions.
   outputs to `test_output/modernized_*`, compare qualitatively in ledger.
 - Acceptance: teacher references scholarly motivation in smoke output; no client regression.
 
-### Phase 2 — Conversation memory + student model  [status: TODO]
-- Server-side take history per session (in-memory + JSON persistence): each take's judgement,
-  diff summary, and what the teacher said. Include compact history in the model input.
-- Student model: persistent structured profile (recurring tendencies, addressed issues, trajectory)
-  the model updates each take (structured output side-channel).
-- Teacher can compare takes ("better than last time"). Client passes a session id.
-- Acceptance: two-take smoke test shows the second reaction referencing the first.
+### Phase 2 — Conversation memory + student model  [status: DONE 2026-08-08, commits 0ec4ec7..7694336]
+Results:
+- `src/sessions/`: take records (diff digest + what the teacher said), JSON persistence in
+  gitignored `data/sessions/` (50-take cap, 30-day prune, path-safe ids), history section (≤5 takes)
+  appended LAST in input; MEMORY_RULES prompt block added only for session requests as a SUFFIX —
+  stateless prompt byte-identical (tested end-to-end).
+- Student profile: fire-and-forget structured-output side-channel on gpt-5.4-mini (PROFILE_MODEL),
+  clamped arrays, errors swallowed. Client: per-page-load session id (`client/src/session.ts`).
+- Latency: no measurable cost (interleaved A/B: stateless 1448ms vs with-history 1389ms medians).
+- Smoke verified: "Noch immer zu rasch..." back-references 3/3; synthetic progress case recognized
+  3/3 ("Schon viel ruhiger..."); profile fills tendencies/improvements correctly; caps held.
+- Tests: 190 (151 → +39).
+Caveats carried forward:
+- Prune runs once per process start (note for Phase 5 worker deployment).
+- No TEACHER_PROFILE=0 kill switch (3-line addition if wanted).
+- Page reload = new lesson (deliberate; sessionStorage would persist it).
+- "already told them" accumulates (capped 6) — Phase 3 may want decay.
+- knip: test-only exports buildTeacherSaid, SESSION_TTL_MS, updateStudentProfile,
+  buildProfileInput → Phase 5 sweep list.
 
 ### Phase 3 — Agentic pedagogy  [status: TODO]
 - Replace fixed choreography constants with model decisions: new structured response schema
@@ -167,3 +179,7 @@ The core inversion: model sees evidence, not conclusions.
   scholarly corpus at no latency cost (~1.3s realtime); grounding verified in smoke outputs;
   balanced tier remapped luna→terra on measurement. Orchestrator verified independently: type-check
   clean, client tsc clean, 151/151 tests. Phase 2 agent being briefed.
+- 2026-08-08 11:05 — Phase 2 DONE (commits 0ec4ec7..7694336, 4 logical units): session memory +
+  student profile working and verified live ("Noch immer...", progress recognition 3/3); zero
+  latency cost; stateless path byte-stable. Orchestrator verified: 190/190 tests, both tsc clean.
+  Phase 3 agent being briefed.

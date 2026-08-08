@@ -6,9 +6,9 @@ import type { MidiDeviceInfo } from "./useMidiDevices";
 import type { CuePrepMode } from "./cueLibrary";
 
 const CUE_MODE_OPTIONS: Array<{ value: CuePrepMode; label: string; hint: string }> = [
-    { value: 'realtime', label: 'Realtime', hint: '~1.2s target, fast fallback' },
-    { value: 'balanced', label: 'Balanced', hint: 'waits for full cue plan' },
-    { value: 'studio', label: 'Studio', hint: 'max quality, slowest' },
+    { value: 'realtime', label: 'Realtime', hint: '~1.3s, compact scholarly context' },
+    { value: 'balanced', label: 'Balanced', hint: '~2s, full scholarly context' },
+    { value: 'studio', label: 'Studio', hint: 'full context, most detailed cues' },
 ];
 
 const ghostKeyframes = `

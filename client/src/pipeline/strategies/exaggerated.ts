@@ -26,6 +26,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             take.judgementSummary,
             take.diffSummary,
             take.structuredDiff,
+            take.range,
             undefined, // timingMap not yet available; candidates will be built from diffEvents
             mode,
             audioContext,

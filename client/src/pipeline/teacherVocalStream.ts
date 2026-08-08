@@ -1,6 +1,6 @@
 import type { ImmediateJudgementPayload } from '../judgement';
 import type { CuePrepMode } from '../cueLibrary';
-import type { StructuredDiffEvent } from '../mpm';
+import type { Range, StructuredDiffEvent } from '../mpm';
 import { pickCueCandidates, secAtDate, type TimingMapPoint } from '../teacherCues';
 import { cueDelay } from '../teacherCues';
 import { positionToTick } from '../shared/constants';
@@ -14,6 +14,7 @@ export const requestVocalStream = async (
     judgement: ImmediateJudgementPayload,
     diffSummary: string,
     diffEvents: StructuredDiffEvent[],
+    range: Range,
     timingMap: TimingMapPoint[] | undefined,
     mode: CuePrepMode,
     audioContext: AudioContext,
@@ -45,10 +46,18 @@ export const requestVocalStream = async (
         })),
     }));
 
-    log(`VOCAL: requesting stream (anchors=${candidates.length}, mode=${mode})`);
+    log(`VOCAL: requesting stream (anchors=${candidates.length}, evidence=${diffEvents.length}, mode=${mode})`);
     const startedAt = Date.now();
 
-    const response = await fetchTeacherStream(judgement, diffSummary, candidates, mode);
+    // The candidate list is narrowed for cue placement; the diff sent as evidence is not.
+    const response = await fetchTeacherStream({
+        judgement,
+        diff: diffSummary,
+        candidates,
+        mode,
+        structuredDiff: diffEvents,
+        range,
+    });
     log(`VOCAL: stream received (llm_ms=${response.stats.llmMs}, tts_ms=${response.stats.ttsMs}, anchors=${response.anchors.length})`);
 
     const chunks = await chunkVocalStream(response, audioContext);

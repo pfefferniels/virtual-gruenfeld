@@ -2,7 +2,7 @@ import type { MidiFile } from 'midifile-ts';
 import type { MSM } from 'mpmify';
 import type { MPM } from 'mpm-ts';
 import type { Range, StructuredDiffEvent } from '../mpm';
-import type { CuePrepMode } from '../cueLibrary';
+import type { CuePrepMode } from '../prepMode';
 import type { ImmediateJudgementPayload } from '../judgement';
 
 export type PipelineContext = {
@@ -47,7 +47,6 @@ export type StrategyControls = {
     playAudioBuffer: PlayAudioBufferFn;
     audioContext: AudioContext;
     mode: CuePrepMode;
-    playbackDeadlineAt: number | undefined;
     takeStartedAt: number;
     onJudgement: (value: string | ((prev: string) => string)) => void;
     aiAvailable: boolean;

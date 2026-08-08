@@ -3,12 +3,17 @@ import { usePiano } from "./pianosound";
 import { useTake } from "./useTake";
 import { useMidiDevices } from "./useMidiDevices";
 import type { MidiDeviceInfo } from "./useMidiDevices";
-import type { CuePrepMode } from "./cueLibrary";
+import type { CuePrepMode } from "./prepMode";
+import {
+    isAgenticTeacher, isVoiceTeacher, setFlagOverride,
+    TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
+} from "./featureFlags";
+import { useVoiceQuestion } from "./useVoiceQuestion";
 
 const CUE_MODE_OPTIONS: Array<{ value: CuePrepMode; label: string; hint: string }> = [
-    { value: 'realtime', label: 'Realtime', hint: '~1.2s target, fast fallback' },
-    { value: 'balanced', label: 'Balanced', hint: 'waits for full cue plan' },
-    { value: 'studio', label: 'Studio', hint: 'max quality, slowest' },
+    { value: 'realtime', label: 'Realtime', hint: '~1.3s, compact scholarly context' },
+    { value: 'balanced', label: 'Balanced', hint: '~2s, full scholarly context' },
+    { value: 'studio', label: 'Studio', hint: 'full context, most detailed cues' },
 ];
 
 const ghostKeyframes = `
@@ -41,6 +46,30 @@ const selectStyle: React.CSSProperties = {
     minWidth: 0,
     maxWidth: '100%',
 };
+
+/**
+ * One prototype switch in the debug sidebar. Writes the localStorage override
+ * `featureFlags.ts` reads, so it outlives the reload the flag may need.
+ */
+const FlagToggle = ({ label, note, checked, onChange }: {
+    label: string;
+    note: string;
+    checked: boolean;
+    onChange: (next: boolean) => void;
+}) => (
+    <label style={{ display: 'grid', gap: 2, cursor: 'pointer' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                style={{ margin: 0, cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 10, letterSpacing: '0.03em' }}>{label}</span>
+        </span>
+        <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3, paddingLeft: 19 }}>{note}</span>
+    </label>
+);
 
 const DeviceSelect = ({ label, devices, selectedId, onChange }: {
     label: string;
@@ -84,7 +113,7 @@ export const Dialog = () => {
     const {
         started, setStarted,
         cuePrepMode, setCuePrepMode,
-        quickJudgement, lastDiff, debugLines, clearDebugLines,
+        quickJudgement, lastDiff, debugLines, clearDebugLines, log,
         aiAvailable,
         teacherPlaying,
     } = useTake({ play, playAudioBuffer, stop, audioContext }, midi.selectedInputId);
@@ -93,6 +122,22 @@ export const Dialog = () => {
     const hasOutput = midi.outputs.length > 0;
     const canStart = hasInput && midi.supported === true;
     const [showHelp, setShowHelp] = useState(false);
+
+    // Off by default: without the flag the page has no microphone UI at all, and
+    // the hook never asks for a device. Held in state so the debug toggle below
+    // shows and hides the panel without a reload.
+    const [voiceEnabled, setVoiceEnabled] = useState(isVoiceTeacher);
+    // The strategy reads this one afresh for every take, so the toggle only has
+    // to record the choice.
+    const [agenticEnabled, setAgenticEnabled] = useState(isAgenticTeacher);
+    const voice = useVoiceQuestion({ mode: cuePrepMode, audioContext, playAudioBuffer, log });
+    const showVoice = voiceEnabled && aiAvailable;
+    const voiceAnswer = voiceEnabled ? voice.answer : null;
+
+    const askLabel = voice.recording ? 'Listening — release to ask'
+        : voice.thinking ? 'Thinking...'
+        : voice.speaking ? 'Answering...'
+        : 'Hold to ask';
 
     return (
         <>
@@ -273,10 +318,66 @@ export const Dialog = () => {
                         </div>
                     )}
 
-                    {aiAvailable && quickJudgement && (
+                    {showVoice && (
+                        <div className="sketch-box" style={{ padding: 14, background: '#fff', display: 'grid', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                                <strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ask the teacher</strong>
+                                <span style={{ fontSize: 11, opacity: 0.45 }}>— hold the button and speak</span>
+                            </div>
+                            <div>
+                                <button
+                                    type="button"
+                                    className="sketch-btn"
+                                    disabled={!voice.supported || voice.thinking}
+                                    onPointerDown={(e) => { e.preventDefault(); void voice.start(); }}
+                                    onPointerUp={voice.stop}
+                                    onPointerLeave={voice.stop}
+                                    onPointerCancel={voice.stop}
+                                    style={{
+                                        padding: '10px 22px',
+                                        fontSize: 14,
+                                        fontFamily: 'inherit',
+                                        cursor: voice.supported && !voice.thinking ? 'pointer' : 'not-allowed',
+                                        color: '#222',
+                                        background: voice.recording ? '#f3f4f6' : '#fff',
+                                        borderWidth: voice.recording ? 3 : 2,
+                                        touchAction: 'none',
+                                        userSelect: 'none',
+                                        opacity: voice.supported ? 1 : 0.5,
+                                    }}
+                                >
+                                    {askLabel}
+                                </button>
+                            </div>
+                            {!voice.supported && (
+                                <div style={{ fontSize: 12, color: '#944' }}>
+                                    This browser cannot record audio, so spoken questions are unavailable.
+                                </div>
+                            )}
+                            {voice.message && (
+                                <div style={{ fontSize: 12, color: '#944' }}>{voice.message}</div>
+                            )}
+                        </div>
+                    )}
+
+                    {aiAvailable && (quickJudgement || voiceAnswer) && (
                         <div className="sketch-box" style={{ padding: 14, background: '#fff' }}>
                             <strong style={{ display: 'block', marginBottom: 6, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.45 }}>Teacher Reaction</strong>
-                            <div style={{ fontSize: 16, lineHeight: 1.5 }}>{quickJudgement}</div>
+                            {quickJudgement && (
+                                <div style={{ fontSize: 16, lineHeight: 1.5 }}>{quickJudgement}</div>
+                            )}
+                            {voiceAnswer && (
+                                <div style={{
+                                    marginTop: quickJudgement ? 12 : 0,
+                                    paddingTop: quickJudgement ? 10 : 0,
+                                    borderTop: quickJudgement ? '1px solid #e5e7eb' : 'none',
+                                }}>
+                                    <div style={{ fontSize: 12, opacity: 0.45, marginBottom: 4 }}>
+                                        You asked: "{voiceAnswer.transcript}"
+                                    </div>
+                                    <div style={{ fontSize: 16, lineHeight: 1.5 }}>{voiceAnswer.answerText}</div>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -287,7 +388,7 @@ export const Dialog = () => {
                     minWidth: 200,
                     maxWidth: 340,
                     borderLeft: '2px solid #333',
-                    background: '#eeece6',
+                    background: '#f3f4f6',
                     padding: '16px 12px',
                     display: 'grid',
                     alignContent: 'start',
@@ -296,8 +397,37 @@ export const Dialog = () => {
                     fontSize: 10,
                     color: '#444',
                 }}>
+                    <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 10, display: 'grid', gap: 8 }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Prototype features
+                        </strong>
+                        <FlagToggle
+                            label="Agentic lesson plan"
+                            note="The teacher chooses what to demonstrate. Applies to the next take."
+                            checked={agenticEnabled}
+                            onChange={(next) => {
+                                setFlagOverride(TEACHER_AGENTIC_KEY, next);
+                                setAgenticEnabled(next);
+                            }}
+                        />
+                        <FlagToggle
+                            label="Ask by voice"
+                            note="Hold-to-ask button. Needs the AI service."
+                            checked={voiceEnabled}
+                            onChange={(next) => {
+                                setFlagOverride(TEACHER_VOICE_KEY, next);
+                                setVoiceEnabled(next);
+                            }}
+                        />
+                        {!aiAvailable && (
+                            <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3 }}>
+                                Both need the teacher service; neither does anything while it is unreachable.
+                            </span>
+                        )}
+                    </div>
+
                     {aiAvailable && lastDiff && (
-                        <details style={{ borderBottom: '1px solid #ccc', paddingBottom: 8 }}>
+                        <details style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
                             <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                 Diff sent to LLM
                             </summary>

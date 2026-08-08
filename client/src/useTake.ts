@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CuePrepMode } from './cueLibrary';
+import type { CuePrepMode } from './prepMode';
 import type { Range } from './mpm';
 import { waitForPlayingSafe } from './midi';
 import { boot } from './pipeline/boot';
 import { runTake } from './pipeline/takeRunner';
 import { exaggeratedStrategy } from './pipeline/strategies/exaggerated';
 import { probeTeacherService } from './services/api';
+import { getSessionId } from './session';
 import type { PlayFn } from './pipeline/types';
 import { addAbsoluteTime } from './pianosound/MidiNote';
 
@@ -73,6 +74,7 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                     lastMatchRef.current = range;
 
                     const takeId = ++takeSeqRef.current;
+                    log(`TAKE #${takeId} (session ${getSessionId().slice(0, 8)})`);
 
                     await runTake(ctx, studentMsm, range, exaggeratedStrategy, {
                         log,
@@ -134,6 +136,8 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
         lastDiff,
         debugLines,
         clearDebugLines,
+        /** The same sink the take pipeline writes to, for anything else on the page. */
+        log,
         aiAvailable,
         teacherPlaying,
     };

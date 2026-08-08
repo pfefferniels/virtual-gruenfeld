@@ -55,6 +55,27 @@ jobs:
         working-directory: virtual-gruenfeld
         run: npm ci
 
+      # The AI teacher is baked into the client bundle at build time, so it is
+      # configured here rather than at runtime. Nothing is enabled by default:
+      # with no repository variables set, the deployed app keeps today's
+      # behaviour (exaggerated counter-performance, nobody talking).
+      #
+      # To turn it on, deploy the Node teacher service behind HTTPS and define
+      # the repository variable TEACHER_URL. Full instructions: DEPLOYMENT.md.
+      #
+      # Only non-empty variables are exported, because Vite lets process.env
+      # win over client/.env.production — an empty one would blank out a URL
+      # configured in that file.
+      - name: Configure the AI teacher for the build
+        env:
+          TEACHER_URL: ${{ vars.TEACHER_URL }}
+          TEACHER_AGENTIC: ${{ vars.TEACHER_AGENTIC }}
+          TEACHER_VOICE: ${{ vars.TEACHER_VOICE }}
+        run: |
+          if [ -n "$TEACHER_URL" ]; then echo "VITE_TEACHER_URL=$TEACHER_URL" >> "$GITHUB_ENV"; fi
+          if [ -n "$TEACHER_AGENTIC" ]; then echo "VITE_TEACHER_AGENTIC=$TEACHER_AGENTIC" >> "$GITHUB_ENV"; fi
+          if [ -n "$TEACHER_VOICE" ]; then echo "VITE_TEACHER_VOICE=$TEACHER_VOICE" >> "$GITHUB_ENV"; fi
+
       - name: Install and build client
         working-directory: virtual-gruenfeld/client
         env:

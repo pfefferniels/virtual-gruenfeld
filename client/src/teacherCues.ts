@@ -11,7 +11,7 @@ export type TimingMapPoint = {
     sec: number;
 };
 
-export type TeacherCue = {
+type TeacherCue = {
     id: string;
     atSec: number;
     text: string;
@@ -21,7 +21,7 @@ export type TeacherCue = {
     priority: number;
 };
 
-export type TeacherCueDraft = {
+type TeacherCueDraft = {
     position: string;
     text: string;
 };
@@ -224,7 +224,18 @@ export const planTeacherCues = (
         }));
 };
 
+/**
+ * A cue has to be sayable over the music: at most five words, no jargon the
+ * student cannot act on. The word cap is hard — the choreography schedules cue
+ * audio against note onsets and a long cue overruns its slot. Rejections fall
+ * back to the deterministic cue text from the diff and are logged, never silent.
+ */
 const normalizeCueText = (text: string, fallback: string): string => {
+    const reject = (reason: string): string => {
+        console.warn(`cue sanitizer: ${reason}, using diff cue instead`, { draft: text, fallback });
+        return fallback;
+    };
+
     const normalized = text
         .replace(/\s+/g, ' ')
         .replace(/[.!?]+$/g, '')
@@ -233,6 +244,9 @@ const normalizeCueText = (text: string, fallback: string): string => {
 
     const leadingTagMatch = normalized.match(/^\[([a-zA-Z][a-zA-Z ]{0,23})\]\s*/);
     const normalizedTag = leadingTagMatch ? normalizeV3Tag(leadingTagMatch[1]) : null;
+    if (leadingTagMatch && !normalizedTag) {
+        console.warn('cue sanitizer: dropped unsupported v3 tag', { tag: leadingTagMatch[1] });
+    }
     const body = normalized
         .slice(leadingTagMatch?.[0].length ?? 0)
         .replace(/\[[^\]]*\]/g, '')
@@ -240,10 +254,13 @@ const normalizeCueText = (text: string, fallback: string): string => {
         .trim();
 
     const words = body.split(' ').filter(Boolean);
+    if (words.length > 5) {
+        console.warn('cue sanitizer: trimmed cue to five words', { draft: body });
+    }
     const shortenedBody = words.length > 5 ? words.slice(0, 5).join(' ') : body;
-    if (!shortenedBody) return fallback;
-    if (TOO_VAGUE_CUES.has(shortenedBody.toLowerCase())) return fallback;
-    if (UNCLEAR_CUE_PATTERNS.some((pattern) => pattern.test(shortenedBody))) return fallback;
+    if (!shortenedBody) return reject('cue was only a tag');
+    if (TOO_VAGUE_CUES.has(shortenedBody.toLowerCase())) return reject('cue too vague');
+    if (UNCLEAR_CUE_PATTERNS.some((pattern) => pattern.test(shortenedBody))) return reject('cue used unactionable jargon');
     return normalizedTag ? `[${normalizedTag}] ${shortenedBody}` : shortenedBody;
 };
 

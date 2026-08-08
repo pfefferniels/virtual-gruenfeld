@@ -184,7 +184,7 @@ const sliceAudioBuffer = (
 
 // ── Main entry point ──
 
-const decodeAudioBase64 = async (
+export const decodeAudioBase64 = async (
     b64: string,
     audioContext: AudioContext,
 ): Promise<AudioBuffer> => {

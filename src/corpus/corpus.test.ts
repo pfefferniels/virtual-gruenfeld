@@ -32,13 +32,14 @@ const digestBody = (digest: string): string[] => {
 
 describe('corpus parsing', () => {
     it('reads every argumentation in info.json', () => {
-        expect(getCorpus().argumentations).toHaveLength(158);
+        // The 2026-04-02 mpm-desk export: 136 argumentations, canonical motivations.
+        expect(getCorpus().argumentations).toHaveLength(136);
     });
 
     it('places all but a handful of argumentations on the timeline', () => {
         const stats = corpusStats();
-        expect(stats.placed + stats.global).toBeGreaterThanOrEqual(150);
-        expect(stats.unplaced).toBeLessThanOrEqual(8);
+        expect(stats.placed + stats.global).toBeGreaterThanOrEqual(125);
+        expect(stats.unplaced).toBeLessThanOrEqual(10);
     });
 
     it('orders argumentations by position, then id', () => {
@@ -184,9 +185,11 @@ describe('scholarly digest', () => {
     });
 
     it('marks piece-wide rules instead of pinning them to bar one', () => {
+        // The mechanism must track the data: 'piece-wide' appears exactly when
+        // global-scope argumentations exist (the current export has none).
         const digest = getScholarlyDigest();
-        expect(digest).toContain('piece-wide');
-        expect(getCorpus().argumentations.filter((a) => a.scope === 'global').length).toBeGreaterThan(0);
+        const globals = getCorpus().argumentations.filter((a) => a.scope === 'global').length;
+        expect(digest.includes('piece-wide')).toBe(globals > 0);
     });
 
     it('shrinks when only interpretive argumentations are kept', () => {
@@ -214,7 +217,7 @@ describe('range detail', () => {
             (a) => a.scope === 'ranged' && a.spans.some((s) => s.from <= FIXTURE_RANGE.to && s.to >= FIXTURE_RANGE.from),
         );
         expect(inside.length).toBeGreaterThan(5);
-        expect(detail).toContain('Auftaktgeste flüchtig, etwas gestaucht'); // m1.4–m2.2
+        expect(detail).toContain('Auftaktenergie hin zur 1'); // m1.1–m1.2
 
         const farAway = corpus.argumentations.find(
             (a) => a.claim && a.spans.length > 0 && a.spans[0].from > 60_000 && a.spans[a.spans.length - 1].to > 60_000,
@@ -226,17 +229,17 @@ describe('range detail', () => {
     it('lists reference instructions inside the range only', () => {
         const detail = buildRangeDetail(getCorpus().argumentations, getCorpus().elements, FIXTURE_RANGE);
         expect(detail).toContain('Reference performance instructions here');
-        expect(detail).toContain('m2.2 rubato: intensity');
+        expect(detail).toContain('m1.2 ornament: arpeggio');
         expect(detail).not.toMatch(/\n {2}m(2[5-9]|3[0-2])\.\d /);
     });
 
     it('shows only the transformer calls that reach into the range', () => {
-        // Inegalité fires 28 times across the piece; the m1–m5 view must not list them all.
+        // "Klang öffnen" carries 14 calls; the m1–m5 view must not list them all.
         const detail = getRangeDetail(FIXTURE_RANGE);
-        const inegaliteBlock = detail.slice(detail.indexOf('claim: Inegalité'));
-        const transformerLine = inegaliteBlock.split('\n').find((line) => line.includes('transformers:')) ?? '';
-        expect(transformerLine.match(/InsertRubato/g)?.length ?? 0).toBeLessThanOrEqual(4);
+        const block = detail.slice(detail.indexOf('claim: Klang öffnen'));
+        const transformerLine = block.split('\n').find((line) => line.includes('transformers:')) ?? '';
         expect(transformerLine).toContain('more of the same');
+        expect((transformerLine.match(/;/g)?.length ?? 0)).toBeLessThanOrEqual(5);
     });
 
     it('says so plainly when nothing is documented for a range', () => {

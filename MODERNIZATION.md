@@ -252,3 +252,15 @@ Results:
   CANONICAL 'relax' to legacy 'relaxation'. 346/346 tests, knip clean.
   NOTE: client/public/info.json still carries the old vocabulary — when regenerated from
   mpm-desk it will emit the canonical four natively and the mapping becomes a pass-through.
+- 2026-08-08 13:30 — Synced the current mpm-desk export (user request): client/public/info.json +
+  score.mei (← transcription.mei) + assets/all/performance.mpm all from ../mpm-desk/public
+  (matched set, 2026-04-02; note IDs verified identical, 532 notes). 136 argumentations, native
+  canonical motivations (intensify 41 / calm 30 / relax 30 / move 27 / unknown 8 — was 75 unknown),
+  certainties substantively revised (plausible 86 now dominant). Concept map gained InsertTempo→
+  tempo, InsertMetadata→metadata; 6 data-pinned tests re-anchored to the new content. 346/346.
+  Notes: compact-vs-full digest distinction nearly collapsed (12,450 vs 12,861 chars) since almost
+  all argumentations now carry motivations — CORPUS_DEPTH tiering could be revisited;
+  new top-level `secondary.tempo` key in info.json is ignored by the corpus parser (mpmify's
+  importWork handles it); assets/all/info.json is orphaned (referenced by no code) and left as-is;
+  a real in-app take against the new chain (which now uses InsertTempo) has NOT been run — mpmify
+  is the same checkout mpm-desk uses, so importWork supports it, but verify on first play.

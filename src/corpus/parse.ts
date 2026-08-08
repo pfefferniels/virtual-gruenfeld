@@ -20,6 +20,8 @@ const CONCEPT_BY_TRANSFORMER: Record<string, string> = {
     Modify: 'manual adjustment',
     MakeChoice: 'editorial choice',
     TranslatePhyiscalTimeToTicks: 'time base',
+    InsertTempo: 'tempo',
+    InsertMetadata: 'metadata',
 };
 
 /** Canonical concept order — keeps digest lines byte-stable regardless of call order. */

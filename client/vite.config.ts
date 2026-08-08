@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
+    // Server-side modules under ../src ship their tests next to the source;
+    // the client vitest run is the project's single test entry point.
+    include: ['src/**/*.{test,spec}.?(c|m)[jt]s?(x)', '../src/**/*.{test,spec}.?(c|m)[jt]s?(x)'],
   },
   optimizeDeps: {
     include: ['events'],

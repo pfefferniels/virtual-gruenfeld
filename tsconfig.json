@@ -26,5 +26,7 @@
     "emitDecoratorMetadata": true,
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "client", "assets", "renders", "test"]
+  // Server tests run under the client's vitest (the project's single test entry
+  // point), so vitest's types are not resolvable from this tsconfig.
+  "exclude": ["node_modules", "dist", "client", "assets", "renders", "test", "src/**/*.test.ts"]
 }

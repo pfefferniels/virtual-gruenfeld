@@ -8,6 +8,16 @@ const logExaggerate = (ref: number, student: number, aggressiveness: number, min
     return Math.max(min, Math.min(max, ref * Math.pow(ratio, aggressiveness)));
 };
 
+/**
+ * How far one deviation type gets pushed. Before Phase 3 a single global 0.2
+ * covered all of them; now the teacher sets one per type it wants heard.
+ * `maxAbsDelta` in EXAGGERATION_TUNING stays the ceiling either way.
+ */
+export type ExaggerationDimension = { type: string; strength: number };
+
+/** The aggressiveness the fixed-pedagogy pipeline always used. */
+export const DEFAULT_EXAGGERATION_STRENGTH = 0.2;
+
 const EXAGGERATION_TUNING: Record<string, Record<string, { strength: number; maxAbsDelta: number }>> = {
     dynamics: {
         volume: { strength: 0.45, maxAbsDelta: 12 },
@@ -76,12 +86,43 @@ const EXAGGERATION_SPEC: Record<string, Array<{ attr: string; min: number; max: 
     ],
 };
 
-export const exaggerate = (mpm1: MPM, mpm2: MPM, range: Range, aggressiveness: number = 1, log: (msg: string) => void) => {
+/** Every shapeable dimension at one strength — the pre-Phase-3 behaviour. */
+export const allDimensions = (
+    strength: number = DEFAULT_EXAGGERATION_STRENGTH,
+): ExaggerationDimension[] =>
+    Object.keys(EXAGGERATION_SPEC).map((type) => ({ type, strength }));
+
+/**
+ * Push the reference performance further away from the student's, so what the
+ * student did differently becomes audible by contrast. Only the dimensions given
+ * are touched; everything else is left as Grünfeld played it.
+ *
+ * A dimension's strength scales how far the push goes, never how far it is
+ * *allowed* to go: EXAGGERATION_TUNING's `maxAbsDelta` and the per-attribute
+ * min/max bounds are applied afterwards and cap the result unconditionally.
+ */
+export const exaggerate = (
+    mpm1: MPM,
+    mpm2: MPM,
+    range: Range,
+    dimensions: ExaggerationDimension[],
+    log: (msg: string) => void,
+) => {
+    const strengthByType = new Map<string, number>();
+    for (const dimension of dimensions) {
+        if (typeof dimension?.strength !== 'number' || !Number.isFinite(dimension.strength)) continue;
+        if (!strengthByType.has(dimension.type)) strengthByType.set(dimension.type, dimension.strength);
+    }
+    if (strengthByType.size === 0) return;
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allInstructions: any[] = mpm1.getInstructions().filter(i => inRange(i, range));
     const idx = indexInstructions(mpm2);
 
     for (const instruction of allInstructions) {
+        const aggressiveness = strengthByType.get(instruction.type);
+        if (aggressiveness === undefined) continue;
+
         const corresp = idx.get(`${instruction.type}::${instruction["xml:id"]}`);
         if (!corresp) continue;
 

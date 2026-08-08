@@ -4,11 +4,11 @@
   "ignoreBinaries": ["java"],
   "workspaces": {
     ".": {
-      "project": ["src/**/*.ts"]
+      "entry": ["scripts/*.ts", "*.ts"],
+      "project": ["src/**/*.ts", "scripts/*.ts", "*.ts"]
     },
     "client": {
-      "project": ["src/**/*.{ts,tsx}"],
-      "ignoreDependencies": ["react-pianosound"]
+      "project": ["src/**/*.{ts,tsx}"]
     }
   }
 }

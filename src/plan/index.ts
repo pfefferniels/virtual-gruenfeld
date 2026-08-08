@@ -1,13 +1,9 @@
-export { LESSON_PLAN_FORMAT, LESSON_PLAN_SCHEMA } from './schema';
+/**
+ * What the routes need to ask for a lesson plan and trust the answer. The
+ * schema, the clamping rules and the shape constants stay inside the module —
+ * `plan.test.ts` reaches for them directly, nothing else should.
+ */
+export { LESSON_PLAN_FORMAT } from './schema';
 export { describePlan, parseAgenticResponse, validatePlan } from './validate';
-export type { PlanContext, ValidatedPlan } from './validate';
-export {
-    DEFAULT_PLAN,
-    DEFAULT_STRENGTH,
-    DEMO_MODES,
-    INSTRUCTION_TYPES,
-    MIN_DEMO_TICKS,
-    STRENGTH_MAX,
-    STRENGTH_MIN,
-} from './types';
-export type { DemoMode, InstructionType, LessonPlan, PlanDimension, RawLessonPlan } from './types';
+export { DEFAULT_PLAN } from './types';
+export type { LessonPlan } from './types';

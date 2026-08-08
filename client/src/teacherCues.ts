@@ -11,7 +11,7 @@ export type TimingMapPoint = {
     sec: number;
 };
 
-export type TeacherCue = {
+type TeacherCue = {
     id: string;
     atSec: number;
     text: string;
@@ -21,7 +21,7 @@ export type TeacherCue = {
     priority: number;
 };
 
-export type TeacherCueDraft = {
+type TeacherCueDraft = {
     position: string;
     text: string;
 };

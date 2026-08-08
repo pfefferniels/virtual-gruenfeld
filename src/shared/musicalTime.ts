@@ -4,7 +4,7 @@
  * across into `client/`. Both files must agree on PPQ and the position format.
  */
 
-export const PPQ = 720;
+const PPQ = 720;
 const BEATS_PER_MEASURE = 4;
 const TICKS_PER_MEASURE = PPQ * BEATS_PER_MEASURE;
 

@@ -56,7 +56,7 @@ const MPM_DATED_KINDS = [
 // ── Text normalisation ──
 
 /** Collapse whitespace so multi-line editorial notes stay one digest line. */
-export const flattenText = (value: unknown): string =>
+const flattenText = (value: unknown): string =>
     typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 
 /** `relax` appears once as a typo variant of the `relaxation` motivation. */

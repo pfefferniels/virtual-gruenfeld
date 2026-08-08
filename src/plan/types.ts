@@ -49,8 +49,6 @@ export type RawLessonPlan = {
 
 export const STRENGTH_MIN = 0.05;
 export const STRENGTH_MAX = 0.5;
-/** The single global aggressiveness the pre-agentic pipeline always used. */
-export const DEFAULT_STRENGTH = 0.2;
 
 /** A demo shorter than one beat cannot be heard as a passage. */
 export const MIN_DEMO_TICKS = 720;

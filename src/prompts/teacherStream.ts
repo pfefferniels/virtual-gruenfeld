@@ -100,7 +100,7 @@ const QA_RULES = `ANSWERING A QUESTION — this turn is not a demonstration. The
 
 IMPORTANT: Write the answer in ${OUTPUT_LANGUAGE}.`;
 
-export type TeacherPromptOptions = {
+type TeacherPromptOptions = {
     /** Trim the digest to argumentations that carry a motivation or editorial prose. */
     compactCorpus?: boolean;
     /** The request belongs to a session, so the input may carry earlier takes. */

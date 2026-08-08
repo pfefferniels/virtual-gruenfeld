@@ -7,10 +7,9 @@ import { parseArgumentations, parseMpmElements, spansByCorresp } from './parse';
 import { MPM_CONCEPT_PRIMER } from './primer';
 import type { Corpus, Range } from './types';
 
+// The parsing and digest builders below are the module's own machinery;
+// `corpus.test.ts` imports them from the files that own them.
 export { MPM_CONCEPT_PRIMER } from './primer';
-export { buildRangeDetail, buildScholarlyDigest } from './digest';
-export { parseArgumentations, parseMpmElements, spansByCorresp } from './parse';
-export type { Argumentation, Corpus, MpmElement, Range, Span } from './types';
 
 /**
  * The transformer chain the client actually applies to build the reference

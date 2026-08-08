@@ -1,28 +1,9 @@
-export { buildDiffDigest, buildTakeRecord, buildTeacherSaid } from './record';
-export {
-    formatSessionHistory,
-    HISTORY_MAX_TAKES,
-    HISTORY_MAX_QA,
-    HISTORY_HEADING,
-    QA_HEADING,
-    PROFILE_HEADING,
-} from './history';
-export {
-    isValidSessionId,
-    readSession,
-    recordQa,
-    recordTake,
-    setStudentProfile,
-    MAX_QA_PER_SESSION,
-    MAX_TAKES_PER_SESSION,
-    SESSION_TTL_MS,
-    __resetSessionStore,
-} from './store';
-export {
-    buildProfileInput,
-    flushProfileUpdates,
-    parseProfileResponse,
-    scheduleProfileUpdate,
-    updateStudentProfile,
-} from './profile';
-export type { DiffDigest, QaRecord, SessionState, StudentProfile, TakeRecord } from './types';
+/**
+ * What the routes and the smoke script need of session memory. The caps, the
+ * headings and the profile internals stay inside the module — `sessions.test.ts`
+ * imports those from the files that own them.
+ */
+export { buildTakeRecord } from './record';
+export { formatSessionHistory } from './history';
+export { isValidSessionId, readSession, recordQa, recordTake, __resetSessionStore } from './store';
+export { flushProfileUpdates, scheduleProfileUpdate } from './profile';

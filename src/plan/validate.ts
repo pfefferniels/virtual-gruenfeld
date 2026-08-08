@@ -13,14 +13,14 @@ import {
     type RawLessonPlan,
 } from './types';
 
-export type PlanContext = {
+type PlanContext = {
     /** The take the plan has to stay inside. Absent for the legacy diff-string path. */
     takeRange?: { from: number; to: number };
     /** Deviation types the diff actually reported. A plan cannot shape what was not measured. */
     diffTypes?: Iterable<string>;
 };
 
-export type ValidatedPlan = {
+type ValidatedPlan = {
     plan: LessonPlan;
     /** Everything that had to be corrected — logged by the route, asserted by tests. */
     warnings: string[];

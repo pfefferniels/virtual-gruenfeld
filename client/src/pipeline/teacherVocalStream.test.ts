@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { layoutCues } from './teacherVocalStream';
+import { layoutCues, scheduleTalkOnly, talkOnlyDurationSec } from './teacherVocalStream';
+import type { VocalChunk } from './chunker';
+import type { ScheduledCue } from './types';
 
 const layout = (items: { ideal: number; duration: number; gapAfter?: number }[]) =>
     layoutCues(items.map((i) => ({ ...i, gapAfter: i.gapAfter ?? 0.25 })));
@@ -100,5 +102,40 @@ describe('layoutCues (PAVA)', () => {
         const naiveL2 = naiveResult.reduce((sum, pos, i) => sum + (pos - items[i].ideal) ** 2, 0);
 
         expect(pavaL2).toBeLessThan(naiveL2);
+    });
+});
+
+describe('talk-only scheduling (demo mode "none")', () => {
+    const chunk = (marker: string, duration: number): VocalChunk => ({
+        marker,
+        text: `${marker} text`,
+        startSec: 0,
+        endSec: duration,
+        audioBuffer: { duration } as AudioBuffer,
+    });
+
+    const schedule = (chunks: VocalChunk[]) => {
+        const cues: ScheduledCue[] = [];
+        scheduleTalkOnly(chunks, (cue) => cues.push(cue), () => {});
+        return cues;
+    };
+
+    it('plays the segments back to back, in the order the teacher said them', () => {
+        const cues = schedule([chunk('JUDGE', 2), chunk('m3.1', 1), chunk('m4.2', 0.5)]);
+        expect(cues.map((cue) => cue.atSec)).toEqual([0, 2.25, 3.5]);
+    });
+
+    it('keeps the positional markers instead of dropping them with their anchor', () => {
+        const cues = schedule([chunk('JUDGE', 1), chunk('m3.1', 1)]);
+        expect(cues).toHaveLength(2);
+    });
+
+    it('reports how long the teacher will be talking, so the chord can hold', () => {
+        expect(talkOnlyDurationSec([chunk('JUDGE', 2), chunk('m3.1', 1)])).toBeCloseTo(3.5, 9);
+        expect(talkOnlyDurationSec([])).toBe(0);
+    });
+
+    it('schedules nothing when there is nothing to say', () => {
+        expect(schedule([])).toEqual([]);
     });
 });

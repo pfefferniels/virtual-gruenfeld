@@ -1,5 +1,6 @@
 import type { CuePrepMode } from "../cueLibrary";
 import type { ImmediateJudgementPayload } from "../judgement";
+import { readLessonPlan, type LessonPlan } from "../lessonPlan";
 import type { Range, StructuredDiffEvent } from "../mpm";
 
 // ── AI service availability ──
@@ -44,6 +45,8 @@ export type TeacherStreamResponsePayload = {
         character_end_times_seconds: number[];
     };
     model: string;
+    /** Present only when the request asked for it (see `featureFlags.ts`). */
+    plan: LessonPlan | null;
     stats: { llmMs: number; ttsMs: number; totalMs: number };
 };
 
@@ -59,6 +62,8 @@ export type TeacherStreamRequestPayload = {
     range?: Range;
     /** Ties this take to the earlier ones of the same sitting (see `session.ts`). */
     sessionId?: string;
+    /** Ask the teacher to plan the demonstration instead of always exaggerating the whole take. */
+    agentic?: boolean;
 };
 
 export const fetchTeacherStream = async (
@@ -83,6 +88,7 @@ export const fetchTeacherStream = async (
             character_end_times_seconds: payload?.alignment?.character_end_times_seconds ?? [],
         },
         model: payload?.model ?? '',
+        plan: readLessonPlan(payload?.plan),
         stats: {
             llmMs: payload?.stats?.llmMs ?? 0,
             ttsMs: payload?.stats?.ttsMs ?? 0,

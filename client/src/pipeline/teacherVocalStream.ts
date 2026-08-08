@@ -1,5 +1,6 @@
 import type { ImmediateJudgementPayload } from '../judgement';
 import type { CuePrepMode } from '../cueLibrary';
+import { describePlan, type LessonPlan } from '../lessonPlan';
 import type { Range, StructuredDiffEvent } from '../mpm';
 import { pickCueCandidates, secAtDate, type TimingMapPoint } from '../teacherCues';
 import { cueDelay } from '../teacherCues';
@@ -11,6 +12,12 @@ import type { ScheduledCue } from './types';
 
 // ── Request ──
 
+export type VocalStreamResult = {
+    chunks: VocalChunk[];
+    /** The teacher's demonstration plan, or null when it was not asked for one. */
+    plan: LessonPlan | null;
+};
+
 export const requestVocalStream = async (
     judgement: ImmediateJudgementPayload,
     diffSummary: string,
@@ -20,7 +27,8 @@ export const requestVocalStream = async (
     mode: CuePrepMode,
     audioContext: AudioContext,
     log: (msg: string) => void,
-): Promise<VocalChunk[]> => {
+    agentic: boolean = false,
+): Promise<VocalStreamResult> => {
     // Build candidates from diff events (same format as cue planning)
     const positions = new Map<string, StructuredDiffEvent[]>();
     if (mode === 'realtime' && timingMap) {
@@ -47,7 +55,7 @@ export const requestVocalStream = async (
         })),
     }));
 
-    log(`VOCAL: requesting stream (anchors=${candidates.length}, evidence=${diffEvents.length}, mode=${mode})`);
+    log(`VOCAL: requesting stream (anchors=${candidates.length}, evidence=${diffEvents.length}, mode=${mode}${agentic ? ', agentic' : ''})`);
     const startedAt = Date.now();
 
     // The candidate list is narrowed for cue placement; the diff sent as evidence is not.
@@ -59,13 +67,15 @@ export const requestVocalStream = async (
         structuredDiff: diffEvents,
         range,
         sessionId: getSessionId(),
+        ...(agentic ? { agentic: true } : {}),
     });
     log(`VOCAL: stream received (llm_ms=${response.stats.llmMs}, tts_ms=${response.stats.ttsMs}, anchors=${response.anchors.length})`);
+    if (response.plan) log(`VOCAL: plan ${describePlan(response.plan)}`);
 
     const chunks = await chunkVocalStream(response, audioContext);
     log(`VOCAL: chunked into ${chunks.length} segments (total_ms=${Date.now() - startedAt})`);
 
-    return chunks;
+    return { chunks, plan: response.plan };
 };
 
 // ── Layout (Pool Adjacent Violators) ──
@@ -130,6 +140,35 @@ export const layoutCues = (items: LayoutItem[]): number[] => {
 };
 
 // ── Scheduling ──
+
+/**
+ * How long the teacher talks when there is nothing to play under it: every chunk
+ * back to back, separated by the same gap the positional layout uses.
+ */
+export const talkOnlyDurationSec = (chunks: VocalChunk[]): number =>
+    chunks.reduce((total, chunk) => total + chunk.audioBuffer.duration + MIN_CUE_GAP_SEC, 0);
+
+/**
+ * The `none` demo: no performance to anchor cues against, so the monologue is
+ * simply spoken through in order. The positional markers lose their meaning
+ * here — they are kept in sequence rather than dropped.
+ */
+export const scheduleTalkOnly = (
+    chunks: VocalChunk[],
+    scheduleAudioCue: (cue: ScheduledCue) => void,
+    log: (msg: string) => void,
+): void => {
+    let atSec = 0;
+    for (const chunk of chunks) {
+        log(`VOCAL: schedule "${chunk.marker}" at ${atSec.toFixed(2)}s (talk-only)`);
+        scheduleAudioCue({
+            atSec,
+            audioBuffer: chunk.audioBuffer,
+            onStart: () => log(`VOCAL: playing "${chunk.marker}" "${chunk.text.slice(0, 30)}"`),
+        });
+        atSec += chunk.audioBuffer.duration + MIN_CUE_GAP_SEC;
+    }
+};
 
 export const scheduleVocalStream = (
     chunks: VocalChunk[],

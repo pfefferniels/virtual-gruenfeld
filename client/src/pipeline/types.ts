@@ -2,7 +2,7 @@ import type { MidiFile } from 'midifile-ts';
 import type { MSM } from 'mpmify';
 import type { MPM } from 'mpm-ts';
 import type { Range, StructuredDiffEvent } from '../mpm';
-import type { CuePrepMode } from '../cueLibrary';
+import type { CuePrepMode } from '../prepMode';
 import type { ImmediateJudgementPayload } from '../judgement';
 
 export type PipelineContext = {

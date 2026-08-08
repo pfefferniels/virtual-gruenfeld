@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CuePrepMode } from './cueLibrary';
+import type { CuePrepMode } from './prepMode';
 import type { Range } from './mpm';
 import { waitForPlayingSafe } from './midi';
 import { boot } from './pipeline/boot';

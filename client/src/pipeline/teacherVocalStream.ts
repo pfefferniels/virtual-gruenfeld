@@ -1,5 +1,5 @@
 import type { ImmediateJudgementPayload } from '../judgement';
-import type { CuePrepMode } from '../cueLibrary';
+import type { CuePrepMode } from '../prepMode';
 import { describePlan, type LessonPlan } from '../lessonPlan';
 import type { Range, StructuredDiffEvent } from '../mpm';
 import { pickCueCandidates, secAtDate, type TimingMapPoint } from '../teacherCues';

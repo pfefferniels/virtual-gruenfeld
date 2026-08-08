@@ -1,17 +1,18 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-import type { CuePrepMode } from './cueLibrary';
+import type { CuePrepMode } from './prepMode';
 import { decodeAudioBase64 } from './pipeline/chunker';
 import { askTeacher } from './services/api';
 import { getSessionId } from './session';
 import {
+    armAutoStop,
     blobToBase64,
     micErrorMessage,
     MIN_RECORDING_BYTES,
     recordingMimeType,
 } from './voiceInput';
 
-export type TeacherAnswer = {
+type TeacherAnswer = {
     /** The question as the server heard it. */
     transcript: string;
     answerText: string;
@@ -39,6 +40,13 @@ export const useVoiceQuestion = ({ mode, audioContext, playAudioBuffer, log }: O
     const recorderRef = useRef<MediaRecorder | null>(null);
     /** True while the button is held — the release can beat the permission prompt. */
     const heldRef = useRef(false);
+    /** Cancels the max-length cut-off, once a recording has armed one. */
+    const autoStopRef = useRef<(() => void) | null>(null);
+
+    const clearAutoStop = useCallback(() => {
+        autoStopRef.current?.();
+        autoStopRef.current = null;
+    }, []);
 
     const supported = useMemo(
         () => recordingMimeType() !== null
@@ -122,6 +130,7 @@ export const useVoiceQuestion = ({ mode, audioContext, playAudioBuffer, log }: O
         const recorder = new MediaRecorder(stream, { mimeType });
         recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data); };
         recorder.onstop = () => {
+            clearAutoStop();
             release();
             recorderRef.current = null;
             setRecording(false);
@@ -132,13 +141,19 @@ export const useVoiceQuestion = ({ mode, audioContext, playAudioBuffer, log }: O
         recorder.start();
         setMessage('');
         setRecording(true);
-    }, [send, supported]);
+
+        // The question so far is still sent — a cut-off question beats none.
+        autoStopRef.current = armAutoStop(() => {
+            if (recorder.state !== 'inactive') recorder.stop();
+        });
+    }, [clearAutoStop, send, supported]);
 
     const stop = useCallback(() => {
         heldRef.current = false;
+        clearAutoStop();
         const recorder = recorderRef.current;
         if (recorder && recorder.state !== 'inactive') recorder.stop();
-    }, []);
+    }, [clearAutoStop]);
 
     return { supported, recording, thinking, speaking, answer, message, start, stop };
 };

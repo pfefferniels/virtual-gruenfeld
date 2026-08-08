@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { usePiano } from "./pianosound";
 import { useTake } from "./useTake";
 import { useMidiDevices } from "./useMidiDevices";
 import type { MidiDeviceInfo } from "./useMidiDevices";
-import type { CuePrepMode } from "./cueLibrary";
-import { isVoiceTeacher } from "./featureFlags";
+import type { CuePrepMode } from "./prepMode";
+import {
+    isAgenticTeacher, isVoiceTeacher, setFlagOverride,
+    TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
+} from "./featureFlags";
 import { useVoiceQuestion } from "./useVoiceQuestion";
 
 const CUE_MODE_OPTIONS: Array<{ value: CuePrepMode; label: string; hint: string }> = [
@@ -43,6 +46,30 @@ const selectStyle: React.CSSProperties = {
     minWidth: 0,
     maxWidth: '100%',
 };
+
+/**
+ * One prototype switch in the debug sidebar. Writes the localStorage override
+ * `featureFlags.ts` reads, so it outlives the reload the flag may need.
+ */
+const FlagToggle = ({ label, note, checked, onChange }: {
+    label: string;
+    note: string;
+    checked: boolean;
+    onChange: (next: boolean) => void;
+}) => (
+    <label style={{ display: 'grid', gap: 2, cursor: 'pointer' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onChange(e.target.checked)}
+                style={{ margin: 0, cursor: 'pointer' }}
+            />
+            <span style={{ fontSize: 10, letterSpacing: '0.03em' }}>{label}</span>
+        </span>
+        <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3, paddingLeft: 19 }}>{note}</span>
+    </label>
+);
 
 const DeviceSelect = ({ label, devices, selectedId, onChange }: {
     label: string;
@@ -97,8 +124,12 @@ export const Dialog = () => {
     const [showHelp, setShowHelp] = useState(false);
 
     // Off by default: without the flag the page has no microphone UI at all, and
-    // the hook never asks for a device.
-    const voiceEnabled = useMemo(() => isVoiceTeacher(), []);
+    // the hook never asks for a device. Held in state so the debug toggle below
+    // shows and hides the panel without a reload.
+    const [voiceEnabled, setVoiceEnabled] = useState(isVoiceTeacher);
+    // The strategy reads this one afresh for every take, so the toggle only has
+    // to record the choice.
+    const [agenticEnabled, setAgenticEnabled] = useState(isAgenticTeacher);
     const voice = useVoiceQuestion({ mode: cuePrepMode, audioContext, playAudioBuffer, log });
     const showVoice = voiceEnabled && aiAvailable;
     const voiceAnswer = voiceEnabled ? voice.answer : null;
@@ -357,7 +388,7 @@ export const Dialog = () => {
                     minWidth: 200,
                     maxWidth: 340,
                     borderLeft: '2px solid #333',
-                    background: '#eeece6',
+                    background: '#f3f4f6',
                     padding: '16px 12px',
                     display: 'grid',
                     alignContent: 'start',
@@ -366,8 +397,37 @@ export const Dialog = () => {
                     fontSize: 10,
                     color: '#444',
                 }}>
+                    <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 10, display: 'grid', gap: 8 }}>
+                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                            Prototype features
+                        </strong>
+                        <FlagToggle
+                            label="Agentic lesson plan"
+                            note="The teacher chooses what to demonstrate. Applies to the next take."
+                            checked={agenticEnabled}
+                            onChange={(next) => {
+                                setFlagOverride(TEACHER_AGENTIC_KEY, next);
+                                setAgenticEnabled(next);
+                            }}
+                        />
+                        <FlagToggle
+                            label="Ask by voice"
+                            note="Hold-to-ask button. Needs the AI service."
+                            checked={voiceEnabled}
+                            onChange={(next) => {
+                                setFlagOverride(TEACHER_VOICE_KEY, next);
+                                setVoiceEnabled(next);
+                            }}
+                        />
+                        {!aiAvailable && (
+                            <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3 }}>
+                                Both need the teacher service; neither does anything while it is unreachable.
+                            </span>
+                        )}
+                    </div>
+
                     {aiAvailable && lastDiff && (
-                        <details style={{ borderBottom: '1px solid #ccc', paddingBottom: 8 }}>
+                        <details style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
                             <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                 Diff sent to LLM
                             </summary>

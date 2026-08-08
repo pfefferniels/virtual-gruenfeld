@@ -35,3 +35,17 @@ export const TEACHER_VOICE_KEY = 'TEACHER_VOICE';
 
 export const isVoiceTeacher = (): boolean =>
     readFlag(TEACHER_VOICE_KEY, import.meta.env.VITE_TEACHER_VOICE);
+
+/**
+ * Pin a flag for this browser, whatever the build says. `null` drops the
+ * override and hands the flag back to the build variable. Storage can be
+ * unavailable (private mode), in which case the switch simply does not stick.
+ */
+export const setFlagOverride = (key: string, value: boolean | null): void => {
+    try {
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value ? '1' : '0');
+    } catch {
+        // Nothing to do about it, and nothing worth breaking the page over.
+    }
+};

@@ -1,11 +1,56 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+    armAutoStop,
+    MAX_RECORDING_MS,
     micErrorMessage,
     pickRecordingMimeType,
     PREFERRED_MIME_TYPES,
     stripDataUrlPrefix,
 } from './voiceInput';
+
+describe('max recording length', () => {
+    beforeEach(() => { vi.useFakeTimers(); });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('stops a recording that runs past the limit', () => {
+        const stop = vi.fn();
+        armAutoStop(stop);
+
+        vi.advanceTimersByTime(MAX_RECORDING_MS - 1);
+        expect(stop).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(1);
+        expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves a normal, released recording alone', () => {
+        const stop = vi.fn();
+        const cancel = armAutoStop(stop);
+
+        // The button came up after four seconds, as it usually does.
+        vi.advanceTimersByTime(4000);
+        cancel();
+
+        vi.advanceTimersByTime(MAX_RECORDING_MS * 2);
+        expect(stop).not.toHaveBeenCalled();
+    });
+
+    it('does not mind being cancelled after it has already fired', () => {
+        const stop = vi.fn();
+        const cancel = armAutoStop(stop);
+
+        vi.advanceTimersByTime(MAX_RECORDING_MS);
+        expect(() => cancel()).not.toThrow();
+        expect(stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is long enough for a real question and short of the body limit', () => {
+        // Opus in webm is ~4kB/s, so 30s is ~120kB — the route accepts 10mb.
+        expect(MAX_RECORDING_MS).toBeGreaterThanOrEqual(15_000);
+        expect(MAX_RECORDING_MS).toBeLessThanOrEqual(60_000);
+    });
+});
 
 describe('recording container', () => {
     it('takes opus in webm when the browser has it', () => {

@@ -40,6 +40,24 @@ export const blobToBase64 = (blob: Blob): Promise<string> =>
 /** A recording this short is a mis-click, not a question. */
 export const MIN_RECORDING_BYTES = 1200;
 
+/**
+ * A held button that never comes back up — a pointer lost to a dragged window, a
+ * phone locking — would otherwise record until the tab closes and then post the
+ * lot. Thirty seconds is far longer than any question and a tenth of what the
+ * 10mb body limit would take to reach.
+ */
+export const MAX_RECORDING_MS = 30_000;
+
+/**
+ * Arm the cut-off for one recording. Returns the canceller, which the normal
+ * path — button released — calls instead. Calling it after the cut-off has
+ * already fired is harmless, so the caller never has to know which happened.
+ */
+export const armAutoStop = (stop: () => void, ms: number = MAX_RECORDING_MS): (() => void) => {
+    const timer = setTimeout(stop, ms);
+    return () => clearTimeout(timer);
+};
+
 const errorName = (error: unknown): string =>
     typeof error === 'object' && error !== null && 'name' in error
         ? String((error as { name: unknown }).name)

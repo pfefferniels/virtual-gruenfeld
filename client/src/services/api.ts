@@ -1,14 +1,48 @@
-import type { CuePrepMode } from "../cueLibrary";
+import type { CuePrepMode } from "../prepMode";
 import type { ImmediateJudgementPayload } from "../judgement";
 import { readLessonPlan, type LessonPlan } from "../lessonPlan";
 import type { Range, StructuredDiffEvent } from "../mpm";
 
 // ── AI service availability ──
 
-const TEACHER_URL = import.meta.env.VITE_TEACHER_URL || 'http://localhost:3002';
+/** Documented in SPOKEN_FEEDBACK.md and DEPLOYMENT.md — users type this by hand. */
+const TEACHER_URL_KEY = 'TEACHER_URL';
 
-/** Probe whether the local AI teacher service is reachable (retries for slow startup). */
+const LOCAL_TEACHER_URL = 'http://localhost:3002';
+
+const tidy = (url: string | undefined | null): string => (url ?? '').trim().replace(/\/$/, '');
+
+/**
+ * Where the teacher service lives, most specific first:
+ *
+ * 1. `localStorage.TEACHER_URL` — one browser pointed somewhere by hand. This is
+ *    how you run a local teacher against the deployed page (see SPOKEN_FEEDBACK.md),
+ *    and how you try a deployed one without rebuilding the client.
+ * 2. `VITE_TEACHER_URL`, baked in at build time (see DEPLOYMENT.md).
+ * 3. The local server, but only while developing. A deployed build deliberately
+ *    guesses nothing: probing localhost from every visitor's browser buys six
+ *    seconds of failing requests for the one visitor in a thousand running a
+ *    server, who can opt in with (1).
+ */
+export const resolveTeacherUrl = (
+    env: { VITE_TEACHER_URL?: string; DEV?: boolean },
+    override?: string | null,
+): string => tidy(override) || tidy(env.VITE_TEACHER_URL) || (env.DEV ? LOCAL_TEACHER_URL : '');
+
+const storedTeacherUrl = (): string | null => {
+    try {
+        return localStorage.getItem(TEACHER_URL_KEY);
+    } catch {
+        return null; // Private mode, or no DOM at all under vitest.
+    }
+};
+
+const TEACHER_URL = resolveTeacherUrl(import.meta.env, storedTeacherUrl());
+
+/** Probe whether the AI teacher service is reachable (retries for slow startup). */
 export const probeTeacherService = async (): Promise<boolean> => {
+    if (!TEACHER_URL) return false;
+
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
             const r = await fetch(`${TEACHER_URL}/teacher-stream`, {
@@ -34,7 +68,7 @@ export const assertOk = async (r: Response) => {
 
 // ── Teacher Stream (unified vocal) ──
 
-export type TeacherStreamResponsePayload = {
+type TeacherStreamResponsePayload = {
     rawText: string;
     anchors: Array<{ marker: string; charOffset: number; text: string }>;
     cleanedText: string;
@@ -50,7 +84,7 @@ export type TeacherStreamResponsePayload = {
     stats: { llmMs: number; ttsMs: number; totalMs: number };
 };
 
-export type TeacherStreamRequestPayload = {
+type TeacherStreamRequestPayload = {
     judgement: ImmediateJudgementPayload;
     /** Pre-digested ASCII table. Kept as the fallback when the server is older. */
     diff: string;
@@ -68,7 +102,7 @@ export type TeacherStreamRequestPayload = {
 
 // ── Teacher Ask (push-to-talk question) ──
 
-export type TeacherAskRequestPayload = {
+type TeacherAskRequestPayload = {
     /** The question as text. Wins over `audio` when both are sent. */
     question?: string;
     /** The recorded question, base64, as MediaRecorder produced it. */
@@ -78,7 +112,7 @@ export type TeacherAskRequestPayload = {
     mode?: CuePrepMode;
 };
 
-export type TeacherAskResponsePayload = {
+type TeacherAskResponsePayload = {
     /** What the server heard. Empty when nothing intelligible was said. */
     transcript: string;
     answerText: string;

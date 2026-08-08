@@ -1,12 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The OpenAI client is constructed when `../config` is first evaluated, so the
 // key has to exist before these modules load. No request is ever made here.
 process.env.OPENAI_API_KEY ||= 'smoke-test-placeholder';
 
-const { buildUserInput, parseTeacherStreamBody } = await import('./teacherStream');
+const { buildUserInput, parseTeacherStreamBody, runTeacherStream } = await import('./teacherStream');
 const { buildTeacherSystemPrompt } = await import('../prompts/teacherStream');
 const { sanitizeJudgementText } = await import('../prompts/judgement');
+const { __resetSessionStore, flushProfileUpdates, readSession } = await import('../sessions');
+const { openai } = await import('../config');
 
 const JUDGEMENT = { score: 61, verdict: 'mixed', eventCount: 10 };
 const EVENTS = [
@@ -16,10 +21,20 @@ const EVENTS = [
 const CANDIDATES = [{ position: 'm2.2', issues: [{ type: 'tempo', direction: 'less' }] }];
 const RANGE = { from: 720, to: 13680 };
 
+const SESSION = 'b34f50c6-490c-4999-860e-52fd563d150c';
+
 describe('request body', () => {
     it('rejects the empty probe body', () => {
         expect(parseTeacherStreamBody({})).toBeNull();
         expect(parseTeacherStreamBody(undefined)).toBeNull();
+    });
+
+    it('carries a valid session id and drops an unusable one', () => {
+        const withSession = parseTeacherStreamBody({ judgement: JUDGEMENT, diff: 'x', sessionId: SESSION });
+        expect(withSession?.sessionId).toBe(SESSION);
+        expect(parseTeacherStreamBody({ judgement: JUDGEMENT, diff: 'x', sessionId: '../escape' })?.sessionId)
+            .toBeUndefined();
+        expect(parseTeacherStreamBody({ judgement: JUDGEMENT, diff: 'x' })?.sessionId).toBeUndefined();
     });
 
     it('accepts the legacy shape with only a diff string', () => {
@@ -91,6 +106,24 @@ describe('user input assembly', () => {
     it('is deterministic for identical takes', () => {
         expect(grounded()).toBe(grounded());
     });
+
+    it('puts the session history last, after the candidates', () => {
+        const input = buildUserInput(
+            { judgement: JUDGEMENT, candidates: CANDIDATES, structuredDiff: EVENTS, range: RANGE, mode: 'balanced' },
+            true,
+            '=== PREVIOUS TAKES ===\n[take 1] | m1.2–m5.4',
+        );
+        expect(input.indexOf('CUE CANDIDATES')).toBeLessThan(input.indexOf('PREVIOUS TAKES'));
+        expect(input.endsWith('=== PREVIOUS TAKES ===\n[take 1] | m1.2–m5.4')).toBe(true);
+    });
+
+    it('is byte-identical to the stateless input when there is no history', () => {
+        expect(buildUserInput(
+            { judgement: JUDGEMENT, candidates: CANDIDATES, structuredDiff: EVENTS, range: RANGE, mode: 'balanced' },
+            true,
+            '',
+        )).toBe(grounded());
+    });
 });
 
 describe('system prompt', () => {
@@ -136,6 +169,148 @@ describe('system prompt', () => {
     it('trims the corpus for the realtime tier only', () => {
         expect(buildTeacherSystemPrompt({ compactCorpus: true }).length)
             .toBeLessThan(buildTeacherSystemPrompt().length);
+    });
+
+    it('says nothing about memory unless the request has a session', () => {
+        const stateless = buildTeacherSystemPrompt({ compactCorpus: false });
+        expect(stateless).toBe(buildTeacherSystemPrompt({ compactCorpus: false, memory: false }));
+        expect(stateless).not.toContain('CONTINUITY');
+    });
+
+    it('appends the memory rules as a suffix, so the cacheable prefix survives', () => {
+        const withMemory = buildTeacherSystemPrompt({ compactCorpus: false, memory: true });
+        expect(withMemory.startsWith(buildTeacherSystemPrompt({ compactCorpus: false }))).toBe(true);
+        expect(withMemory).toContain('PREVIOUS TAKES');
+        expect(withMemory).toContain('never imply a shared past');
+        expect(withMemory).toContain('«JUDGE» stays 3-8 words');
+    });
+
+    it('is byte-stable per variant', () => {
+        expect(buildTeacherSystemPrompt({ memory: true })).toBe(buildTeacherSystemPrompt({ memory: true }));
+        expect(buildTeacherSystemPrompt({ compactCorpus: true, memory: true }))
+            .toBe(buildTeacherSystemPrompt({ compactCorpus: true, memory: true }));
+    });
+});
+
+describe('a session across two takes', () => {
+    const MONOLOGUE = '«JUDGE» Zu hastig, aber warm «m2.2» [softly] ruhiger atmen';
+    const PROFILE = JSON.stringify({
+        tendencies: ['eilt am Phrasenende'],
+        improvements: [],
+        addressed: ['Puls'],
+        note: 'Energisch, aber grob in der Dynamik.',
+    });
+
+    let dir = '';
+    let create: ReturnType<typeof vi.spyOn>;
+
+    const take = (overrides: Record<string, unknown> = {}) => runTeacherStream({
+        judgement: JUDGEMENT,
+        candidates: CANDIDATES,
+        structuredDiff: EVENTS,
+        range: RANGE,
+        mode: 'realtime',
+        skipTts: true,
+        ...overrides,
+    } as Parameters<typeof runTeacherStream>[0]);
+
+    /** The prompt bytes of the nth call the route made to the model. */
+    const callArgs = (n: number) => create.mock.calls[n][0] as { instructions: string; input: string };
+    /** Only the monologue calls — the profile side-channel also uses this client. */
+    const teacherCalls = () => create.mock.calls
+        .map((call) => call[0] as Record<string, unknown>)
+        .filter((request) => !request.text);
+
+    beforeEach(() => {
+        dir = mkdtempSync(join(tmpdir(), 'vg-route-'));
+        process.env.SESSIONS_DIR = dir;
+        __resetSessionStore();
+        create = vi.spyOn(openai.responses, 'create').mockImplementation((async (request: Record<string, unknown>) => ({
+            output_text: request.text ? PROFILE : MONOLOGUE,
+        })) as never);
+    });
+
+    afterEach(async () => {
+        await flushProfileUpdates();
+        rmSync(dir, { recursive: true, force: true });
+        delete process.env.SESSIONS_DIR;
+        __resetSessionStore();
+        vi.restoreAllMocks();
+    });
+
+    it('shows the second take what the first one sounded like', async () => {
+        await take({ sessionId: SESSION });
+        await flushProfileUpdates();
+        await take({ sessionId: SESSION });
+
+        const second = teacherCalls()[1] as { instructions: string; input: string };
+        expect(second.input).toContain('=== PREVIOUS TAKES ===');
+        expect(second.input).toContain('The take you just heard is take 2.');
+        expect(second.input).toContain('[take 1] | m1.2–m5.4 | 61 mixed');
+        expect(second.input).toContain('you said: "Zu hastig, aber warm." -> m2.2 "[softly] ruhiger atmen"');
+        expect(second.input).toContain('recurring: eilt am Phrasenende');
+        expect(second.instructions).toContain('CONTINUITY');
+    });
+
+    it('gives the first take of a session no history to lean on', async () => {
+        await take({ sessionId: SESSION });
+        expect(callArgs(0).input).not.toContain('PREVIOUS TAKES');
+        // The rules are there from the start so the model knows not to invent one.
+        expect(callArgs(0).instructions).toContain('never imply a shared past');
+    });
+
+    it('records the take and answers before the profile side-channel returns', async () => {
+        let release = () => {};
+        const held = new Promise<void>((resolve) => { release = resolve; });
+        create.mockImplementation((async (request: Record<string, unknown>) => {
+            if (!request.text) return { output_text: MONOLOGUE };
+            await held;
+            return { output_text: PROFILE };
+        }) as never);
+
+        const result = await take({ sessionId: SESSION });
+        expect(result.cleanedText).toBe('Zu hastig, aber warm. [softly] ruhiger atmen');
+
+        const stored = readSession(SESSION)!;
+        expect(stored.takes).toHaveLength(1);
+        expect(stored.takes[0].diffDigest).toMatchObject({ total: 2 });
+        expect(stored.takes[0].teacherSaid.cues).toEqual([{ position: 'm2.2', text: '[softly] ruhiger atmen' }]);
+        // The answer is out while the profile call is still in flight.
+        expect(stored.profile).toBeNull();
+
+        release();
+        await flushProfileUpdates();
+        expect(readSession(SESSION)?.profile?.note).toBe('Energisch, aber grob in der Dynamik.');
+    });
+
+    it('answers normally when the profile side-channel fails', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        create.mockImplementation((async (request: Record<string, unknown>) => {
+            if (request.text) throw new Error('side-channel down');
+            return { output_text: MONOLOGUE };
+        }) as never);
+
+        const result = await take({ sessionId: SESSION });
+        await flushProfileUpdates();
+
+        expect(result.anchors).toHaveLength(2);
+        expect(readSession(SESSION)?.takes).toHaveLength(1);
+        expect(readSession(SESSION)?.profile).toBeNull();
+    });
+
+    it('leaves a take without a session id byte-identical to the stateless one', async () => {
+        await take();
+        await take({ sessionId: SESSION });
+        await flushProfileUpdates();
+        await take();
+
+        const [first, , third] = teacherCalls() as Array<{ instructions: string; input: string }>;
+        expect(third.input).toBe(first.input);
+        expect(third.instructions).toBe(first.instructions);
+        expect(third.instructions).not.toContain('CONTINUITY');
+        expect(third.input).not.toContain('PREVIOUS TAKES');
+        // …and the stateless takes left no trace on the session.
+        expect(readSession(SESSION)?.takes).toHaveLength(1);
     });
 });
 

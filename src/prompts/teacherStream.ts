@@ -45,9 +45,24 @@ RULES:
 IMPORTANT: Write everything in ${OUTPUT_LANGUAGE}.
 Respond only with the monologue text using «MARKER» delimiters.`;
 
+/**
+ * Only added when the request carries a session id. Kept as a suffix so the
+ * stateless prompt stays byte-identical — and so the memory variant shares its
+ * whole cacheable prefix.
+ */
+const MEMORY_RULES = `CONTINUITY — you are hearing this student more than once:
+- At the very END of the input you may find PREVIOUS TAKES (their earlier attempts, with what you said each time) and a STUDENT PROFILE.
+- You MAY react to that shared history: real progress, a slip back, a habit that keeps returning ("besser als eben", "schon wieder der Puls"). At most ONE such reference per monologue, in «JUDGE» or in a single cue.
+- Only refer to what the history actually records. If there is no PREVIOUS TAKES section, you are hearing this student for the first time — never imply a shared past, never say "wieder" or "besser".
+- Prefer something you have NOT already said: the profile lists what they have been told.
+- Remembering buys no extra words. «JUDGE» stays 3-8 words, every cue stays at most 5.
+- Never narrate the record itself: no take numbers, no scores, no counts. Just be a teacher who remembers.`;
+
 export type TeacherPromptOptions = {
     /** Trim the digest to argumentations that carry a motivation or editorial prose. */
     compactCorpus?: boolean;
+    /** The request belongs to a session, so the input may carry earlier takes. */
+    memory?: boolean;
 };
 
 const promptCache = new Map<string, string>();
@@ -58,7 +73,7 @@ const promptCache = new Map<string, string>();
  * as a cached prompt prefix. The volatile per-take material goes in the input.
  */
 export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): string => {
-    const key = options.compactCorpus ? 'compact' : 'full';
+    const key = `${options.compactCorpus ? 'compact' : 'full'}:${options.memory ? 'memory' : 'stateless'}`;
     const cached = promptCache.get(key);
     if (cached) return cached;
 
@@ -67,6 +82,7 @@ export const buildTeacherSystemPrompt = (options: TeacherPromptOptions = {}): st
         MPM_CONCEPT_PRIMER,
         getScholarlyDigest({ onlyInterpretive: options.compactCorpus }),
         OUTPUT_CONTRACT,
+        ...(options.memory ? [MEMORY_RULES] : []),
     ].join('\n\n');
     promptCache.set(key, prompt);
     return prompt;

@@ -3,6 +3,14 @@ import { openai, DEFAULT_CUE_MODELS, CORPUS_DEPTH, parseCuePrepMode, type CuePre
 import { buildTeacherSystemPrompt } from '../prompts/teacherStream';
 import { sanitizeJudgementText } from '../prompts/judgement';
 import { getRangeDetail } from '../corpus';
+import {
+    buildTakeRecord,
+    formatSessionHistory,
+    isValidSessionId,
+    readSession,
+    recordTake,
+    scheduleProfileUpdate,
+} from '../sessions';
 import { synthesizeWithTimestamps } from '../tts/synthesizeWithTimestamps';
 import { synthesizeCueAudio } from '../tts/synthesize';
 import { ELEVEN_V3_MODEL_ID } from '../shared/tts';
@@ -22,6 +30,11 @@ export type TeacherStreamRequest = {
     /** Take range in ticks; unlocks the passage's scholarly record. */
     range?: { from: number; to: number };
     mode: CuePrepMode;
+    /**
+     * Ties this take to the student's earlier ones. Absent (a legacy client, or
+     * the probe) means a stateless take: no history in, nothing recorded out.
+     */
+    sessionId?: string;
     /** Skip TTS — used by the smoke script to time the LLM call alone. */
     skipTts?: boolean;
 };
@@ -66,9 +79,13 @@ const isRange = (value: unknown): value is { from: number; to: number } => {
 /**
  * Assemble the per-take input. The scholarly record comes first (it only changes
  * when the take range changes, so it extends the cacheable prefix), the measured
- * take last.
+ * take next, and the session history last — it changes on every single take.
  */
-export const buildUserInput = (body: TeacherStreamRequest, withRangeDetail: boolean): string => {
+export const buildUserInput = (
+    body: TeacherStreamRequest,
+    withRangeDetail: boolean,
+    historySection = '',
+): string => {
     const parts: string[] = [];
 
     if (withRangeDetail && isRange(body.range)) {
@@ -94,6 +111,11 @@ export const buildUserInput = (body: TeacherStreamRequest, withRangeDetail: bool
         }
     }
 
+    if (historySection) {
+        parts.push('');
+        parts.push(historySection);
+    }
+
     return parts.join('\n');
 };
 
@@ -106,16 +128,22 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
     const model = DEFAULT_CUE_MODELS[body.mode];
     const depth = CORPUS_DEPTH[body.mode];
 
+    const sessionId = body.sessionId;
+    const history = sessionId ? formatSessionHistory(readSession(sessionId)) : '';
+
     const llmStartedAt = Date.now();
     const response = await openai.responses.create({
         model,
-        instructions: buildTeacherSystemPrompt({ compactCorpus: depth.compactCorpus }),
-        input: buildUserInput(body, depth.rangeDetail),
+        instructions: buildTeacherSystemPrompt({
+            compactCorpus: depth.compactCorpus,
+            memory: Boolean(sessionId),
+        }),
+        input: buildUserInput(body, depth.rangeDetail, history),
     });
 
     const rawText = response.output_text ?? '';
     const llmMs = Date.now() - llmStartedAt;
-    console.log('teacher-stream llm', { model, llm_ms: llmMs, raw_length: rawText.length });
+    console.log('teacher-stream llm', { model, llm_ms: llmMs, raw_length: rawText.length, history_chars: history.length });
 
     let { anchors, cleanedText } = parseAnchors(rawText);
 
@@ -172,6 +200,18 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
         }
     }
 
+    // Remember the take, then refresh the student picture off the critical path.
+    if (sessionId) {
+        const takeNumber = recordTake(sessionId, buildTakeRecord({
+            judgement: body.judgement,
+            structuredDiff: body.structuredDiff,
+            range: body.range,
+            anchors,
+        }));
+        console.log('teacher-stream session', { session: sessionId, take: takeNumber });
+        scheduleProfileUpdate(sessionId);
+    }
+
     const totalMs = Date.now() - totalStartedAt;
     const ttsMs = totalMs - llmMs;
 
@@ -186,7 +226,7 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
  */
 export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | null => {
     const body = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-    const { judgement, candidates, diff, structuredDiff, range, mode } = body;
+    const { judgement, candidates, diff, structuredDiff, range, mode, sessionId } = body;
 
     const hasStructuredDiff = Array.isArray(structuredDiff) && structuredDiff.length > 0;
     if (typeof judgement !== 'object' || judgement === null) return null;
@@ -199,6 +239,7 @@ export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | nul
         structuredDiff: hasStructuredDiff ? (structuredDiff as Array<Record<string, unknown>>) : undefined,
         range: isRange(range) ? range : undefined,
         mode: parseCuePrepMode(mode),
+        sessionId: isValidSessionId(sessionId) ? sessionId : undefined,
     };
 };
 
@@ -217,6 +258,7 @@ teacherStreamRouter.post('/teacher-stream', async (req, res) => {
             mode: request.mode,
             anchors: result.anchors.length,
             grounded: Boolean(request.structuredDiff && request.range),
+            session: request.sessionId ?? 'none',
             total_ms: result.stats.totalMs,
             llm_ms: result.stats.llmMs,
             tts_ms: result.stats.ttsMs,

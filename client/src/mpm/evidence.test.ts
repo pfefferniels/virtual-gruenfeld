@@ -36,6 +36,8 @@ const scoreNotes: MeasuredNote[] = measuredNotesFromPerformanceData(
 
 /** Four bars, m5.1–m9.1 — the window every suite in this rewrite uses. */
 const FOUR_BARS: Range = { from: 11520, to: 23040 };
+/** The opening, where the fitter has no two `<tempo>` anchors to measure a tempo between. */
+const OPENING: Range = { from: 0, to: 2880 };
 /** Eight bars, the upper end of what DESIGN §5 test 11 budgets. */
 const EIGHT_BARS: Range = { from: 11520, to: 34560 };
 
@@ -172,10 +174,54 @@ describe('one take, end to end', () => {
         }
     });
 
+    it('has no window to fit a one-chord take into', () => {
+        // What `pipeline/takeRunner.ts` guards against before it ever gets here: a take whose
+        // matched notes all land on one date collapses the matcher's range to a point, and a
+        // point is not a passage. Stated as a contract, because the guard is the only thing
+        // standing between it and a rejection nobody awaits (`midi.ts:94`).
+        const point: Range = { from: 11520, to: 11520 };
+        expect(() => evidenceForTake({
+            notes: [], range: point, scoreMsm, referenceMpmText, fittedReferenceMpmText,
+        })).toThrow('is not a range');
+    });
+
+    it('measures only what the student was actually measured in', () => {
+        // Both halves of DESIGN §3.4. On the opening bars the fitter writes no `<tempo>` — one
+        // anchor, nothing to measure a tempo between — while the gate, which sees the
+        // reference's side too, opens on tempo anyway. Reported as measured, it would let a
+        // plan name a dimension with no student measurement behind it (S7).
+        const evidence = evidenceFor(referenceMpmText, OPENING);
+        const filled = new Set<string>(evidence.filled);
+
+        expect(filled.has('tempo')).toBe(false);
+        expect(evidence.measuredTypes).not.toContain('tempo');
+        expect(evidence.measuredTypes.every((type) => filled.has(type))).toBe(true);
+        // The gate is still the other half: it closed on types the fitter did write.
+        expect(evidence.measuredTypes.length).toBeLessThan(filled.size);
+    });
+
+    it('fits the notes the student played, which inside the window is all of them', () => {
+        // `evidenceForTake` asks for both `isImplanted` and the window. They select the same
+        // notes — the matcher collects every unmatched reference note in range into its
+        // `deletions` — and this is the assertion that says so out loud.
+        const { notes, range } = takeFrom(referenceMpmText, FOUR_BARS);
+        const inWindow = notes.filter((note) => note.date >= range.from && note.date < range.to);
+
+        expect(inWindow.length).toBeGreaterThan(30);
+        expect(inWindow.every(isImplanted)).toBe(true);
+    });
+
     it('carries only what can cross a postMessage boundary', () => {
-        const evidence = evidenceFor(referenceMpmText, FOUR_BARS);
-        // The worker returns this object verbatim; anything that cannot be cloned would fail
-        // there and nowhere else, which is the one bug a thin worker shell can still have.
+        const { notes, range } = takeFrom(referenceMpmText, FOUR_BARS);
+        const input = { notes, range, scoreMsm, referenceMpmText, fittedReferenceMpmText };
+
+        // Both directions. The take goes *into* the worker by structured clone and the
+        // evidence comes back the same way; either would fail there and nowhere else, which is
+        // the one bug a thin worker shell can still have.
+        expect(() => structuredClone(input)).not.toThrow();
+        expect(structuredClone(input)).toEqual(input);
+
+        const evidence = evidenceForTake(input);
         expect(() => structuredClone(evidence)).not.toThrow();
         expect(structuredClone(evidence).studentMpmText).toBe(evidence.studentMpmText);
     });

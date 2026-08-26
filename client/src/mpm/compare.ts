@@ -438,7 +438,10 @@ export type TakeEvidence = {
     readonly report: ComparisonReport;
     readonly suppressed: ReadonlyMap<DiffType, Suppression>;
     readonly disagreements: readonly DirectionDisagreement[];
-    /** Types the student's fitter wrote **and** that survived the gate (DESIGN §3.4). */
+    /**
+     * Types that survived the gate. Half of DESIGN §3.4's "measured": what the fitter actually
+     * wrote is not known here, and `mpm/evidence.ts` intersects this with it.
+     */
     readonly measuredTypes: readonly DiffType[];
     readonly ornamentStyles: OrnamentStyleLookup;
 };

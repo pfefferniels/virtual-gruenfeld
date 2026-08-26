@@ -84,7 +84,9 @@ export const boot = async (
         if (reductionResp.ok) {
             reductionMei = await reductionResp.text();
             log(`FETCH: harmonic_reduction.mei ok (bytes=${reductionMei.length})`);
-            reductionNotes = measuredNotesFromMsmText(convert(reductionMei));
+            // Folded like the score: the mood chord groups the reduction by date, so a pitch
+            // written twice in one chord would be struck twice and counted twice.
+            reductionNotes = withoutUnisons(measuredNotesFromMsmText(convert(reductionMei)));
             log(`MSM: reduction ready (notes=${reductionNotes.length})`);
         }
     } catch (e) {

@@ -57,7 +57,10 @@ const toMsm = (mei: string): Msm => {
     return msm;
 };
 
-/** MEI → MSM as XML text, for `asMSM` to read the score's notes from. */
+/**
+ * MEI → MSM as XML text: the score every take is measured against (`mpm/compare.ts`'s metric,
+ * `student/fit.ts`'s beat grid), and what `score/measured.ts` reads the reduction's notes from.
+ */
 export const convert = (mei: string): string => toMsm(mei).toXML();
 
 const numberAttribute = (name: string, el: Element): number | null => {

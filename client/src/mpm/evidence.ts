@@ -20,7 +20,7 @@
  * `ComparisonReport` stays inside; the two numbers the judgement will want out of it
  * ({@link Evidence.aggregateJnd}, {@link Evidence.subThresholdFraction}) come out beside it.
  */
-import type { MeasuredNote } from '../score/measured';
+import { isImplanted, type MeasuredNote } from '../score/measured';
 import { fitStudent, type LegacyType } from '../student/fit';
 import { readScaffold } from '../student/scaffold';
 import { takeEvidence } from './compare';
@@ -31,8 +31,9 @@ import type { DiffType, Range, StructuredDiffEvent } from './types';
 export type EvidenceInput = {
     /**
      * The take, as `implantLocal` leaves it: every score note, the ones the student actually
-     * played carrying their own timing, the rest carrying the reference's, shifted. Only the
-     * first kind is fitted — see {@link evidenceForTake}.
+     * played carrying their own timing (`source: 'implanted'`), the rest carrying the
+     * reference's, shifted. Only the first kind is fitted, and {@link evidenceForTake} keeps
+     * it that way by asking — see there for why the window alone would have been enough.
      */
     readonly notes: readonly MeasuredNote[];
     readonly range: Range;
@@ -56,7 +57,11 @@ export type Evidence = {
     readonly studentMpmText: string;
     readonly structuredDiff: StructuredDiffEvent[];
     readonly diffSummary: string;
-    /** Types the fitter wrote **and** the audibility gate let through (DESIGN §3.4). */
+    /**
+     * Types the fitter wrote **and** the audibility gate let through (DESIGN §3.4) — the
+     * intersection of {@link filled} with `TakeEvidence.measuredTypes`, taken here because
+     * this is the only place both are known. What a plan may name (S7's `validateDimensions`).
+     */
     readonly measuredTypes: readonly DiffType[];
     /** Types the fitter wrote at all, before the gate. */
     readonly filled: readonly LegacyType[];
@@ -86,10 +91,18 @@ const now = (): number => (typeof performance === 'undefined' ? Date.now() : per
  * window's edge and report it as the student's. It is also exactly how every fixture in
  * `student/fit.test.ts` and `mpm/compare.test.ts` is built, so what a take does live is what
  * those tests measured.
+ *
+ * The window and `isImplanted` select the same notes — every unmatched reference note *inside*
+ * the matched range is collected into the matcher's `deletions` and dropped there
+ * (`matcher.ts:707-717`), so nothing in range can be anything but the student's. Both are
+ * asked for anyway: the equivalence is three modules away and one range convention away from
+ * being obvious, and this is the sentence that would be wrong if either ever changed.
  */
 export const evidenceForTake = (input: EvidenceInput): Evidence => {
     const { notes, range, scoreMsm, referenceMpmText, fittedReferenceMpmText } = input;
-    const played = notes.filter((note) => note.date >= range.from && note.date < range.to);
+    const played = notes.filter(
+        (note) => isImplanted(note) && note.date >= range.from && note.date < range.to,
+    );
 
     const fitStartedAt = now();
     const scaffold = readScaffold(parseReferenceMpm(referenceMpmText), range);
@@ -110,7 +123,13 @@ export const evidenceForTake = (input: EvidenceInput): Evidence => {
         studentMpmText,
         structuredDiff: evidence.structuredDiff,
         diffSummary: evidence.diffSummary,
-        measuredTypes: evidence.measuredTypes,
+        // Both halves of DESIGN §3.4, and this is the only place that has both: `takeEvidence`
+        // knows what the gate let through, and only the fit knows what was written at all. A
+        // type the fitter skipped whose reference side is loud enough to clear the gate passes
+        // the first test and fails the second — real, not hypothetical: on the opening bars the
+        // fitter writes no `<tempo>` and the gate still opens on tempo. Reporting it as
+        // measured would let a plan name a dimension with no student measurement behind it.
+        measuredTypes: evidence.measuredTypes.filter((type) => filled.has(type)),
         filled: [...filled],
         suppressed: [...evidence.suppressed.values()].map(({ type, reason }) => ({ type, reason })),
         skipped: skipped.map(({ type, date, reason }) => ({ type, date, reason })),

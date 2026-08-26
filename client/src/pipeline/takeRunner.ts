@@ -15,7 +15,9 @@
 import { counterPerformanceBase, studentInstructionsFrom } from '../mpm';
 import type { Range } from '../mpm';
 import { summarizeImmediateJudgement } from '../judgement';
+import type { Evidence } from '../mpm/evidence';
 import type { MeasuredNote } from '../score/measured';
+import { PPQ } from '../shared/constants';
 import { runEvidence } from '../workers/evidenceClient';
 import type { PipelineContext, TeacherStrategy, TakeRunnerControls } from './types';
 
@@ -30,17 +32,42 @@ export const runTake = async (
     controls.stop();
     controls.log(`CALLBACK: take implanted -> range=[${range.from}, ${range.to}]`);
 
+    // A take with no window in it. The finish trigger is 1.2 s of silence after a single
+    // event, so a student who plays one chord and stops gets `from === to` (`matcher.ts:701`),
+    // and a take the matcher recognises nothing in gets `{0, 0}` (`matcher.ts:705`). Neither
+    // is a passage: `readScaffold` rejects `from >= to` outright, and under a quarter note
+    // there is no phrase to fit, only the edges of one. Said out loud and dropped — the
+    // callback that runs this is not awaited (`midi.ts:94`), so a throw here would leave the
+    // student with no feedback and no line in the log to explain it.
+    if (range.to - range.from < PPQ) {
+        controls.log('TAKE: too little playing to measure');
+        return;
+    }
+
     controls.log('EVIDENCE: fitting the take into Grünfeld’s slots…');
-    const evidence = await runEvidence(
-        {
-            notes,
-            range,
-            scoreMsm: ctx.scoreMsm,
-            referenceMpmText: ctx.referenceMpmText,
-            fittedReferenceMpmText: ctx.fittedReferenceMpmText,
-        },
-        controls.log,
-    );
+    let evidence: Evidence;
+    try {
+        evidence = await runEvidence(
+            {
+                notes,
+                range,
+                scoreMsm: ctx.scoreMsm,
+                referenceMpmText: ctx.referenceMpmText,
+                fittedReferenceMpmText: ctx.fittedReferenceMpmText,
+            },
+            controls.log,
+        );
+    } catch (e) {
+        // The fit itself failed on this input — the worker says so rather than dying, and
+        // re-running it here would only fail again (`workers/evidenceClient.ts`). One take is
+        // lost; the session is not.
+        controls.log(`EVIDENCE error: ${e}`);
+        return;
+    }
+
+    // Take #2 can begin while take #1 is still being evidenced, and whichever call resolves
+    // last would otherwise win the UI: a superseded take must not clear the current one.
+    if (controls.isCancelled()) return;
 
     controls.log(
         `EVIDENCE: fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}` +

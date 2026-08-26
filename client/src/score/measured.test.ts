@@ -64,6 +64,19 @@ describe('withoutUnisons', () => {
         expect(new Set(keys).size).toBe(folded.length);
     });
 
+    it('changes nothing about the harmonic reduction as it stands', () => {
+        // `boot.ts` folds the reduction too, because the mood chord groups it by date: a pitch
+        // written twice in one chord would be struck twice, counted twice in `noteCount` and
+        // shift every `note.order` under it. The reduction has no such pair today, so the fold
+        // is an identity — and this is the test that fails if it ever stops being one, rather
+        // than the mood chord quietly changing shape.
+        const notes = measuredNotesFromMsmText(reductionMsm);
+        const folded = withoutUnisons(notes);
+
+        expect(folded.length).toBe(216);
+        expect(folded.map((n) => n['xml:id'])).toEqual(notes.map((n) => n['xml:id']));
+    });
+
     it('keeps the longest of a pair, and the earlier one on a tie', () => {
         const short = note({ 'xml:id': 'short', duration: 360 });
         const long = note({ 'xml:id': 'long', duration: 1440 });

@@ -94,6 +94,13 @@ export const withoutUnisons = (notes: readonly MeasuredNote[]): MeasuredNote[] =
  * states none; the one consumer — the mood chord's harmonic reduction — asks only for dates
  * and pitches.
  *
+ * It reads the document as it stands: **`(date, pitch)` is not made unique here.** The one
+ * consumer needs it to be — `pickReductionChord` groups by date, and a unison would change the
+ * chord's `noteCount`, its `arpeggioSpanMs` and every `note.order` under it — so `boot.ts`
+ * folds the reduction through {@link withoutUnisons}, which is where that rule lives for the
+ * score too. The reduction has no such pair today (216 notes, 0 duplicates); the fold is what
+ * keeps the mood chord indifferent to whether it ever gains one.
+ *
  * espressivo's own parser rather than `DOMParser`, so this module also loads in a Web Worker
  * and under vitest.
  */

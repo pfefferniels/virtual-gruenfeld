@@ -21,7 +21,7 @@ const MAX_ABS_DELTA: Record<string, Record<string, number>> = {
     accentuationPattern: { scale: 0.6 },
 };
 
-/** Attribute bounds — the same floors/ceilings tempoSafety and dynamicsSafety enforce. */
+/** Attribute bounds — `EXAGGERATION_SPEC`'s own min/max, which nothing downstream re-checks. */
 const BOUNDS: Record<string, Record<string, [number, number]>> = {
     dynamics: { volume: [1, 127], 'transition.to': [1, 127] },
     tempo: { bpm: [10, 300], 'transition.to': [10, 300] },
@@ -216,8 +216,8 @@ describe('exaggerate: the caps are ceilings, not targets', () => {
     });
 
     it('leaves the tempo floor and the velocity range intact even at absurd strength', () => {
-        // The safety pass that follows (tempoSafety floors bpm at 10, dynamicsSafety
-        // clamps velocity to 1..127) must have nothing left to correct.
+        // Nothing follows this to correct it: the clamp in `EXAGGERATION_SPEC` (bpm ≥ 10,
+        // volume within 1..127) is the last word before the document is rendered.
         const ref = build([{ type: 'tempo', bpm: 12 }, { type: 'dynamics', volume: 5 }]);
         const student = build([{ type: 'tempo', bpm: 300 }, { type: 'dynamics', volume: 127 }]);
 

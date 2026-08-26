@@ -8,7 +8,7 @@
  *   render(score.mei, scenario.mpm)          the student, played by the renderer
  *     → implantLocal(scoreNotes, midi)       matched onto the score  (client/src/matcher.ts)
  *     → evidenceForTake(...)                 fitted into Grünfeld's own slots, then compared
- *                                            against reference.fitted.mpm  (client/src/mpm/)
+ *                                            against Grünfeld fitted the same way (client/src/mpm/)
  *     → counterPerformance(...)              Grünfeld pushed away from this student
  *     → /teacher-stream                      one LLM + TTS call, anchored monologue
  *     → mood chord + cue layout + ffmpeg     student first, teacher answering
@@ -478,14 +478,13 @@ const scenarios: Scenario[] = [
 
 /**
  * Boot, from disk instead of over `fetch` — otherwise exactly `client/src/pipeline/boot.ts`:
- * the score as MSM, Grünfeld's two documents (the editorial one every `xml:id` is read from,
- * the fitted one the comparison is made against), and one render of the editorial document
- * over the score for the matcher's reference side.
+ * the score as MSM, Grünfeld's document (the one every `xml:id` is read from), and one render
+ * of it over the score for the matcher's reference side. The comparison side is not loaded: it
+ * is fitted per take, from that same document, inside `evidenceForTake`.
  */
 console.log('Loading resources...');
 const mei = fs.readFileSync('client/public/score.mei', 'utf8');
 const referenceMpmText = fs.readFileSync('client/public/performance.mpm', 'utf8');
-const fittedReferenceMpmText = fs.readFileSync('client/public/reference.fitted.mpm', 'utf8');
 
 console.log('Converting MEI → MSM...');
 const scoreMsm = convert(mei);
@@ -539,11 +538,12 @@ for (const scenario of scenarios) {
         notes,
         range,
         scoreMsm,
+        scoreNotes,
         referenceMpmText,
-        fittedReferenceMpmText,
     });
     console.log(
-        `    fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}`
+        `    ref_fit_ms=${Math.round(evidence.timings.referenceFitMs)}`
+        + ` fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}`
         + ` aggregate=${evidence.aggregateJnd.toFixed(2)} JND`
         + ` (${Math.round(evidence.subThresholdFraction * 100)}% sub-threshold)`,
     );

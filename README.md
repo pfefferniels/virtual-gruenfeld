@@ -6,18 +6,21 @@ You play Schumann's *Träumerei*, and Alfred Grünfeld's 1905 Welte-Mignon recor
 
 1. The app loads the score (MEI) and Grünfeld's performance as the MPM document it already is —
    `performance.mpm`, the reconstruction from the piano roll, which is also what you hear when the
-   teacher plays. Beside it sits `reference.fitted.mpm`: the same performance put through the
-   *student's* procedure, so that a take is compared fit against fit rather than fit against a bake
+   teacher plays
 2. You play on a MIDI keyboard
 3. Your playing is matched against the score using a subsequence alignment algorithm
 4. The notes you played are fitted into Grünfeld's own instruction slots — the same `<tempo>`,
    `<dynamics>`, `<rubato>`, `<ornament>` elements he has, at the same dates and under the same
    `xml:id`s — which turns a take into an MPM document of its own
-5. The two documents are compared twice over: `compareMpm` prices the whole window in
+5. Grünfeld goes through that same procedure, for this take: his performance is rendered over the
+   passage you played, matched back against the score and fitted the same way. He is compared fit
+   against fit rather than fit against a hand-drawn bake, and over your own window rather than the
+   whole piece — so playing the roll back perfectly is answered with nothing at all
+6. The two documents are compared twice over: `compareMpm` prices the whole window in
    just-noticeable differences and closes the door on anything inaudible, and the paired
    instructions say what changed where, in bpm, velocity and milliseconds
-6. An LLM generates a short spoken critique in German, calibrated to the severity of deviations
-7. You hear an answer. Normally that is a *counter-performance*: Grünfeld's own document, pushed
+7. An LLM generates a short spoken critique in German, calibrated to the severity of deviations
+8. You hear an answer. Normally that is a *counter-performance*: Grünfeld's own document, pushed
    away from your playing instruction by instruction and capped, so the contrast is audible without
    becoming a caricature. The teacher may instead play the reference untouched, say nothing at all,
    or — in `path` mode — play **your** take back with the few costliest corrections applied
@@ -93,12 +96,11 @@ client/src/
   services/mpmRenderer.ts  MEI → MSM and MPM → MIDI, in-process via espressivo
 client/public/
   score.mei                Schumann Träumerei Op. 15 No. 7
-  performance.mpm          Grünfeld's performance — what he plays, and the slots a take is fitted into
-  reference.fitted.mpm     The same performance through the student's fitter — the comparison side
+  performance.mpm          Grünfeld's performance — what he plays, the slots a take is fitted
+                           into, and what the comparison side is fitted from, per take
   info.json                CIDOC-CRM metadata: the editorial argumentations the teacher cites
 generate_test.ts           End-to-end test: renders student → explanation → teacher MP3s
 visualize_implant.ts       Piano roll of what the matcher did with a take (needs matplotlib)
-scripts/fit-reference.ts   Regenerates client/public/reference.fitted.mpm, deterministically
 scripts/smoke-teacher.ts   Live smoke tests against the real APIs
 ```
 

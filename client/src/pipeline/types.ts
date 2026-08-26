@@ -5,7 +5,7 @@ import type { ImmediateJudgementPayload } from '../judgement';
 import type { MeasuredNote } from '../score/measured';
 
 /**
- * What the app holds between takes: three documents as text, and the score's notes as the
+ * What the app holds between takes: two documents as text, and the score's notes as the
  * reference sounds them. No parsed MPM survives a boot — every document crosses every
  * boundary here as XML.
  */
@@ -15,11 +15,12 @@ export type PipelineContext = {
     scoreMsm: string;
     /** Every score note, timed as `performance.mpm` sounds it — the matcher's reference side. */
     scoreNotes: MeasuredNote[];
-    /** The editorial reference: the scaffold, the counter-performance's base, and what
-     * `mode: 'reference'` plays untouched. */
+    /**
+     * The editorial reference — the one reference document there is: the scaffold, what the
+     * comparison side is fitted from per take (`mpm/evidence.ts`), the counter-performance's
+     * base, and what `mode: 'reference'` plays untouched.
+     */
     referenceMpmText: string;
-    /** The fitted reference: the comparison side only (S4 §2). */
-    fittedReferenceMpmText: string;
     reductionMei?: string;
     reductionNotes?: MeasuredNote[];
 };
@@ -42,6 +43,12 @@ export type TakeSnapshot = {
      * edits of the script applied (`mpm/path.ts`).
      */
     studentMpmText: string;
+    /**
+     * Grünfeld over this take's range, written by the same fitter — the side every number in
+     * {@link TakeSnapshot.peaks} was measured against. `mode: 'path'` reads it as the `b` of its
+     * edit script, so the demonstration is priced against the same document the criticism was.
+     */
+    referenceFitText: string;
     /**
      * The take's paired instructions, per attribute, in raw MPM units — what the
      * counter-performance pushes Grünfeld away from, slot by slot (`mpm/counter.ts`).

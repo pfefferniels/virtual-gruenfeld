@@ -51,8 +51,8 @@ export const runTake = async (
                 notes,
                 range,
                 scoreMsm: ctx.scoreMsm,
+                scoreNotes: ctx.scoreNotes,
                 referenceMpmText: ctx.referenceMpmText,
-                fittedReferenceMpmText: ctx.fittedReferenceMpmText,
             },
             controls.log,
         );
@@ -69,7 +69,8 @@ export const runTake = async (
     if (controls.isCancelled()) return;
 
     controls.log(
-        `EVIDENCE: fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}` +
+        `EVIDENCE: ref_fit_ms=${Math.round(evidence.timings.referenceFitMs)}` +
+        ` fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}` +
         ` aggregate=${evidence.aggregateJnd.toFixed(2)} JND (${Math.round(evidence.subThresholdFraction * 100)}% sub-threshold)`,
     );
     controls.log(`EVIDENCE: fitted=[${evidence.filled.join(', ')}] measured=[${evidence.measuredTypes.join(', ')}]`);
@@ -107,6 +108,7 @@ export const runTake = async (
             // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
             measuredTypes: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
             studentMpmText: evidence.studentMpmText,
+            referenceFitText: evidence.referenceFitText,
             peaks: evidence.peaks,
             diffSummary,
             structuredDiff,

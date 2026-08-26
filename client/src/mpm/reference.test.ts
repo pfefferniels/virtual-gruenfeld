@@ -4,10 +4,8 @@ import { allChildElements, compareMpm } from 'espressivo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { convert } from '../services/mpmRenderer';
 import {
-    FITTED_REFERENCE_MPM_URL,
     REFERENCE_MPM_URL,
     forgetReferenceMpm,
-    loadFittedReferenceMpm,
     loadReferenceMpm,
     parseReferenceMpm,
 } from './reference';
@@ -82,25 +80,20 @@ describe('loadReferenceMpm', () => {
         await expect(loadReferenceMpm()).rejects.toThrow(/empty document/);
     });
 
-    it('fetches the fitted reference separately, and memoizes it separately', async () => {
-        // The comparison side is its own document — Grünfeld's playing written by the student's
-        // fitter — so the two are fetched and cached under their own URLs and neither can be
-        // served in place of the other.
+    it('is the only MPM the app fetches', async () => {
+        // The comparison side used to be a second committed document, `reference.fitted.mpm`.
+        // It is now fitted per take from this one (`mpm/evidence.ts`), so a boot makes exactly
+        // one MPM request — and nothing can serve a stale fit in place of a fresh one.
         const fetchMock = vi.fn(async (url: string) =>
             ({ ok: true, status: 200, statusText: 'OK', text: async () => `<mpm>${url}</mpm>` }) as unknown as Response,
         );
         vi.stubGlobal('fetch', fetchMock);
 
         await expect(loadReferenceMpm()).resolves.toContain(REFERENCE_MPM_URL);
-        await expect(loadFittedReferenceMpm()).resolves.toContain(FITTED_REFERENCE_MPM_URL);
-        await loadFittedReferenceMpm();
+        await loadReferenceMpm();
 
-        expect(FITTED_REFERENCE_MPM_URL).toBe('reference.fitted.mpm');
-        expect(fetchMock).toHaveBeenCalledTimes(2);
-        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-            REFERENCE_MPM_URL,
-            FITTED_REFERENCE_MPM_URL,
-        ]);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([REFERENCE_MPM_URL]);
     });
 });
 

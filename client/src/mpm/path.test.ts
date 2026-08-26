@@ -39,7 +39,6 @@ const load = (relative: string): string =>
 
 const mei = load('../../public/score.mei');
 const referenceMpmText = load('../../public/performance.mpm');
-const fittedReferenceMpmText = load('../../public/reference.fitted.mpm');
 const scoreMsm = convert(mei);
 
 const scoreNotes: MeasuredNote[] = measuredNotesFromPerformanceData(
@@ -56,13 +55,18 @@ const takeOn = (mpmText: string, range: Range) => {
     const midi = perform(mei, mpmText, range);
     if (!midi) throw new Error('the take could not be rendered');
     const { notes, range: matched } = implantLocal(scoreNotes, midi, (range.from + range.to) / 2);
-    const evidence = evidenceForTake({ notes, range: matched, scoreMsm, referenceMpmText, fittedReferenceMpmText });
+    const evidence = evidenceForTake({ notes, range: matched, scoreMsm, scoreNotes, referenceMpmText });
     return { evidence, range: matched };
 };
 
-/** The take's own distance from Grünfeld, in JND — the metric the app itself uses. */
-const distanceFromGruenfeld = (studentMpmText: string, range: Range): number => {
-    const { refCut, stuCut } = cutPairToRange(fittedReferenceMpmText, studentMpmText, range);
+/**
+ * The take's own distance from Grünfeld, in JND — the metric the app itself uses.
+ *
+ * Against the take's *own* fitted reference (`Evidence.referenceFitText`), because that is the
+ * document the criticism, the demonstration and this measurement all have to agree on.
+ */
+const distanceFromGruenfeld = (referenceFitText: string, studentMpmText: string, range: Range): number => {
+    const { refCut, stuCut } = cutPairToRange(referenceFitText, studentMpmText, range);
     const { report } = compareMpm({
         a: stuCut,
         b: refCut,
@@ -152,13 +156,13 @@ const quietMpm = referenceMpmText.replace(
 const hurried = takeOn(hurriedMpm, FOUR_BARS);
 const quiet = takeOn(quietMpm, FOUR_BARS);
 
-type Take = { evidence: { studentMpmText: string }; range: Range };
+type Take = { evidence: { studentMpmText: string; referenceFitText: string }; range: Range };
 type PathOptions = { types?: readonly string[]; edits?: number; range?: Range };
 
 const runPath = (take: Take, options: PathOptions) =>
     pathPerformance({
         studentMpmText: take.evidence.studentMpmText,
-        referenceMpmText: fittedReferenceMpmText,
+        referenceMpmText: take.evidence.referenceFitText,
         scoreMsm,
         range: options.range ?? take.range,
         ...(options.types === undefined ? {} : { types: options.types }),
@@ -235,8 +239,8 @@ describe('what applying them does', () => {
         const result = pathFor(hurried);
         expect(result.mpm).not.toBeNull();
 
-        const before = distanceFromGruenfeld(hurried.evidence.studentMpmText, hurried.range);
-        const after = distanceFromGruenfeld(result.mpm!, hurried.range);
+        const before = distanceFromGruenfeld(hurried.evidence.referenceFitText, hurried.evidence.studentMpmText, hurried.range);
+        const after = distanceFromGruenfeld(hurried.evidence.referenceFitText, result.mpm!, hurried.range);
         // eslint-disable-next-line no-console
         console.log(`path, hurried: ${before.toFixed(2)} JND -> ${after.toFixed(2)} JND with ${result.edits.length} edits`);
 
@@ -245,8 +249,8 @@ describe('what applying them does', () => {
 
     it('closes it on a quiet take too', () => {
         const result = pathFor(quiet);
-        const before = distanceFromGruenfeld(quiet.evidence.studentMpmText, quiet.range);
-        const after = distanceFromGruenfeld(result.mpm!, quiet.range);
+        const before = distanceFromGruenfeld(quiet.evidence.referenceFitText, quiet.evidence.studentMpmText, quiet.range);
+        const after = distanceFromGruenfeld(quiet.evidence.referenceFitText, result.mpm!, quiet.range);
         // eslint-disable-next-line no-console
         console.log(`path, quiet: ${before.toFixed(2)} JND -> ${after.toFixed(2)} JND with ${result.edits.length} edits`);
 
@@ -254,8 +258,8 @@ describe('what applying them does', () => {
     });
 
     it('closes more of it with five corrections than with one', () => {
-        const one = distanceFromGruenfeld(pathFor(hurried, { edits: 1 }).mpm!, hurried.range);
-        const five = distanceFromGruenfeld(pathFor(hurried, { edits: 5 }).mpm!, hurried.range);
+        const one = distanceFromGruenfeld(hurried.evidence.referenceFitText, pathFor(hurried, { edits: 1 }).mpm!, hurried.range);
+        const five = distanceFromGruenfeld(hurried.evidence.referenceFitText, pathFor(hurried, { edits: 5 }).mpm!, hurried.range);
         expect(five).toBeLessThan(one);
     });
 });

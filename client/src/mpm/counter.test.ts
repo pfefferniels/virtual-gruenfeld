@@ -47,7 +47,6 @@ const load = (relative: string): string =>
 
 const mei = load('../../public/score.mei');
 const referenceMpmText = load('../../public/performance.mpm');
-const fittedReferenceMpmText = load('../../public/reference.fitted.mpm');
 const scoreMsm = convert(mei);
 const reference = parseReferenceMpm(referenceMpmText);
 
@@ -182,8 +181,17 @@ const buildTakeOf = (mpmText: string, range: Range): Take => {
         performMsmToData({ msm: scoreMsm, mpm: mpmText }, { expandOrnaments: false }),
     ).filter((note) => note.date >= range.from && note.date < range.to);
     const fit = fitStudent(played, readScaffold(reference, range), scoreMsm);
+    // The comparison side, as `mpm/evidence.ts` computes it per take: Grünfeld through this
+    // same fitter over this same window (there from MIDI; here from note data, like the take).
+    const referenceFit = fitStudent(
+        measuredNotesFromPerformanceData(
+            performMsmToData({ msm: scoreMsm, mpm: referenceMpmText }, { expandOrnaments: false }),
+        ).filter((note) => note.date >= range.from && note.date < range.to),
+        readScaffold(reference, range),
+        scoreMsm,
+    );
     const evidence = takeEvidence({
-        referenceMpmText: fittedReferenceMpmText,
+        referenceMpmText: referenceFit.studentMpmText,
         studentMpmText: fit.studentMpmText,
         scoreMsm,
         range,
@@ -204,7 +212,7 @@ const buildTakeThroughMidi = (mpmText: string, range: Range): Take => {
     const midi = perform(mei, mpmText, range);
     if (!midi) throw new Error('the take could not be rendered');
     const { notes, range: matched } = implantLocal(scoreNotes, midi, (range.from + range.to) / 2);
-    const evidence = evidenceForTake({ notes, range: matched, scoreMsm, referenceMpmText, fittedReferenceMpmText });
+    const evidence = evidenceForTake({ notes, range: matched, scoreMsm, scoreNotes, referenceMpmText });
     return {
         peaks: evidence.peaks,
         measured: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
@@ -233,7 +241,12 @@ const ALTERED = {
     rubato: alter(referenceMpmText, 'rubato', ['intensity'], (v) => v * 2),
     accentuation: alter(referenceMpmText, 'accentuationPattern', ['scale'], (v) => v * 10),
     ornamentFrame: alter(referenceMpmText, 'temporalSpread', ['frameLength'], (v) => v * 2),
-    ornamentScale: alter(referenceMpmText, 'ornament', ['scale'], (v) => v * 0.5),
+    // ×0.25, not ×0.5: with Grünfeld fitted over the take's own window rather than over the
+    // whole piece, halving the gradient measures 0.67 JND and the audibility gate rightly
+    // silences it. Swept — 0.5 → 0.67, 0.35 → 0.87, 0.25 → 1.00 — this is the smallest of the
+    // values that crosses one JND, which is the rule `mpm/compare.test.ts` sets for these
+    // fixtures. The bias, not the alteration, used to carry the old magnitude over the line.
+    ornamentScale: alter(referenceMpmText, 'ornament', ['scale'], (v) => v * 0.25),
     articulation: alter(referenceMpmText, 'articulationDef', ['relativeDuration'], (v) => v * 0.7),
 };
 
@@ -293,30 +306,22 @@ describe('a take of Grünfeld playing himself', () => {
     });
 
     /**
-     * Through the MIDI encoder and the matcher the same playing is no longer bit-exact: the
-     * fitter's `<ornament @scale>` is unstable against the reference's own arpeggios (S5 §7,
-     * risk R3's calibration item) and one tempo slot at the window's edge clears its floor. The
-     * demonstration answers that evidence and nothing else — and the two dimensions review-S5's
-     * finding 1 was about stay inaudibly close to Grünfeld's own values.
+     * The same claim for the take the browser actually runs — through the MIDI encoder and the
+     * matcher, not from note data.
+     *
+     * This used to move four attributes. The comparison side was then a document fitted from
+     * note *data* over the whole piece, while a take arrives as MIDI over its own window, and
+     * the fitter's `<ornament @scale>` and one window-edge tempo slot cleared their floors on
+     * that difference alone. Grünfeld is now fitted per take through this very path
+     * (`mpm/evidence.ts`), so a round trip of his own playing finds no pair at all — and a
+     * demonstration with nothing to answer answers nothing.
      */
-    it('answers only what a real round trip actually measured, away from the student', () => {
+    it('leaves the document untouched when a real round trip found nothing to answer', () => {
         const take = takeThroughMidi(referenceMpmText);
-        const counter = counterFor(take);
-        const writes = moved(counter);
 
-        expect(writes.length).toBeGreaterThan(0);
-        for (const { ref, attr, from, to } of writes) {
-            expect(take.measured, `${ref.element}@${attr} is not a measured type`).toContain(ref.type);
-            // Keyed by type *and* date, not by type alone: keying by type keeps one arbitrary
-            // event per type and asserts a third of the evidence (review-S6, finding 9).
-            const deviation = ref.date === null
-                ? take.peaks.find((peak) => peak.nameRef === ref.name)?.diffs[attr]?.delta
-                : deviationAt(take, ref.type, ref.date, attr);
-            if (attr === 'frame.start') continue;
-            expect(deviation, `${ref.element}@${attr} at ${ref.date ?? ref.name} moved with no pair behind it`).toBeDefined();
-            expect(Math.abs(deviation!)).toBeGreaterThanOrEqual(THRESHOLDS[attr]);
-            expect(Math.sign(to - from), `${ref.element}@${attr} moved toward the student`).not.toBe(Math.sign(deviation!));
-        }
+        expect(take.peaks).toEqual([]);
+        expect(take.measured).toEqual([]);
+        expect(moved(counterFor(take))).toEqual([]);
     });
 
     it('leaves tempo and dynamics inaudibly close to Grünfeld’s own values', () => {

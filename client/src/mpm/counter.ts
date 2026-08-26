@@ -11,8 +11,8 @@
  *
  * **Three documents, and which number comes from which.** `x_ed` is Grünfeld's *editorial*
  * value — `performance.mpm`, the document the demonstration is rendered from. `ref_fit` and
- * `student` are the take's own pair, both read out of *fitted* documents
- * (`reference.fitted.mpm` against what `student/fit.ts` wrote), so the ratio prices the
+ * `student` are the take's own pair, both read out of *fitted* documents (`student/fit.ts`
+ * run over Grünfeld and over the student, one range, one path), so the ratio prices the
  * student's playing and not the gap between a hand-drawn bake and a solved fit — review-S5's
  * finding 1, which is why the ratio may never be taken between `x_ed` and the student.
  *

@@ -193,7 +193,14 @@ export type PathEdit = {
 export type PathInput = {
     /** The student's performance, whole, as `fitStudent` wrote it. Written into, never read back. */
     readonly studentMpmText: string;
-    /** The **fitted** reference — `client/public/reference.fitted.mpm`, the comparison's `b` side. */
+    /**
+     * The **fitted** reference — `Evidence.referenceFitText`, the comparison's own `b` side:
+     * Grünfeld over this take's range, through the take's own path (`mpm/evidence.ts`). The
+     * demonstration is then priced against exactly the document the criticism was, and an
+     * identity take has nothing to correct. It covers the take's range, and the plan's range is
+     * clamped inside the take's (`src/plan/validate.ts`), so the cut below always has a
+     * prevailing value at both edges.
+     */
     readonly referenceMpmText: string;
     /** The score as MSM text. Part of the metric: the window, the measures, the beat grid. */
     readonly scoreMsm: string;

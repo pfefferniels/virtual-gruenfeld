@@ -24,9 +24,12 @@
  * flipped anywhere. `cumulativeDrift` is never read — it is a duration and its polarity is the
  * opposite one.
  *
- * **Which reference.** `b` is the *fitted* reference (`client/public/reference.fitted.mpm`),
- * not `performance.mpm`. Both sides then come out of one procedure and the fit-vs-bake bias
- * cancels; see `scripts/fit-reference.ts` for the measurement that forced it.
+ * **Which reference.** `b` is the *fitted* reference, not `performance.mpm`: Grünfeld put
+ * through the student's own path over the student's own range, fitted at take time
+ * (`mpm/evidence.ts`). Both sides then come out of one procedure over one encoding of one
+ * window, the fit-vs-bake bias cancels, and an identity take yields nothing at all. Handing
+ * `performance.mpm` in here instead reintroduces 9.2 JND and 16 events on a take where the
+ * student played the roll back perfectly.
  */
 import {
     Mpm,
@@ -417,7 +420,7 @@ export const crossCheckDirections = (
 // ── the one call the take makes ──────────────────────────────────────────────────────────
 
 export type TakeEvidenceInput = {
-    /** The **fitted** reference, as text — `client/public/reference.fitted.mpm`. */
+    /** The **fitted** reference, as text — `Evidence.referenceFitText`, this take's own. */
     readonly referenceMpmText: string;
     /** The student's performance, as `fitStudent` wrote it. */
     readonly studentMpmText: string;

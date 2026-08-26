@@ -25,12 +25,12 @@ const CTX = {
     scoreMsm: '<msm/>',
     scoreNotes: [],
     referenceMpmText: '<reference/>',
-    fittedReferenceMpmText: '<fitted/>',
     referenceMpm: { id: 'reference' },
 } as unknown as PipelineContext;
 
 const EVIDENCE = {
     studentMpmText: '<student/>',
+    referenceFitText: '<reference-fit/>',
     structuredDiff: [],
     diffSummary: 'nothing to report',
     measuredTypes: ['tempo'],
@@ -41,7 +41,7 @@ const EVIDENCE = {
     levels: { student: { bpm: [], volume: [] } },
     aggregateJnd: 1.2,
     subThresholdFraction: 0.4,
-    timings: { fitMs: 10, evidenceMs: 10 },
+    timings: { fitMs: 10, evidenceMs: 10, referenceFitMs: 10 },
 } as unknown as Evidence;
 
 const makeControls = (over: Partial<TakeRunnerControls> = {}) => {

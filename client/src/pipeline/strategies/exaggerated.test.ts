@@ -90,6 +90,8 @@ const COUNTER_MPM = '<mpm id="counter"/>';
 const MOOD_MPM = '<mpm id="mood"/>';
 /** The student's own document, and what `mode: 'path'` makes of it. */
 const STUDENT_MPM = '<mpm id="student"/>';
+/** `take.referenceFitText` — Grünfeld fitted over this take's range, the comparison's own side. */
+const REFERENCE_FIT_MPM = '<mpm id="reference-fit"/>';
 const PATH_MPM = '<mpm id="corrected"/>';
 
 const makeCtx = (withReduction: boolean): PipelineContext => ({
@@ -97,7 +99,6 @@ const makeCtx = (withReduction: boolean): PipelineContext => ({
     scoreMsm: '<msm/>',
     scoreNotes: [],
     referenceMpmText: REFERENCE_MPM,
-    fittedReferenceMpmText: '<mpm fitted="1"/>',
     ...(withReduction ? { reductionMei: '<reduction/>', reductionNotes: [] } : {}),
 } as unknown as PipelineContext);
 
@@ -115,6 +116,7 @@ const TAKE = {
     peaks: PEAKS,
     measuredTypes: ['tempo', 'dynamics'],
     studentMpmText: STUDENT_MPM,
+    referenceFitText: REFERENCE_FIT_MPM,
     diffSummary: '4 deviations',
     structuredDiff: [],
     judgementSummary: JUDGEMENT,
@@ -280,9 +282,9 @@ describe('agentic pedagogy (flag on)', () => {
             const [input] = runPath.mock.calls[0];
             expect(input).toMatchObject({
                 studentMpmText: STUDENT_MPM,
-                // The comparison's own side, not the editorial document: both halves of the edit
-                // script have to come out of one procedure (S4 §2).
-                referenceMpmText: '<mpm fitted="1"/>',
+                // The take's own fitted reference, not the editorial document: both halves of
+                // the edit script have to come out of one procedure over one window.
+                referenceMpmText: REFERENCE_FIT_MPM,
                 range: PLAN_RANGE,
                 types: ['tempo'],
                 edits: 2,

@@ -14,6 +14,9 @@
  *   drop every dated element outside [from, to) → shift `milliseconds.date` so the
  *   first note starts at 0 → every part on MIDI channel 0 → strip `<section>` →
  *   expressive MIDI.
+ *
+ * `renderMsm` / `performMsm` are that same pipeline entered one step later, from the MSM text
+ * rather than from the MEI — for the evidence worker, which holds `scoreMsm` and no MEI.
  */
 import { read, type MidiFile } from 'midifile-ts';
 import {
@@ -21,12 +24,12 @@ import {
     Mei,
     Mei2MsmConverter,
     Mpm,
+    Msm,
     allChildElements,
     getAllDescendantsByName,
     getAllDescendantsWithAttribute,
     parentElement,
     type Element,
-    type Msm,
 } from 'espressivo';
 import type { Range } from '../mpm/types';
 
@@ -34,6 +37,7 @@ import type { Range } from '../mpm/types';
 const PPQ = 720;
 
 const conversions = new Map<string, Msm>();
+const parses = new Map<string, Msm>();
 
 /**
  * MEI → the MSM of its first movement, rests removed — what the Java `/convert` returned.
@@ -122,18 +126,46 @@ const startAtFirstNote = (msm: Msm): void => {
 };
 
 /**
- * Render the passage [from, to) of `mei` as performed by the first performance in `mpm`
- * (XML text: the reference as fetched, or what `mpm/counter.ts` and `pipeline/judgementMood.ts`
- * wrote), to Standard MIDI File bytes. The first note
- * starts at 0 ms and everything plays on channel 0.
+ * The score again, read from the MSM text `convert` wrote rather than converted from the MEI.
+ *
+ * The evidence worker holds `scoreMsm` and not the MEI — 55 kB of text crosses `postMessage`
+ * where 470 kB and a conversion would otherwise have to — and it has to render Grünfeld over
+ * the take's own window to fit him through the student's path (`mpm/evidence.ts`). Memoized on
+ * the text for the reason {@link toMsm} is memoized on the MEI, and safe for the same reason:
+ * `Performance.perform` works on a clone and never touches its input.
+ *
+ * `<rest>` is removed again although `convert` already removed it. On that text the walk finds
+ * nothing; what it buys is that {@link renderMsm} is the same call as {@link render} for *any*
+ * MSM text, not only for one this module wrote — asserted byte for byte in
+ * `services/mpmRenderer.test.ts`.
  */
-export const render = (mei: string, mpm: string, range: Range): Uint8Array | undefined => {
+const fromMsmText = (msmText: string): Msm => {
+    const cached = parses.get(msmText);
+    if (cached) return cached;
+
+    const msm = new Msm(msmText);
+    if (msm.isEmpty()) throw new Error('MSM: not a well-formed document');
+    removeAllNamed(msm, 'rest');
+
+    parses.set(msmText, msm);
+    return msm;
+};
+
+/**
+ * The passage [from, to) of `msm` as the first performance in `mpm` plays it, as Standard MIDI
+ * File bytes. The first note starts at 0 ms and everything plays on channel 0.
+ *
+ * The one procedure behind {@link render} and {@link renderMsm}, which differ only in where
+ * their score comes from — so a take and the reference it is measured against cannot drift
+ * apart in the cut, the shift, the channel or the sections.
+ */
+const renderPerformed = (msm: Msm, mpm: string, range: Range): Uint8Array | undefined => {
     const document = new Mpm(mpm);
     if (document.isEmpty()) throw new Error('MPM: not a well-formed document');
     const performance = document.getPerformance(0);
     if (!performance) throw new Error('MPM: no performance to apply');
 
-    const performed = performance.perform(toMsm(mei));
+    const performed = performance.perform(msm);
     cutToRange(performed, range);
     startAtFirstNote(performed);
 
@@ -147,8 +179,27 @@ export const render = (mei: string, mpm: string, range: Range): Uint8Array | und
     return performed.exportExpressiveMidi()?.exportMidi();
 };
 
+/**
+ * Render the passage [from, to) of `mei` as performed by the first performance in `mpm`
+ * (XML text: the reference as fetched, or what `mpm/counter.ts` and `pipeline/judgementMood.ts`
+ * wrote), to Standard MIDI File bytes. The first note
+ * starts at 0 ms and everything plays on channel 0.
+ */
+export const render = (mei: string, mpm: string, range: Range): Uint8Array | undefined =>
+    renderPerformed(toMsm(mei), mpm, range);
+
+/** {@link render}, from the score as MSM text. `renderMsm(convert(mei), …) === render(mei, …)`. */
+export const renderMsm = (msmText: string, mpm: string, range: Range): Uint8Array | undefined =>
+    renderPerformed(fromMsmText(msmText), mpm, range);
+
 /** `render`, parsed — what the playback and cue scheduling consume. */
 export const perform = (mei: string, mpm: string, range: Range): MidiFile | undefined => {
     const bytes = render(mei, mpm, range);
+    return bytes && read(bytes);
+};
+
+/** `renderMsm`, parsed — what the evidence worker's reference fit reads (`mpm/evidence.ts`). */
+export const performMsm = (msmText: string, mpm: string, range: Range): MidiFile | undefined => {
+    const bytes = renderMsm(msmText, mpm, range);
     return bytes && read(bytes);
 };

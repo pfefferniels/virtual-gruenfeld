@@ -69,9 +69,25 @@ jobs:
           if [ -n "$TEACHER_AGENTIC" ]; then echo "VITE_TEACHER_AGENTIC=$TEACHER_AGENTIC" >> "$GITHUB_ENV"; fi
           if [ -n "$TEACHER_VOICE" ]; then echo "VITE_TEACHER_VOICE=$TEACHER_VOICE" >> "$GITHUB_ENV"; fi
 
-      - name: Install and build client
+      - name: Install client dependencies
         working-directory: virtual-gruenfeld/client
-        run: npm ci && npm run build
+        run: npm ci
+
+      # Nothing here ran until now — which is how `generate_test.ts` reached the branch broken
+      # for a whole merge: `client`'s tsconfig excludes the root scripts, the root one builds the
+      # server, and `type-check:scripts` is the only check that sees them. One vitest run covers
+      # both halves (the client suites and `../src`), so these four are the whole gate.
+      - name: Tests, types and lint
+        working-directory: virtual-gruenfeld
+        run: |
+          npm test
+          npm run type-check
+          npm run type-check:scripts
+          cd client && npm run lint
+
+      - name: Build client
+        working-directory: virtual-gruenfeld/client
+        run: npm run build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

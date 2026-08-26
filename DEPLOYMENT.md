@@ -62,15 +62,19 @@ Never commit any of these. `.env` is gitignored; `.env.example` lists the shape.
 The teacher process imports nothing from espressivo — it parses `info.json` and
 `performance.mpm` with its own code (`src/corpus/parse.ts`). But espressivo is a `file:../`
 dependency of the root `package.json`, because the *client* build is built from the same
-checkout, so `npm ci` wants it on disk. Clone the two side by side, exactly as
-`.github/workflows/deploy.yml` does:
+checkout, so `npm ci` wants it on disk. react-pianosound is there for the same reason: the client
+imports `@tonejs/piano` and `tone` out of its `node_modules` (`client/src/pianosound/`), so a
+checkout that only builds the server still needs it present for the client build beside it.
+Clone the three side by side, exactly as `.github/workflows/deploy.yml` does:
 
 ```bash
 cd /srv
 git clone https://github.com/pfefferniels/espressivo.git meico-ts
+git clone https://github.com/pfefferniels/react-pianosound.git
 git clone https://github.com/pfefferniels/virtual-gruenfeld.git
 
 cd /srv/meico-ts && npm ci && npm run build
+cd /srv/react-pianosound && npm ci
 
 cd /srv/virtual-gruenfeld
 npm ci

@@ -116,13 +116,29 @@ scripts/smoke-teacher.ts   Live smoke tests against the real APIs
 
 ## Setup
 
+Three checkouts, side by side — this one, espressivo, and react-pianosound. espressivo is a
+`file:../meico-ts` dependency and has to be built first; react-pianosound is not a dependency at
+all but the client imports `@tonejs/piano` and `tone` straight out of its `node_modules`
+(`client/src/pianosound/`, allowed explicitly by `client/vite.config.ts`), so its install has to
+have run. `.github/workflows/deploy.yml` checks out the same three.
+
+```bash
+git clone https://github.com/pfefferniels/espressivo.git meico-ts
+git clone https://github.com/pfefferniels/react-pianosound.git
+git clone https://github.com/pfefferniels/virtual-gruenfeld.git
+
+(cd meico-ts && npm ci && npm run build)
+(cd react-pianosound && npm ci)          # for @tonejs/piano and tone
+cd virtual-gruenfeld
+```
+
 ```bash
 npm install
 cd client && npm install
 cp .env.example .env   # add OPENAI_API_KEY, ELEVENLABS_API_KEY
 ```
 
-espressivo is linked from a sibling checkout (`../meico-ts`) and needs to be built first. Then:
+Then:
 
 ```bash
 npm run dev
@@ -143,8 +159,11 @@ Type-checking and dead-code analysis:
 npm run type-check              # server
 cd client && npx tsc --noEmit   # client
 npm run type-check:scripts      # the root scripts, which import client/src and run under tsx
+cd client && npm run lint       # eslint, --max-warnings 0
 npm run knip                    # unused files, exports and dependencies
 ```
+
+The first four are what CI runs before the build (`.github/workflows/deploy.yml`).
 
 End-to-end pipeline test (generates MP3s with student → spoken explanation → teacher). It runs
 the modules the app ships, so it needs no browser — but it does need the teacher server, a

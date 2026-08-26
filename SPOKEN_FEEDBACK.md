@@ -14,14 +14,17 @@ To additionally enable **spoken feedback** (the teacher comments on your playing
 
 ## Setup
 
-1. Clone this repository and espressivo, side by side. Everything expressive — the score
-   conversion, the fit of your playing, the comparison and the rendering — runs on espressivo,
-   and it is linked as `../meico-ts`:
+1. Clone this repository, espressivo and react-pianosound, side by side. Everything expressive —
+   the score conversion, the fit of your playing, the comparison and the rendering — runs on
+   espressivo, linked as `../meico-ts`; react-pianosound is not a dependency but the client
+   imports `@tonejs/piano` and `tone` out of its `node_modules`, so its install has to have run:
 
    ```sh
    git clone https://github.com/pfefferniels/espressivo.git meico-ts
+   git clone https://github.com/pfefferniels/react-pianosound.git
    git clone https://github.com/pfefferniels/virtual-gruenfeld.git
    (cd meico-ts && npm ci && npm run build)
+   (cd react-pianosound && npm ci)
    cd virtual-gruenfeld
    ```
 

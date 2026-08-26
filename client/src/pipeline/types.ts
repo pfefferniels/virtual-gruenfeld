@@ -1,5 +1,5 @@
 import type { MidiFile } from 'midifile-ts';
-import type { Range, StructuredDiffEvent, StudentLevels } from '../mpm';
+import type { InstructionDiff, Range, StructuredDiffEvent, StudentLevels } from '../mpm';
 import type { CuePrepMode } from '../prepMode';
 import type { ImmediateJudgementPayload } from '../judgement';
 import type { MeasuredNote } from '../score/measured';
@@ -42,6 +42,11 @@ export type TakeSnapshot = {
      * edits of the script applied (`mpm/path.ts`).
      */
     studentMpmText: string;
+    /**
+     * The take's paired instructions, per attribute, in raw MPM units — what the
+     * counter-performance pushes Grünfeld away from, slot by slot (`mpm/counter.ts`).
+     */
+    peaks: readonly InstructionDiff[];
     diffSummary: string;
     structuredDiff: StructuredDiffEvent[];
     judgementSummary: ImmediateJudgementPayload;

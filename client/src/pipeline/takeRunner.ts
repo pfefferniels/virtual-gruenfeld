@@ -107,6 +107,7 @@ export const runTake = async (
             // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
             measuredTypes: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
             studentMpmText: evidence.studentMpmText,
+            peaks: evidence.peaks,
             diffSummary,
             structuredDiff,
             judgementSummary,

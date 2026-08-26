@@ -1,124 +1,206 @@
 /**
- * The counter-performance: Grünfeld pushed away from the student, capped, confined to the
- * passage the teacher wants heard.
+ * The counter-performance: Grünfeld pushed away from *this* student, one instruction at a time,
+ * capped, confined to the passage the teacher wants heard.
  *
  * ```
- * exaggerateMpm(performance.mpm, { factors, center: the student's own levels })   espressivo
- *   → spliceCapped(canonicalMpm(performance.mpm), pushed, demoRange)              our discipline
+ * for every paired attribute the take measured, inside the demo range:
+ *     ratio  x' = x_ed · (ref_fit / student)^a          bpm, intensity, scale, frameLength, …
+ *     offset x' = x_ed − (student − ref_fit) · a        volume, milliseconds.offset
+ *     then   clamp to x_ed ± maxAbsDelta and into [min, max]
  * ```
  *
- * **Why `center`.** Espressivo's exaggeration is `x' = μ·(x/μ)^s` with μ the population's own
- * geometric mean, so by default it pushes Grünfeld away from *himself*. Move the fixed point
- * onto the student — `μ = student level` — and the closed form becomes
- * `student·(ref/student)^s`, which is semantics 27's `ref·(ref/student)^a` exactly, with
- * `s = 1 + a`. That substitution is the whole reason this module can be four calls where
- * `mpm/exaggerate.ts` was a hand-written log-space walk.
+ * **Three documents, and which number comes from which.** `x_ed` is Grünfeld's *editorial*
+ * value — `performance.mpm`, the document the demonstration is rendered from. `ref_fit` and
+ * `student` are the take's own pair, both read out of *fitted* documents
+ * (`reference.fitted.mpm` against what `student/fit.ts` wrote), so the ratio prices the
+ * student's playing and not the gap between a hand-drawn bake and a solved fit — review-S5's
+ * finding 1, which is why the ratio may never be taken between `x_ed` and the student.
  *
- * **Why the splice.** `center` reaches tempo and dynamics only (`CenterOverrides` has no other
- * field), the exaggeration is whole-document (there is no range-scoped API), and espressivo's
- * per-element clamps are not our pedagogical ceilings. So the transformed document is never
- * handed to the renderer: it is a *source of values*. `spliceCapped` walks it beside the
- * canonical reference and copies, for the instructions inside the demo range only, the
- * attributes `EXAGGERATION_SPEC` names, each clamped to `ref ± maxAbsDelta` and into its
- * bounds. Everything else — every out-of-range instruction, every attribute the table does not
- * name, Grünfeld's whole pedal — is the reference's own byte. That is semantics 28 (the caps),
- * 30 (nothing shared is mutated: text in, text out) and 31 (range confinement) in one pass, and
- * it is exact rather than approximate because espressivo guarantees the two documents have the
- * same skeleton (`src/api/expression.ts:204-211`): the walk is index-aligned by construction.
+ * **Why per instruction.** An earlier version of this module asked espressivo's
+ * `exaggerateMpm` for one exponent per *dimension* and let a level pivot carry the direction.
+ * review-S6 measured what that costs: one exponent per type can only push values on one side of
+ * their neutral away from the student, and Grünfeld's rubato intensities straddle 1 inside a
+ * single four-bar demo, so half the passage the teacher had just named was refused rather than
+ * demonstrated (identity take 8 of 22 sites, rubato take 16 of 20, ornament 12 of 14).
+ * `ref_fit / student` is a per-site number, so the question does not arise: every attribute
+ * moves away from the student *it* was paired against, in the amount *it* deviated. A pair with
+ * `ref_fit === student` — or with a deviation under the diff's own noise floor — is not a
+ * deviation at all and its attribute is left exactly as Grünfeld wrote it, which is what makes
+ * an identity take a no-op by construction rather than by a guard.
  *
- * **Two guards against the bake-vs-fit bias.** `performance.mpm` was drawn by hand and the
- * student's document is solved from onsets, and the gap between those two ways of writing one
- * performance measured 22 bpm and 9.2 JND on a take where the playing was identical (S4 §2).
- * Nothing here may price one against the other. So: the exaggeration only ever runs on
- * dimensions the take actually *measured* (`measured`, the audibility gate's list intersected
- * with what the fitter wrote), and every value the splice writes has to move away from the
- * student in the direction the **fitted** comparison found — a fitted-vs-fitted sign applied to
- * an editorial-vs-editorial move. A push that would move Grünfeld *toward* this student is
- * dropped and his own value stands, whatever the level pivot computed. That is the per-slot
- * protection `center` cannot give, since a level is one number for the whole passage.
+ * **What the caps are for.** `strength` scales how far the push goes, never how far it is
+ * *allowed* to go (semantics 28): `maxAbsDelta` and the per-attribute bounds are applied
+ * afterwards and clamp the result unconditionally. The plan's `[0.05, 0.5]` clamp is
+ * re-applied here so a caller that skipped `lessonPlan.ts` cannot hand this an exponent
+ * nothing downstream would survive (semantics 29, both sides).
  *
- * `EXAGGERATION_SPEC`, `EXAGGERATION_TUNING`, `applyExaggerationCap`,
- * `DEFAULT_EXAGGERATION_STRENGTH` and `allDimensions` come over from `mpm/exaggerate.ts`
- * unchanged (contract 7); what is gone is the formula they used to cap.
+ * **Text in, text out.** The caller's reference string cannot be mutated by anything here —
+ * this module parses its own copy and serialises it back — which is what makes semantics 30
+ * structural rather than a discipline, and what lets `mode: 'reference'` play the fetched bytes
+ * untouched. Both return paths go through the same serializer, so "nothing was shaped" and
+ * "something was shaped outside your range" are the same document byte for byte (review-S6,
+ * finding 11).
  */
 import {
-    EXPRESSION_DIMENSIONS,
+    ARTICULATION_MAP,
+    ARTICULATION_STYLE,
+    ASYNCHRONY_MAP,
+    DYNAMICS_MAP,
+    METRICAL_ACCENTUATION_MAP,
     Mpm,
+    ORNAMENTATION_MAP,
+    ORNAMENTATION_STYLE,
+    RUBATO_MAP,
+    TEMPO_MAP,
     allChildElements,
-    canonicalMpm,
-    exaggerateMpm,
-    parentElement,
-    weightedFactors,
     type Element,
-    type ExpressionDimension,
 } from 'espressivo';
-import type { Range, StructuredDiffEvent } from './types';
+import { THRESHOLDS } from './diff';
+import type { InstructionDiff, Range } from './types';
 
 /** How far one deviation type gets pushed, as the lesson plan asks for it. */
 export type ExaggerationDimension = { type: string; strength: number };
 
+/**
+ * What `student/fit.ts` measured, in the shape `FitResult.levels` has.
+ *
+ * Not read here any more — the counter-performance pivots on each instruction's own pair, not
+ * on a level for the whole passage — but `TakeSnapshot.levels` is typed with it and the fitter
+ * still measures it, so the name stays where the take's other measurements are named.
+ */
+export type StudentLevels = {
+    readonly student: {
+        readonly bpm: readonly number[];
+        readonly volume: readonly number[];
+    };
+};
+
 /** The aggressiveness the fixed-pedagogy pipeline always used. */
 const DEFAULT_EXAGGERATION_STRENGTH = 0.2;
 
-/** The plan's two-sided clamp, re-applied here so a caller that skipped `lessonPlan.ts` cannot
- * hand espressivo an exponent nothing downstream would survive (semantics 29, both sides). */
+/** The plan's two-sided clamp (semantics 29). */
 const STRENGTH_MIN = 0.05;
 const STRENGTH_MAX = 0.5;
 
-const EXAGGERATION_TUNING: Record<string, Record<string, { strength: number; maxAbsDelta: number }>> = {
-    dynamics: {
-        volume: { strength: 0.45, maxAbsDelta: 12 },
-        'transition.to': { strength: 0.45, maxAbsDelta: 12 },
-    },
-    tempo: {
-        bpm: { strength: 0.35, maxAbsDelta: 10 },
-        'transition.to': { strength: 0.35, maxAbsDelta: 10 },
-    },
-    articulation: {
-        relativeDuration: { strength: 0.5, maxAbsDelta: 0.2 },
-        relativeVelocity: { strength: 0.45, maxAbsDelta: 0.2 },
-    },
-    rubato: {
-        intensity: { strength: 0.25, maxAbsDelta: 0.15 },
-    },
-    ornament: {
-        scale: { strength: 0.4, maxAbsDelta: 0.8 },
-        intensity: { strength: 0.35, maxAbsDelta: 0.25 },
-    },
-    asynchrony: {
-        'milliseconds.offset': { strength: 0.35, maxAbsDelta: 40 },
-    },
-    accentuationPattern: {
-        scale: { strength: 0.4, maxAbsDelta: 0.6 },
-    },
+// ── the attribute table ──────────────────────────────────────────────────────────────────
+
+/**
+ * The space an attribute's deviation is expressed in.
+ *
+ * `ratio` is semantics 27's multiplicative branch, `x' = x_ed·(ref/student)^a`: right wherever
+ * the quantity is a proportion of something — a speed, an exponent, a multiplier, a span.
+ * `offset` is its signed branch, `x' = x_ed − (student − ref)·a`, for a quantity measured as a
+ * distance on a bounded linear scale, where a ratio would be disproportionate at the ends and
+ * meaningless at zero. MIDI velocity is such a scale, and so is a millisecond offset: the
+ * diff's own floors and severity bands for both are stated in absolute units (4 / 12 / 30
+ * velocity, 5 / 15 / 40 ms), which is the same judgement made twice.
+ */
+type Space = 'ratio' | 'offset';
+
+/**
+ * Where the reference states the attribute.
+ *
+ * `instruction` is the dated element itself. `def` is the definition its `@name.ref` reaches,
+ * which carries no date of its own and is in range only when *every* instruction in the
+ * document that reaches it is (see {@link defsInRange}) — the strict reading of semantics 31,
+ * because a def shared with a passage outside the demo cannot be touched without changing how
+ * that passage sounds.
+ */
+type Site = 'instruction' | 'def';
+
+type AttributeRule = {
+    readonly attr: string;
+    readonly space: Space;
+    /** The inner strength: `a = plan strength × this`. */
+    readonly strength: number;
+    /** The ceiling on |x' − x_ed|, in the attribute's own raw unit. */
+    readonly maxAbsDelta: number;
+    readonly min: number;
+    readonly max: number;
+    readonly site: Site;
+    /**
+     * Also write the instruction's own spelling of a `def` attribute, when it states one.
+     * Grünfeld's v2-era document writes an ornament's `@intensity` twice — on the
+     * `<ornament>` and on its def's `<temporalSpread>` — with the same number; the renderer
+     * reads the def, `mpm/pair.ts` prefers it too, and leaving the twin behind would make one
+     * quantity say two things.
+     */
+    readonly mirrorOnInstruction?: true;
 };
 
-const EXAGGERATION_SPEC: Record<string, Array<{ attr: string; min: number; max: number }>> = {
+/**
+ * Every attribute the demonstration may write, with the space it moves in, its inner strength
+ * and its ceiling.
+ *
+ * The inner strengths and `maxAbsDelta`s are `mpm/exaggerate.ts`'s table (mpmify-semantics
+ * §3.2, contract 7) with three deliberate changes, each measured rather than guessed:
+ *
+ * 1. **`dynamics` moves in `offset`.** The legacy formula used the multiplicative branch for
+ *    every type but `asynchrony`. On the `dynamics −18` take the two agree in direction and
+ *    differ by under a velocity unit (offset +1.62, ratio +2.45 at the loudest slot), and the
+ *    offset is the branch the attribute is *measured* in.
+ * 2. **`rubato @intensity` takes the plan's strength undiminished (1.0, was 0.25).** At 0.25 a
+ *    student who doubles Grünfeld's rubato is answered with 0.023–0.040 of intensity against a
+ *    noise floor of 0.1 — review-S6's finding 10, "rubato cannot be demonstrated audibly at any
+ *    admissible strength". At 1.0 the same take answers with 0.089–0.157 and reaches the ±0.15
+ *    cap at its two loudest slots. The cap is untouched; the lever is the exponent, which is
+ *    what that finding asked for.
+ * 3. **`ornament @frameLength` is here at all**, at its sibling's strength, because the roll's
+ *    *width* is where the diff measures an arpeggio (`mpm/pair.ts` reads it off the def) and a
+ *    take that deviates only there would otherwise be answered with silence. `rubato
+ *    @frameLength` is deliberately **not** here: a rubato frame is a tiling of the bar — the 56
+ *    frames are all 720 ticks and abut — so changing one length leaves a gap or an overlap with
+ *    its neighbour. It is a structural attribute, not an intensity.
+ *
+ * The key order is `allDimensions()`'s order, which a test pins.
+ */
+const EXAGGERATION_SPEC: Record<string, readonly AttributeRule[]> = {
     dynamics: [
-        { attr: 'volume', min: 1, max: 127 },
-        { attr: 'transition.to', min: 1, max: 127 },
+        { attr: 'volume', space: 'offset', strength: 0.45, maxAbsDelta: 12, min: 1, max: 127, site: 'instruction' },
+        { attr: 'transition.to', space: 'offset', strength: 0.45, maxAbsDelta: 12, min: 1, max: 127, site: 'instruction' },
     ],
     tempo: [
-        { attr: 'bpm', min: 10, max: 300 },
-        { attr: 'transition.to', min: 10, max: 300 },
+        { attr: 'bpm', space: 'ratio', strength: 0.35, maxAbsDelta: 10, min: 10, max: 300, site: 'instruction' },
+        { attr: 'transition.to', space: 'ratio', strength: 0.35, maxAbsDelta: 10, min: 10, max: 300, site: 'instruction' },
     ],
     articulation: [
-        { attr: 'relativeDuration', min: 0.1, max: 5 },
-        { attr: 'relativeVelocity', min: 0.1, max: 5 },
+        { attr: 'relativeDuration', space: 'ratio', strength: 0.5, maxAbsDelta: 0.2, min: 0.1, max: 5, site: 'def' },
+        { attr: 'relativeVelocity', space: 'ratio', strength: 0.45, maxAbsDelta: 0.2, min: 0.1, max: 5, site: 'def' },
     ],
     rubato: [
-        { attr: 'intensity', min: 0.01, max: 10 },
+        { attr: 'intensity', space: 'ratio', strength: 1, maxAbsDelta: 0.15, min: 0.01, max: 10, site: 'instruction' },
     ],
     ornament: [
-        { attr: 'scale', min: 0.1, max: 20 },
-        { attr: 'intensity', min: 0.01, max: 10 },
+        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 0.8, min: 0.1, max: 20, site: 'instruction' },
+        { attr: 'intensity', space: 'ratio', strength: 0.35, maxAbsDelta: 0.25, min: 0.01, max: 10, site: 'def', mirrorOnInstruction: true },
+        { attr: 'frameLength', space: 'ratio', strength: 0.35, maxAbsDelta: 150, min: 1, max: 720, site: 'def' },
     ],
     asynchrony: [
-        { attr: 'milliseconds.offset', min: -500, max: 500 },
+        { attr: 'milliseconds.offset', space: 'offset', strength: 0.35, maxAbsDelta: 40, min: -500, max: 500, site: 'instruction' },
     ],
     accentuationPattern: [
-        { attr: 'scale', min: 0, max: 10 },
+        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 0.6, min: 0, max: 10, site: 'instruction' },
     ],
+};
+
+/**
+ * Where each type's instructions live, and — for the two types whose numbers sit on a
+ * definition — which style collection the `@name.ref` resolves in and which child of the def
+ * carries them. `mpm/pair.ts` reads exactly these places, so the caps apply to the numbers the
+ * teacher quotes.
+ */
+const SOURCES: Record<string, {
+    readonly map: string;
+    readonly element: string;
+    readonly defs?: { readonly collection: string; readonly child?: string };
+}> = {
+    tempo: { map: TEMPO_MAP, element: 'tempo' },
+    dynamics: { map: DYNAMICS_MAP, element: 'dynamics' },
+    rubato: { map: RUBATO_MAP, element: 'rubato' },
+    articulation: { map: ARTICULATION_MAP, element: 'articulation', defs: { collection: ARTICULATION_STYLE } },
+    accentuationPattern: { map: METRICAL_ACCENTUATION_MAP, element: 'accentuationPattern' },
+    ornament: { map: ORNAMENTATION_MAP, element: 'ornament', defs: { collection: ORNAMENTATION_STYLE, child: 'temporalSpread' } },
+    asynchrony: { map: ASYNCHRONY_MAP, element: 'asynchrony' },
 };
 
 const applyExaggerationCap = (
@@ -139,202 +221,7 @@ export const allDimensions = (
 ): ExaggerationDimension[] =>
     Object.keys(EXAGGERATION_SPEC).map((type) => ({ type, strength }));
 
-// ── where the reference states each attribute ────────────────────────────────────────────
-
-/**
- * Every element name that carries one of `EXAGGERATION_SPEC`'s attributes, and what it is
- * scoped by.
- *
- * `dated` is an instruction: it has an `@date` and is in range when that date is. `def` is a
- * header definition, which has no date of its own — it is in range when *every* instruction in
- * the document that references it is (see {@link defsInRange}). That is the strict reading of
- * semantics 31: a def shared with a passage outside the demo could not be touched without
- * changing how that passage sounds, and a `<style>`-scoped `legato` is exactly such a def.
- *
- * Both readings are needed because Grünfeld's document spells one quantity in two places:
- * `<ornament @scale>` on the instruction, `<temporalSpread @intensity>` on the def it names —
- * which is also where `mpm/pair.ts` reads `ornament.intensity` from, so the caps line up with
- * the numbers the teacher quotes.
- */
-const SPLICE_SITES: Record<string, { readonly type: string; readonly scope: 'dated' | 'def' }> = {
-    tempo: { type: 'tempo', scope: 'dated' },
-    dynamics: { type: 'dynamics', scope: 'dated' },
-    rubato: { type: 'rubato', scope: 'dated' },
-    accentuationPattern: { type: 'accentuationPattern', scope: 'dated' },
-    asynchrony: { type: 'asynchrony', scope: 'dated' },
-    articulation: { type: 'articulation', scope: 'dated' },
-    ornament: { type: 'ornament', scope: 'dated' },
-    articulationDef: { type: 'articulation', scope: 'def' },
-    temporalSpread: { type: 'ornament', scope: 'def' },
-};
-
-/** The instruction element whose `@name.ref` reaches a def of this element name. */
-const DEF_REFERRERS: Record<string, string> = {
-    articulationDef: 'articulation',
-    ornamentDef: 'ornament',
-};
-
-// ── aiming the exaggeration ──────────────────────────────────────────────────────────────
-
-/**
- * Legacy diff type → the espressivo dimension whose registry rows write the attributes
- * `EXAGGERATION_SPEC` names.
- *
- * A subset of `EXPRESSION_DIMENSION_CORRESPONDENCE` (asserted by a test), narrowed to the rows
- * the splice can actually carry: `tempoShape`'s `@meanTempoAt`, `dynamicsShape`'s
- * `@curvature`/`@protraction`, `ornamentSpread`'s frame and `ornamentDynamics`' gradient are
- * all real levers of espressivo's, and all absent from the tuning table — pushing them would
- * produce values the splice then discards, and a report that overstates what was done.
- * `ornament` aims at `ornamentSpacing` because that is where `<temporalSpread @intensity>`
- * lives; `<ornament @scale>` has no registry row at all, so `@scale` is spliceable in
- * principle and never moves in practice.
- */
-const EXPRESSION_DIMENSION_OF: Record<string, ExpressionDimension> = {
-    tempo: 'tempo',
-    dynamics: 'dynamics',
-    rubato: 'rubato',
-    articulation: 'articulation',
-    accentuationPattern: 'accentuation',
-    ornament: 'ornamentSpacing',
-    asynchrony: 'asynchrony',
-};
-
-/**
- * The scale space each spliceable attribute is exaggerated in, as its registry row declares it
- * — `ratio` for `log-around-1` (neutral 1), `gain` for the two gain families (neutral 0).
- *
- * Read only to decide which way the push has to go; the transform itself is espressivo's.
- */
-const PIVOT_SPACES: Record<string, Record<string, 'ratio' | 'gain'>> = {
-    rubato: { intensity: 'ratio' },
-    articulation: { relativeDuration: 'ratio', relativeVelocity: 'ratio' },
-    ornament: { scale: 'ratio', intensity: 'ratio' },
-    accentuationPattern: { scale: 'gain' },
-    asynchrony: { 'milliseconds.offset': 'gain' },
-};
-
-/** The student's own level, as espressivo's fixed point wants it: one number per dimension. */
-type StudentCenter = { tempo?: number; dynamics?: number };
-
-/** What `student/fit.ts` measured, in the shape `FitResult.levels` has. */
-export type StudentLevels = {
-    readonly student: {
-        readonly bpm: readonly number[];
-        readonly volume: readonly number[];
-    };
-};
-
-const geoMean = (values: readonly number[]): number | undefined => {
-    const usable = values.filter((value) => Number.isFinite(value) && value > 0);
-    if (usable.length === 0) return undefined;
-    return Math.exp(usable.reduce((sum, value) => sum + Math.log(value), 0) / usable.length);
-};
-
-/**
- * The take's fixed point: the geometric means of what the student actually played.
- *
- * `@bpm` needs no normalisation into espressivo's quarter-note unit here because the fitter
- * copies the reference's `@beatLength` into every slot and Grünfeld's sixty `<tempo>` elements
- * are all at `0.25` — `bpm · 0.25 · 4 = bpm`. A reference with mixed beat lengths would have to
- * carry them alongside the levels; `counter.test.ts` fails if `performance.mpm` ever grows one.
- */
-export const studentCenter = (levels: StudentLevels): StudentCenter => ({
-    tempo: geoMean(levels.student.bpm),
-    dynamics: geoMean(levels.student.volume),
-});
-
-const forward = (space: 'ratio' | 'gain', value: number): number =>
-    space === 'ratio' ? Math.log(value) : value;
-
-/**
- * Which side of its neutral the push has to move Grünfeld, for the five dimensions `center`
- * cannot reach.
- *
- * With a fixed neutral the only free choice is the *sign* of the exponent: `s > 1` moves the
- * value further from the neutral, `s < 1` moves it closer. Away from the student is the first
- * where the reference already lies beyond the student, and the second where the student has
- * overshot the reference on the reference's own side — which in the transform space is one
- * condition, `sign(T(ref)) === sign(T(ref) − T(student))`. Each of the type's own diff events
- * casts one vote and the majority wins; a type with no events keeps espressivo's default,
- * away from the neutral.
- *
- * DESIGN §3.5 states this as "student exceeds ⇒ `s < 1`", which is the same rule wherever the
- * reference lies above its neutral — the arpeggio case it argues from. It is the opposite rule
- * where the reference lies below: Grünfeld's rubato intensities run 0.72–0.88 against a neutral
- * of 1, so pulling them toward 1 would move them toward a student who is already above him.
- * The condition above is the general form and reduces to DESIGN's on DESIGN's case.
- */
-const pushesOutward = (type: string, events: readonly StructuredDiffEvent[]): boolean => {
-    let votes = 0;
-    for (const event of events) {
-        if (event.type !== type) continue;
-        const space = PIVOT_SPACES[type]?.[event.primaryAttr];
-        if (!space) continue;
-        if (space === 'ratio' && (event.refValue <= 0 || event.studentValue <= 0)) continue;
-        const tRef = forward(space, event.refValue);
-        const tStudent = forward(space, event.studentValue);
-        votes += Math.sign(tRef) * Math.sign(tRef - tStudent);
-    }
-    return votes >= 0;
-};
-
-/** The largest inner strength the type's attributes carry: espressivo aims per dimension, the
- * tuning table per attribute, and the two differ only for `articulation` (0.5 / 0.45) and
- * `ornament` (0.4 / 0.35). The per-attribute number survives exactly where it decides the
- * outcome — in `maxAbsDelta`, which the splice applies attribute by attribute. */
-const innerStrengthOf = (type: string): number =>
-    Math.max(...Object.values(EXAGGERATION_TUNING[type] ?? {}).map((tuning) => tuning.strength), 0);
-
-/**
- * The lesson plan and the take's evidence, as one `ExaggerationFactors` record.
- *
- * `weightedFactors(2, w)` is the lerp `1 + w·(s − 1)` at `s = 2`, i.e. `1 + w`: the weight
- * vector *is* the per-dimension exponent offset. DESIGN §3.5 writes
- * `weightedFactors(1 + strength, EXPRESSION_WEIGHTS_FOR(dimensions))`, which is the same record
- * whenever every named dimension shares one strength — but the plan gives a strength *per*
- * dimension and a single scalar cannot carry seven of them, so the strength rides in the
- * weight instead. An outward push is `1 + a`, an inward one its reciprocal `1/(1 + a)`, so the
- * two are mirror images in log space.
- *
- * Every dimension is named explicitly, including the ones held at 1: a key missing from
- * `weights` passes the scalar through untouched (`weights.ts:146`), so an omission would
- * exaggerate what nobody asked for.
- */
-const factorsFor = (
-    dimensions: readonly ExaggerationDimension[],
-    events: readonly StructuredDiffEvent[],
-    measured: readonly string[] | undefined,
-    log: (msg: string) => void,
-): { factors: Record<string, number>; named: string[] } => {
-    const weights = Object.fromEntries(EXPRESSION_DIMENSIONS.map((d) => [d, 0])) as Record<ExpressionDimension, number>;
-    const named: string[] = [];
-
-    for (const dimension of dimensions) {
-        const { type } = dimension;
-        if (typeof dimension?.strength !== 'number' || !Number.isFinite(dimension.strength)) continue;
-        if (!EXAGGERATION_SPEC[type] || named.includes(type)) continue;
-        // A dimension the take did not measure has no student behind it: exaggerating it would
-        // caricature the *bake*, which is the one thing the counter-performance must not do.
-        if (measured !== undefined && !measured.includes(type)) {
-            log(`counter: ${type} not measured on this take — Grünfeld's own value stands`);
-            continue;
-        }
-
-        const target = EXPRESSION_DIMENSION_OF[type];
-        const strength = Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, dimension.strength));
-        const a = strength * innerStrengthOf(type);
-        // tempo and dynamics pivot on the student themselves (`center`), so their exponent is
-        // always the outward one; the other five have only their neutral to pivot on.
-        const outward = target === 'tempo' || target === 'dynamics' || pushesOutward(type, events);
-        weights[target] = outward ? a : -a / (1 + a);
-        named.push(type);
-        log(`counter: ${type} → ${target} s=${(1 + weights[target]).toFixed(4)} (${outward ? 'away from the neutral' : 'toward the neutral'})`);
-    }
-
-    return { factors: weightedFactors(2, weights), named };
-};
-
-// ── the splice ───────────────────────────────────────────────────────────────────────────
+// ── reading and writing one document ─────────────────────────────────────────────────────
 
 const numberAttribute = (element: Element, name: string): number | null => {
     const raw = element.getAttributeValue(name);
@@ -348,188 +235,187 @@ const numberAttribute = (element: Element, name: string): number | null => {
 const ROUNDING = 6;
 const round = (value: number): number => Number(value.toFixed(ROUNDING));
 
-/**
- * The defs no instruction reaches from outside `range`.
- *
- * A def with no referring instruction at all is excluded: it belongs to a passage that is not
- * in this document's demo, and the reference's own value is the safe answer.
- */
-const defsInRange = (root: Element, range: Range): Set<string> => {
-    const dates = new Map<string, number[]>();
-    const collect = (element: Element): void => {
-        const referrer = element.getLocalName();
-        const nameRef = element.getAttributeValue('name.ref');
-        const date = numberAttribute(element, 'date');
-        if (nameRef !== null && date !== null) {
-            const key = `${referrer}::${nameRef}`;
-            const seen = dates.get(key);
-            if (seen) seen.push(date);
-            else dates.set(key, [date]);
-        }
-        for (const child of allChildElements(element)) collect(child);
-    };
-    collect(root);
+/** Every element of one map, in document order — the instructions of one type. */
+const instructionsOf = (document: Mpm, type: string): Element[] => {
+    const { map: mapName, element: elementName } = SOURCES[type];
+    const map = document.getPerformance(0)?.getGlobal()?.getDated()?.getMap(mapName) ?? null;
+    const found: Element[] = [];
+    for (let index = 0; index < (map?.size() ?? 0); index++) {
+        const element = map!.getElement(index);
+        if (element && element.getLocalName() === elementName) found.push(element);
+    }
+    return found;
+};
 
-    const reachable = new Set<string>();
-    for (const [defElement, referrer] of Object.entries(DEF_REFERRERS)) {
-        for (const [key, seen] of dates) {
-            if (!key.startsWith(`${referrer}::`)) continue;
-            const name = key.slice(referrer.length + 2);
-            if (seen.every((date) => date >= range.from && date <= range.to)) {
-                reachable.add(`${defElement}::${name}`);
-            }
+/**
+ * One definition, as the demonstration needs it: the element to write on, and an identity to
+ * decide in-range-ness by.
+ *
+ * The key names the owning `<styleDef>` as well as the def — `mpm/pair.ts` resolves a
+ * `@name.ref` first-wins across a collection's style definitions, and two `<styleDef>`s in one
+ * collection sharing a def name would otherwise splice whichever the reader happened to reach
+ * (review-S6, finding 13). No such collision exists in `performance.mpm`; the key costs
+ * nothing and removes the silence.
+ */
+type DefTarget = { readonly key: string; readonly xml: Element };
+
+/**
+ * Every def of one style collection by `@name`, resolved as the renderer would with no
+ * `<style>` switch in force: document order, first wins — `mpm/pair.ts`'s rule, so both sides
+ * read the same definition.
+ */
+const defsOf = (document: Mpm, collection: string): Map<string, DefTarget> => {
+    const header = document.getPerformance(0)?.getGlobal()?.getHeader() ?? null;
+    const found = new Map<string, DefTarget>();
+    for (const [styleName, style] of header?.getAllStyleDefs(collection)?.entries() ?? []) {
+        for (const [name, def] of style.getAllDefs()) {
+            const xml = def.getXmlOrNull();
+            if (xml && !found.has(name)) found.set(name, { key: `${collection}::${styleName}::${name}`, xml });
         }
     }
+    return found;
+};
+
+/**
+ * The def keys no instruction reaches from outside `range`.
+ *
+ * Every referrer counts, whatever type the plan asked for: a def is shared by whoever names
+ * it, and the demonstration may not change how a passage outside its own range sounds. A def
+ * with no referrer at all is not reachable in this demonstration and is left alone.
+ *
+ * A referrer carrying `@name.ref` but **no** `@date` cannot be shown to be inside the range, so
+ * it blocks the def outright (review-S6, finding 14). `Mpm` in fact drops such an instruction
+ * before it reaches this walk — a test asserts that — so the branch is the belt to that
+ * braces: the rule is stated here rather than rested on a parser this module does not own.
+ */
+const defsInRange = (document: Mpm, range: Range): Set<string> => {
+    const reachable = new Set<string>();
+    const blocked = new Set<string>();
+
+    for (const [type, source] of Object.entries(SOURCES)) {
+        if (!source.defs) continue;
+        const defs = defsOf(document, source.defs.collection);
+        for (const element of instructionsOf(document, type)) {
+            const nameRef = element.getAttributeValue('name.ref');
+            if (nameRef === null) continue;
+            const target = defs.get(nameRef);
+            if (!target) continue;
+            const date = numberAttribute(element, 'date');
+            if (date === null || date < range.from || date > range.to) blocked.add(target.key);
+            else reachable.add(target.key);
+        }
+    }
+
+    for (const key of blocked) reachable.delete(key);
     return reachable;
 };
 
+// ── the push ─────────────────────────────────────────────────────────────────────────────
+
+/** One attribute's pair, as `mpm/pair.ts` priced it: both sides fitted, in raw MPM units. */
+type Pair = { readonly ref: number; readonly student: number; readonly delta: number };
+
+type Outcome = 'written' | 'capped' | 'unmoved';
+
 /**
- * Which way the counter-performance is allowed to move, per slot: `+1` it may only go up, `−1`
- * only down, `0` no opinion.
+ * Push one attribute of one element away from the student it was paired against.
  *
- * The sign is `−sign(student − reference)` read off the take's own findings, so both sides of
- * it come from the **fitted** documents and the two numbers are commensurable. It is then
- * applied to a move between two *editorial* values. A slot with its own event gets its own
- * sign; the rest of the type follows the median of that type's events, which is the direction
- * the spoken cue names.
+ * `x_ed` is read off the element being written, so each spelling of a quantity is transformed
+ * from its own value and the document stays self-consistent. Four ways this declines to
+ * write, all of them meaning "Grünfeld's own value is the honest answer":
+ *
+ * - the editorial document does not state the attribute at all (nothing to scale);
+ * - a `ratio` push with a non-positive number on either side, where the ratio has no meaning;
+ * - a clamped result that lands on the student's side of `x_ed`. That cannot come from the
+ *   push, which is away from the student by construction, but it can come from the bounds:
+ *   `performance.mpm` states a `@transition.to` of 9.5 bpm against a floor of 10, and
+ *   correcting the reference is not this module's business;
+ * - a result that rounds back onto `x_ed`, where rewriting the attribute would be an edit
+ *   nobody asked for.
  */
-type DirectionGuard = {
-    readonly bySlot: ReadonlyMap<string, number>;
-    readonly byType: ReadonlyMap<string, number>;
-};
+const push = (element: Element, rule: AttributeRule, pair: Pair, a: number): Outcome => {
+    const editorial = numberAttribute(element, rule.attr);
+    if (editorial === null) return 'unmoved';
 
-const median = (values: readonly number[]): number => {
-    const sorted = [...values].sort((a, b) => a - b);
-    const middle = sorted.length >> 1;
-    return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-};
-
-const directionGuard = (events: readonly StructuredDiffEvent[]): DirectionGuard => {
-    const bySlot = new Map<string, number>();
-    const deltas = new Map<string, number[]>();
-    for (const event of events) {
-        const delta = event.studentValue - event.refValue;
-        if (!Number.isFinite(delta)) continue;
-        bySlot.set(`${event.type}::${event.date}`, -Math.sign(delta));
-        const seen = deltas.get(event.type);
-        if (seen) seen.push(delta);
-        else deltas.set(event.type, [delta]);
+    let pushed: number;
+    if (rule.space === 'ratio') {
+        if (pair.ref <= 0 || pair.student <= 0 || editorial <= 0) return 'unmoved';
+        pushed = editorial * Math.pow(pair.ref / pair.student, a);
+    } else {
+        pushed = editorial - pair.delta * a;
     }
-    const byType = new Map<string, number>();
-    for (const [type, values] of deltas) byType.set(type, -Math.sign(median(values)));
-    return { bySlot, byType };
-};
+    if (!Number.isFinite(pushed)) return 'unmoved';
 
-/** The `@name` of the definition an element belongs to — its own, or its parent def's for a
- * `<temporalSpread>`, which is where the ornament's intensity is spelled. */
-const defKeyOf = (element: Element): string | null => {
-    const own = element.getAttributeValue('name');
-    if (own !== null) return `${element.getLocalName()}::${own}`;
-    const parent = parentElement(element);
-    const parentName = parent?.getAttributeValue('name') ?? null;
-    return parentName === null ? null : `${parent?.getLocalName()}::${parentName}`;
+    const exact = applyExaggerationCap(editorial, pushed, rule.maxAbsDelta, rule.min, rule.max);
+    if (Math.sign(exact - editorial) === Math.sign(pair.delta)) return 'unmoved';
+
+    // Rounded where rounding is free; the exact clamp where it would step over a bound. A cap
+    // is a ceiling, and a written value may never sit above it.
+    const rounded = round(exact);
+    const value = rounded >= rule.min && rounded <= rule.max && Math.abs(rounded - editorial) <= rule.maxAbsDelta
+        ? rounded
+        : exact;
+    if (value === editorial) return 'unmoved';
+
+    element.getAttribute(rule.attr)?.setValue(String(value));
+
+    // A `<temporalSpread>` frame is `[date + frame.start, date + frame.start + frameLength]`,
+    // and Grünfeld's before-beat rolls are written with `frame.start ≈ −frameLength` so that
+    // the roll *lands* on the beat. Narrowing the roll without moving its start would drag the
+    // arpeggio off the note it ornaments — a change nobody asked for — so the offset is scaled
+    // with the length and the frame keeps its shape around the beat: a before-beat roll still
+    // ends on it, a straddling one still straddles it in the same proportion.
+    if (rule.attr === 'frameLength') {
+        const start = numberAttribute(element, 'frame.start');
+        if (start !== null && start !== 0) {
+            element.getAttribute('frame.start')?.setValue(String(round(start * (value / editorial))));
+        }
+    }
+
+    return Math.abs(pushed - editorial) > rule.maxAbsDelta + 1e-12 ? 'capped' : 'written';
 };
 
 /**
- * Copy the exaggerated values onto the reference, capped, for the demo range only.
+ * The plan's dimensions, narrowed to what may actually be shaped, with the strength clamped.
  *
- * The two documents are index-aligned: `exaggerateMpm` writes no element, no attribute and no
- * `@date`, so `pushed` and `canonicalMpm(reference)` differ in attribute *values* alone. The
- * walk asserts that rather than assuming it — an arity or name mismatch means the guarantee
- * broke and the counter-performance would be silently misassembled.
- *
- * @param referenceMpmText the reference in its canonical form; the result is a copy of it
- * @param pushedMpmText what `exaggerateMpm` returned for the same document
+ * A dimension the take did not measure has no student behind it: pushing it could only
+ * caricature the editorial bake, which is the one thing the counter-performance must not do
+ * (review-S5, finding 1).
  */
-export const spliceCapped = (
-    referenceMpmText: string,
-    pushedMpmText: string,
-    range: Range,
-    events: readonly StructuredDiffEvent[] = [],
-    log: (msg: string) => void = () => {},
-): string => {
-    const document = new Mpm(referenceMpmText);
-    const pushed = new Mpm(pushedMpmText);
-    const target = document.getRootElement();
-    const source = pushed.getRootElement();
-    if (!target || !source) throw new Error('counter-performance: a document has no root');
-
-    const reachable = defsInRange(target, range);
-    const guard = directionGuard(events);
-    let writes = 0;
-    let capped = 0;
-    let refused = 0;
-
-    const walk = (a: Element, b: Element): void => {
-        if (a.getLocalName() !== b.getLocalName()) {
-            throw new Error(`counter-performance: <${a.getLocalName()}> vs <${b.getLocalName()}> — the exaggeration changed the document's shape`);
+const strengthsFor = (
+    dimensions: readonly ExaggerationDimension[],
+    measured: readonly string[] | undefined,
+    log: (msg: string) => void,
+): Map<string, number> => {
+    const chosen = new Map<string, number>();
+    for (const dimension of dimensions) {
+        const { type } = dimension;
+        if (typeof dimension?.strength !== 'number' || !Number.isFinite(dimension.strength)) continue;
+        if (!EXAGGERATION_SPEC[type] || chosen.has(type)) continue;
+        if (measured !== undefined && !measured.includes(type)) {
+            log(`counter: ${type} not measured on this take — Grünfeld's own value stands`);
+            continue;
         }
+        chosen.set(type, Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, dimension.strength)));
+    }
+    return chosen;
+};
 
-        const site = SPLICE_SITES[a.getLocalName()];
-        if (site) {
-            const date = site.scope === 'dated' ? numberAttribute(a, 'date') : null;
-            const inRange = site.scope === 'dated'
-                ? date !== null && date >= range.from && date <= range.to
-                : (() => {
-                    const key = defKeyOf(a);
-                    return key !== null && reachable.has(key);
-                })();
-            const allowed = (date === null ? undefined : guard.bySlot.get(`${site.type}::${date}`))
-                ?? guard.byType.get(site.type)
-                ?? 0;
-
-            if (inRange) {
-                for (const { attr, min, max } of EXAGGERATION_SPEC[site.type]) {
-                    const refValue = numberAttribute(a, attr);
-                    const pushedValue = numberAttribute(b, attr);
-                    if (refValue === null || pushedValue === null) continue;
-                    // The engine left this attribute alone — an identity factor, an inert site,
-                    // a refusal. Then so does the splice: rounding an untouched value would be
-                    // an edit nobody asked for, and would make a dimension the take never
-                    // measured show up as changed.
-                    if (pushedValue === refValue) continue;
-
-                    // The bias guard. A level pivot is one number for a whole passage, so it
-                    // can move a slot that already lies past the student further past *the
-                    // level* and yet toward *that slot's* student value. Where the take's own
-                    // fitted comparison says which way is away, that sign wins and a push
-                    // against it is simply not taken.
-                    if (allowed !== 0 && Math.sign(pushedValue - refValue) === -allowed) {
-                        refused += 1;
-                        continue;
-                    }
-
-                    const { maxAbsDelta } = EXAGGERATION_TUNING[site.type]?.[attr] ?? { maxAbsDelta: max };
-                    const exact = applyExaggerationCap(refValue, pushedValue, maxAbsDelta, min, max);
-                    // Rounded where rounding is free; the exact clamp where it would step over
-                    // a bound. A cap is a ceiling, and a written value may never sit above it.
-                    const rounded = round(exact);
-                    const value = rounded >= min && rounded <= max && Math.abs(rounded - refValue) <= maxAbsDelta
-                        ? rounded
-                        : exact;
-                    if (value === refValue) continue;
-
-                    a.getAttribute(attr)?.setValue(String(value));
-                    writes += 1;
-                    if (Math.abs(pushedValue - refValue) > maxAbsDelta + 1e-12) capped += 1;
-                }
-            }
-        }
-
-        const childrenA = allChildElements(a);
-        const childrenB = allChildElements(b);
-        if (childrenA.length !== childrenB.length) {
-            throw new Error(`counter-performance: <${a.getLocalName()}> has ${childrenA.length} children against ${childrenB.length} — the exaggeration changed the document's shape`);
-        }
-        for (let i = 0; i < childrenA.length; i++) walk(childrenA[i], childrenB[i]);
-    };
-    walk(target, source);
-
-    log(`counter: ${writes} attribute(s) shaped in [${range.from}, ${range.to}], ${capped} at the cap, ${refused} refused for moving toward the student`);
-
-    const text = document.writeMpm();
-    if (text === null) throw new Error('counter-performance: the document could not be written');
-    return text;
+/**
+ * The take's pairs by `${type}::${date}`, which is the identity `${type}_${date}` prints.
+ *
+ * `InstructionDiff` carries no `xml:id` — it is built from the reference's own instructions, so
+ * the date *is* the join, and both documents state it. Where a document puts two instructions
+ * of one type at one date the first pair stands for both: they describe one slot, and MPM lets
+ * the later element prevail in the render either way.
+ */
+const pairsBySlot = (peaks: readonly InstructionDiff[]): Map<string, InstructionDiff> => {
+    const found = new Map<string, InstructionDiff>();
+    for (const peak of peaks) {
+        const key = `${peak.type}::${peak.date}`;
+        if (!found.has(key)) found.set(key, peak);
+    }
+    return found;
 };
 
 // ── the one call the strategy makes ──────────────────────────────────────────────────────
@@ -542,18 +428,15 @@ type CounterPerformanceInput = {
     readonly range: Range;
     /** What the teacher asked to be heard. Empty means nothing is shaped. */
     readonly dimensions: readonly ExaggerationDimension[];
-    /** `studentCenter(evidence.levels)` — the fixed point the push happens around. */
-    readonly center: StudentCenter;
     /**
-     * The take's own findings, read off the **fitted** comparison: the pivot's sign for the
-     * five dimensions `center` cannot reach, and the per-slot direction guard for all seven.
+     * The take's paired instructions — `Evidence.peaks`, per attribute, both sides fitted, in
+     * raw MPM units. This is what the push is computed from; with none of them nothing moves.
      */
-    readonly events?: readonly StructuredDiffEvent[];
+    readonly peaks?: readonly InstructionDiff[];
     /**
      * The types this take actually measured — `TakeEvidence.measuredTypes` intersected with
-     * what the fitter wrote. A dimension outside it is never exaggerated, whatever the plan
-     * asked for: there is no student behind it, so the push could only caricature the
-     * editorial bake. Omitted means "no gate", which only a unit test should want.
+     * what the fitter wrote. A dimension outside it is never shaped, whatever the plan asked
+     * for. Omitted means "no gate", which only a unit test should want.
      */
     readonly measured?: readonly string[];
     readonly log?: (msg: string) => void;
@@ -562,40 +445,106 @@ type CounterPerformanceInput = {
 /**
  * Grünfeld's performance, pushed away from this student, as MPM text.
  *
- * Text in, text out, and nothing shared: the caller's reference string cannot be mutated by
- * anything here, which is what makes semantics 30 structural rather than a discipline.
+ * Everything outside `range`, every type the plan did not name or the take did not measure, and
+ * every attribute the table does not list — Grünfeld's whole pedal among them — comes out
+ * exactly as it went in.
  */
 export const counterPerformance = ({
     referenceMpmText,
     range,
     dimensions,
-    center,
-    events = [],
+    peaks = [],
     measured,
     log = () => {},
 }: CounterPerformanceInput): string => {
-    const canonical = canonicalMpm(referenceMpmText);
-    const { factors, named } = factorsFor(dimensions, events, measured, log);
-    if (named.length === 0) {
+    const document = new Mpm(referenceMpmText);
+    const serialize = (): string => {
+        const text = document.writeMpm();
+        if (text === null) throw new Error('counter-performance: the document could not be written');
+        return text;
+    };
+
+    const strengths = strengthsFor(dimensions, measured, log);
+    if (strengths.size === 0) {
         log('counter: no dimension to shape — Grünfeld plays as he played');
-        return canonical;
+        return serialize();
     }
 
-    // A level with nothing measured behind it is omitted rather than guessed: espressivo then
-    // pivots that dimension on Grünfeld's own mean, which is a weaker demonstration but never
-    // a wrong-way one.
-    const usable: StudentCenter = {};
-    if (Number.isFinite(center.tempo) && (center.tempo ?? 0) > 0) usable.tempo = center.tempo;
-    if (Number.isFinite(center.dynamics) && (center.dynamics ?? 0) > 0) usable.dynamics = center.dynamics;
-    if (usable.tempo === undefined && named.includes('tempo')) log('counter: no student tempo level — pivoting on Grünfeld’s own');
-    if (usable.dynamics === undefined && named.includes('dynamics')) log('counter: no student volume level — pivoting on Grünfeld’s own');
+    const pairs = pairsBySlot(peaks);
+    const reachableDefs = defsInRange(document, range);
+    const written = new Set<string>();
+    let writes = 0;
+    let capped = 0;
+    let underFloor = 0;
 
-    const { mpm: pushed, report } = exaggerateMpm(referenceMpmText, {
-        factors,
-        center: usable,
-        velocityRange: { min: 1, max: 127 },
-    });
-    log(`counter: ${named.join(', ')} pushed around tempo=${usable.tempo?.toFixed(2) ?? 'self'} dynamics=${usable.dynamics?.toFixed(2) ?? 'self'} (${report.totalWrites} writes)`);
+    for (const [type, strength] of strengths) {
+        const rules = EXAGGERATION_SPEC[type];
+        const definitions = SOURCES[type].defs;
+        const defs = definitions ? defsOf(document, definitions.collection) : null;
+        let slots = 0;
 
-    return spliceCapped(canonical, pushed, range, events, log);
+        for (const element of instructionsOf(document, type)) {
+            const date = numberAttribute(element, 'date');
+            if (date === null || date < range.from || date > range.to) continue;
+            const pair = pairs.get(`${type}::${date}`);
+            if (!pair) continue;
+            slots += 1;
+
+            for (const rule of rules) {
+                const measurement = pair.diffs[rule.attr];
+                if (!measurement) continue;
+                // Below the diff's own floor the difference is measurement, not playing
+                // (semantics 19) — and an attribute nobody deviated in is an attribute the
+                // demonstration has nothing to say about.
+                if (Math.abs(measurement.delta) < (THRESHOLDS[rule.attr] ?? 0)) {
+                    underFloor += 1;
+                    continue;
+                }
+                const a = strength * rule.strength;
+
+                if (rule.site === 'instruction') {
+                    const outcome = push(element, rule, measurement, a);
+                    if (outcome !== 'unmoved') writes += 1;
+                    if (outcome === 'capped') capped += 1;
+                    continue;
+                }
+
+                const nameRef = element.getAttributeValue('name.ref');
+                const target = nameRef === null ? undefined : defs?.get(nameRef);
+                // The def is what the renderer reads, so a def the demonstration may not touch
+                // means the whole attribute stands — the instruction's twin spelling included,
+                // which would otherwise disagree with the number actually sounding.
+                if (!target || !reachableDefs.has(target.key)) continue;
+
+                if (rule.mirrorOnInstruction) {
+                    const mirrored = push(element, rule, measurement, a);
+                    if (mirrored !== 'unmoved') writes += 1;
+                    if (mirrored === 'capped') capped += 1;
+                }
+
+                // One def, one write: several instructions reach the same definition and they
+                // all carry the same pair for it, so applying the push once is the whole of it.
+                const once = `${target.key}::${rule.attr}`;
+                if (written.has(once)) continue;
+                written.add(once);
+
+                const holder = definitions?.child
+                    ? allChildElements(target.xml, definitions.child)[0]
+                    : target.xml;
+                if (!holder) continue;
+                const outcome = push(holder, rule, measurement, a);
+                if (outcome !== 'unmoved') writes += 1;
+                if (outcome === 'capped') capped += 1;
+            }
+        }
+
+        log(`counter: ${type} strength=${strength.toFixed(2)} — ${slots} paired slot(s) in range`);
+    }
+
+    log(
+        `counter: ${writes} attribute(s) shaped in [${range.from}, ${range.to}], ` +
+        `${capped} at the cap, ${underFloor} under the noise floor`,
+    );
+
+    return serialize();
 };

@@ -1,4 +1,4 @@
-import { allDimensions, counterPerformance, studentCenter, type ExaggerationDimension } from '../../mpm';
+import { allDimensions, counterPerformance, type ExaggerationDimension } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
 import { isAgenticTeacher } from '../../featureFlags';
 import { fallbackImmediateJudgement } from '../../judgement';
@@ -36,8 +36,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             referenceMpmText: ctx.referenceMpmText,
             range,
             dimensions,
-            center: studentCenter(take.levels),
-            events: take.structuredDiff,
+            peaks: take.peaks,
             measured: take.measuredTypes,
             log,
         });

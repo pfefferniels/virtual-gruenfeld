@@ -25,7 +25,7 @@ import { fitStudent, type LegacyType } from '../student/fit';
 import { readScaffold } from '../student/scaffold';
 import { takeEvidence } from './compare';
 import { parseReferenceMpm } from './reference';
-import type { DiffType, Range, StructuredDiffEvent } from './types';
+import type { DiffType, InstructionDiff, Range, StructuredDiffEvent } from './types';
 
 /** What one take needs to know: the take itself, and the three documents it is read against. */
 export type EvidenceInput = {
@@ -56,6 +56,14 @@ export type Evidence = {
     /** The student's performance as the fitter wrote it. S6's counter-performance reads it. */
     readonly studentMpmText: string;
     readonly structuredDiff: StructuredDiffEvent[];
+    /**
+     * The paired instructions, per attribute, in raw MPM units: `{ref, student, delta}` for
+     * every attribute both documents state at a slot the take measured. `structuredDiff` keeps
+     * only each slot's *primary* attribute, and the counter-performance needs both halves of a
+     * slot — `bpm` **and** `transition.to` — to push each of them away from this student
+     * (`mpm/counter.ts`; review-S6 findings 6 and 7).
+     */
+    readonly peaks: readonly InstructionDiff[];
     readonly diffSummary: string;
     /**
      * Types the fitter wrote **and** the audibility gate let through (DESIGN §3.4) — the
@@ -122,6 +130,7 @@ export const evidenceForTake = (input: EvidenceInput): Evidence => {
     return {
         studentMpmText,
         structuredDiff: evidence.structuredDiff,
+        peaks: evidence.peaks,
         diffSummary: evidence.diffSummary,
         // Both halves of DESIGN §3.4, and this is the only place that has both: `takeEvidence`
         // knows what the gate let through, and only the fit knows what was written at all. A

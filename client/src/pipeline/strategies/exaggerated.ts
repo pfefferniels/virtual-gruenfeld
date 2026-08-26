@@ -94,7 +94,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         try {
             const path = await runPath({
                 studentMpmText: take.studentMpmText,
-                referenceMpmText: ctx.fittedReferenceMpmText,
+                referenceMpmText: take.referenceFitText,
                 scoreMsm: ctx.scoreMsm,
                 range: demoRange,
                 types: (plan?.dimensions ?? []).map((dimension) => dimension.type),

@@ -41,8 +41,8 @@ const INPUT: EvidenceInput = {
     notes: [],
     range: { from: 720, to: 1440 },
     scoreMsm: '<msm/>',
+    scoreNotes: [],
     referenceMpmText: '<mpm/>',
-    fittedReferenceMpmText: '<mpm/>',
 };
 
 const PATH_INPUT: PathInput = {

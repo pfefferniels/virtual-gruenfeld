@@ -15,10 +15,10 @@ import { fileURLToPath } from 'node:url';
 import { performMsmToData } from 'espressivo';
 import { describe, expect, it } from 'vitest';
 import { implantLocal } from '../matcher';
-import { measuredNotesFromPerformanceData, isImplanted, type MeasuredNote } from '../score/measured';
+import { measuredNotesFromPerformanceData, isImplanted, withoutUnisons, type MeasuredNote } from '../score/measured';
 import { convert, perform } from '../services/mpmRenderer';
 import { PPQ } from '../shared/constants';
-import { evidenceForTake, type Evidence } from './evidence';
+import { evidenceForTake, forgetReferenceFits, type Evidence } from './evidence';
 import type { Range } from './types';
 
 const load = (relative: string): string =>
@@ -26,13 +26,16 @@ const load = (relative: string): string =>
 
 const mei = load('../../public/score.mei');
 const referenceMpmText = load('../../public/performance.mpm');
-const fittedReferenceMpmText = load('../../public/reference.fitted.mpm');
 const scoreMsm = convert(mei);
 
-/** What `pipeline/boot.ts` derives once: the score, timed as Grünfeld's document sounds it. */
-const scoreNotes: MeasuredNote[] = measuredNotesFromPerformanceData(
+/**
+ * What `pipeline/boot.ts` derives once: the score, timed as Grünfeld's document sounds it, with
+ * unisons folded — because MIDI cannot carry two notes of one pitch at one instant, and this
+ * list is the matcher's reference side against real MIDI.
+ */
+const scoreNotes: MeasuredNote[] = withoutUnisons(measuredNotesFromPerformanceData(
     performMsmToData({ msm: scoreMsm, mpm: referenceMpmText }, { expandOrnaments: false }),
-);
+));
 
 /** Four bars, m5.1–m9.1 — the window every suite in this rewrite uses. */
 const FOUR_BARS: Range = { from: 11520, to: 23040 };
@@ -40,6 +43,16 @@ const FOUR_BARS: Range = { from: 11520, to: 23040 };
 const OPENING: Range = { from: 0, to: 2880 };
 /** Eight bars, the upper end of what DESIGN §5 test 11 budgets. */
 const EIGHT_BARS: Range = { from: 11520, to: 34560 };
+/**
+ * The three windows browser run #2 measured the identity take over — where it produced three
+ * ornament criticisms apiece against the committed `reference.fitted.mpm` (3.35 · 3.64 · 4.10
+ * JND). They are here so the fix is stated on the same passages the hole was found on.
+ */
+const IDENTITY_WINDOWS: readonly (readonly [string, Range])[] = [
+    ['m5–m9', FOUR_BARS],
+    ['m1–m5', { from: 0, to: 11520 }],
+    ['m9–m13', { from: 23040, to: 34560 }],
+];
 
 /** Grünfeld's document with one number scaled everywhere — a student who differs in one way. */
 const scaled = (attribute: string, factor: number): string =>
@@ -60,13 +73,7 @@ const takeFrom = (mpmText: string, range: Range) => {
 
 const evidenceFor = (mpmText: string, range: Range): Evidence => {
     const { notes, range: matched } = takeFrom(mpmText, range);
-    return evidenceForTake({
-        notes,
-        range: matched,
-        scoreMsm,
-        referenceMpmText,
-        fittedReferenceMpmText,
-    });
+    return evidenceForTake({ notes, range: matched, scoreMsm, scoreNotes, referenceMpmText });
 };
 
 // ── the implant, in its new shape ────────────────────────────────────────────────────────
@@ -109,7 +116,7 @@ describe('implantLocal, on score notes', () => {
 // ── the whole take ───────────────────────────────────────────────────────────────────────
 
 describe('one take, end to end', () => {
-    it('measures all six dimensions and stays silent in five of them on an identity take', () => {
+    it('measures all six dimensions and stays silent in every one of them on an identity take', () => {
         const evidence = evidenceFor(referenceMpmText, FOUR_BARS);
 
         // Six of seven fitted, where the old pipeline measured three (semantics §0f).
@@ -117,47 +124,34 @@ describe('one take, end to end', () => {
             'accentuationPattern', 'articulation', 'dynamics', 'ornament', 'rubato', 'tempo',
         ]);
 
-        // The gate closes on everything the take cannot hear a difference in. `asynchrony` is
-        // `both-neutral` by construction; the other four are under one JND.
+        // And the gate closes on all seven: the two documents are the same document.
         const suppressed = evidence.suppressed.map((entry) => entry.type).sort();
         expect(suppressed).toEqual([
-            'accentuationPattern', 'articulation', 'asynchrony', 'dynamics', 'rubato',
+            'accentuationPattern', 'articulation', 'asynchrony', 'dynamics', 'ornament',
+            'rubato', 'tempo',
         ]);
-
-        // Nothing is said about level or shape: no dynamics, no rubato, no accentuation event.
-        const types = new Set(evidence.structuredDiff.map((event) => event.type));
-        expect(types.has('dynamics')).toBe(false);
-        expect(types.has('rubato')).toBe(false);
-        expect(types.has('accentuationPattern')).toBe(false);
+        expect(evidence.measuredTypes).toEqual([]);
     });
 
-    it('commits what a MIDI keyboard cannot give back (the S5 residual, for calibration)', () => {
-        // A take reaches the fitter through MIDI, and MIDI cannot carry two notes of the same
-        // pitch at the same instant — a piano score writes them whenever two voices meet, 18
-        // times in this piece. `reference.fitted.mpm` was fitted from rendered note *data*,
-        // where both are present, so a rolled chord's velocity gradient is measured across one
-        // more note there than any keyboard can deliver, and `<ornament @scale>` — a ratio of
-        // exactly that gradient — comes out low.
-        //
-        // Refitting the reference from the folded note set does not remove it (measured: the
-        // same size, on a different slot), because `@scale` is window-sensitive in the fitter
-        // itself. So it is stated here rather than papered over: risk R3's calibration item,
-        // for the first browser session and for whoever tunes `TAKE_WEIGHTS` next. Everything
-        // else on an identity take is silent.
-        const evidence = evidenceFor(referenceMpmText, FOUR_BARS);
-        const ornament = evidence.structuredDiff.filter((event) => event.type === 'ornament');
-        const tempo = evidence.structuredDiff.filter((event) => event.type === 'tempo');
+    /**
+     * The hole browser run #2 found, and the fix, on the three windows it was measured over.
+     *
+     * Against the old committed `reference.fitted.mpm` a student who played Grünfeld's own roll
+     * back was criticised in *every* passage — three events apiece, always `<ornament @scale>`
+     * or `@intensity`, at 3.35 · 3.64 · 4.10 JND (`m5.2 ornament.scale 7.00→4.00 large`, "oben
+     * mehr zeigen"). The asset had been fitted from note *data* over the whole piece; a take
+     * arrives as MIDI over its own window. Now both sides are one procedure over one encoding
+     * of one window, so the subtraction is zero everywhere — and the two documents come out
+     * byte-identical, which is the strongest form the claim has.
+     */
+    it.each(IDENTITY_WINDOWS)('says nothing at all about a flawless take (%s)', (_name, window) => {
+        const evidence = evidenceFor(referenceMpmText, window);
 
-        expect(ornament.length).toBeGreaterThan(0);
-        expect(ornament.length).toBeLessThanOrEqual(3);
-        expect(evidence.structuredDiff.length).toBe(ornament.length + tempo.length);
-
-        // The tempo leftovers are the take's own window edges (S4 §2), and stay `slight`.
-        for (const event of tempo) expect(event.severity).toBe('slight');
-
-        // The whole take, in JND. Committed so any change to either fitter restates it.
-        expect(evidence.aggregateJnd).toBeGreaterThan(2);
-        expect(evidence.aggregateJnd).toBeLessThan(5);
+        expect(evidence.referenceFitText).toBe(evidence.studentMpmText);
+        expect(evidence.structuredDiff).toEqual([]);
+        expect(evidence.peaks).toEqual([]);
+        expect(evidence.aggregateJnd).toBe(0);
+        expect(evidence.diffSummary).not.toMatch(/ornament/i);
     });
 
     it('names the tempo, in the right direction, when the student hurried', () => {
@@ -181,7 +175,7 @@ describe('one take, end to end', () => {
         // standing between it and a rejection nobody awaits (`midi.ts:94`).
         const point: Range = { from: 11520, to: 11520 };
         expect(() => evidenceForTake({
-            notes: [], range: point, scoreMsm, referenceMpmText, fittedReferenceMpmText,
+            notes: [], range: point, scoreMsm, scoreNotes, referenceMpmText,
         })).toThrow('is not a range');
     });
 
@@ -213,7 +207,7 @@ describe('one take, end to end', () => {
 
     it('carries only what can cross a postMessage boundary', () => {
         const { notes, range } = takeFrom(referenceMpmText, FOUR_BARS);
-        const input = { notes, range, scoreMsm, referenceMpmText, fittedReferenceMpmText };
+        const input = { notes, range, scoreMsm, scoreNotes, referenceMpmText };
 
         // Both directions. The take goes *into* the worker by structured clone and the
         // evidence comes back the same way; either would fail there and nowhere else, which is
@@ -224,16 +218,23 @@ describe('one take, end to end', () => {
         const evidence = evidenceForTake(input);
         expect(() => structuredClone(evidence)).not.toThrow();
         expect(structuredClone(evidence).studentMpmText).toBe(evidence.studentMpmText);
+        expect(structuredClone(evidence).referenceFitText).toBe(evidence.referenceFitText);
     });
 
     it('is the same take twice (semantics 5)', () => {
         const { notes, range } = takeFrom(scaled('bpm', 1.15), FOUR_BARS);
-        const input = { notes, range, scoreMsm, referenceMpmText, fittedReferenceMpmText };
+        const input = { notes, range, scoreMsm, scoreNotes, referenceMpmText };
 
+        // The memo is dropped between the two runs, so the reference fit is genuinely computed
+        // twice rather than handed back: the claim is that the *procedure* is deterministic,
+        // not that a `Map` returns what was put in it.
+        forgetReferenceFits();
         const once = evidenceForTake(input);
+        forgetReferenceFits();
         const again = evidenceForTake(input);
 
         expect(again.studentMpmText).toBe(once.studentMpmText);
+        expect(again.referenceFitText).toBe(once.referenceFitText);
         expect(again.structuredDiff).toEqual(once.structuredDiff);
         expect(again.diffSummary).toBe(once.diffSummary);
     });
@@ -242,27 +243,44 @@ describe('one take, end to end', () => {
 // ── DESIGN §5 test 11: the budget ────────────────────────────────────────────────────────
 
 describe('the budget', () => {
-    it('fits and compares an eight-bar take well inside a second', () => {
+    it('fits and compares an eight-bar take well inside a second, reference fit included', () => {
         const { notes, range } = takeFrom(referenceMpmText, EIGHT_BARS);
+        const input = { notes, range, scoreMsm, scoreNotes, referenceMpmText };
 
+        forgetReferenceFits();
         const startedAt = performance.now();
-        const evidence = evidenceForTake({
-            notes,
-            range,
-            scoreMsm,
-            referenceMpmText,
-            fittedReferenceMpmText,
-        });
+        const evidence = evidenceForTake(input);
         const elapsed = performance.now() - startedAt;
 
         // Logged with real figures, as the design asks, so a regression is visible in CI output
         // rather than only in a failing threshold.
         console.log(
             `evidence, ${range.to - range.from} ticks, ${notes.filter(isImplanted).length} played notes: ` +
+            `reference fit ${evidence.timings.referenceFitMs.toFixed(1)} ms + ` +
             `fit ${evidence.timings.fitMs.toFixed(1)} ms + compare ${evidence.timings.evidenceMs.toFixed(1)} ms ` +
             `= ${elapsed.toFixed(1)} ms`,
         );
 
+        // The comparison side is now computed rather than fetched. What that costs over eight
+        // bars — one render, one match, one fit — is 90–230 ms on this machine depending on how
+        // loaded it is; the ceiling is a ceiling, not a target, and the real figure is logged
+        // above so a regression shows up in the output before it shows up in a failure.
+        expect(evidence.timings.referenceFitMs).toBeLessThan(600);
         expect(elapsed).toBeLessThan(1000);
+    });
+
+    it('makes the student pay for the reference fit once per passage, not once per take', () => {
+        // Practising is repetition. A second take over the same window must not re-render, and
+        // re-match, and re-fit Grünfeld to arrive at the document it already has.
+        const { notes, range } = takeFrom(scaled('bpm', 1.15), FOUR_BARS);
+        const input = { notes, range, scoreMsm, scoreNotes, referenceMpmText };
+
+        forgetReferenceFits();
+        const first = evidenceForTake(input);
+        const second = evidenceForTake(input);
+
+        expect(first.timings.referenceFitMs).toBeGreaterThan(10);
+        expect(second.timings.referenceFitMs).toBeLessThan(5);
+        expect(second.referenceFitText).toBe(first.referenceFitText);
     });
 });

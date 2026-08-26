@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { read } from 'midifile-ts';
 import { describe, expect, it } from 'vitest';
-import { convert, render } from './mpmRenderer';
+import { convert, render, renderMsm } from './mpmRenderer';
 // What the retired Java meico server (`/perform`) played for the same request — every
 // note-on of bars 1–2, in file order. espressivo must keep playing exactly these.
 import javaBars1to2 from './fixtures/javaPerformBars1-2.json';
@@ -73,5 +73,36 @@ describe('render', () => {
 
     it('refuses an MPM that carries no performance', () => {
         expect(() => render(mei, '<mpm xmlns="http://www.cemfi.de/mpm/ns/1.0"/>', { from: 0, to: 720 })).toThrow(/performance/);
+    });
+});
+
+/**
+ * The entry point the evidence worker uses. It has `scoreMsm` and no MEI, and what it renders —
+ * Grünfeld over the take's window — is the document every number of the take is measured
+ * against (`mpm/evidence.ts`). If it played even one note differently from what a take is
+ * rendered by, the two sides would be fitted from two performances and the identity take's
+ * zero would be luck. So the claim is byte equality, not equivalence.
+ */
+describe('renderMsm', () => {
+    const scoreMsm = convert(mei);
+
+    it('is `render` entered one step later: identical MIDI bytes, window for window', () => {
+        for (const range of [
+            { from: 0, to: 11520 },
+            { from: 11520, to: 23040 },
+            { from: 23040, to: 34560 },
+            { from: 11520, to: 34560 },
+        ]) {
+            const fromMei = render(mei, mpm, range);
+            const fromMsm = renderMsm(scoreMsm, mpm, range);
+            expect(fromMsm).toBeDefined();
+            expect([...fromMsm!]).toEqual([...fromMei!]);
+        }
+    });
+
+    it('refuses a document that will not parse, rather than rendering silence', () => {
+        // espressivo's own parse throws before this module's `isEmpty()` guard is reached; what
+        // matters is that a bad score surfaces here and not as an empty take three calls later.
+        expect(() => renderMsm('', mpm, { from: 0, to: 720 })).toThrow(/root element|MSM/);
     });
 });

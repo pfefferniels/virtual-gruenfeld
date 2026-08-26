@@ -44,7 +44,6 @@ const load = (relative: string): string =>
     readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
 const referenceText = load('../../public/performance.mpm');
-const fittedText = load('../../public/reference.fitted.mpm');
 const scoreMsm = convert(load('../../public/score.mei'));
 const reference = parseReferenceMpm(referenceText);
 
@@ -59,11 +58,23 @@ const playedFrom = (mpmText: string, range: Range): MeasuredNote[] =>
         performMsmToData({ msm: scoreMsm, mpm: mpmText }, { expandOrnaments: false }),
     ).filter((note) => note.date >= range.from && note.date < range.to);
 
+/** One performance through the student's fitter, over one window. */
+const fitOf = (mpmText: string, range: Range) =>
+    fitStudent(playedFrom(mpmText, range), readScaffold(reference, range), scoreMsm);
+
+/**
+ * The comparison side: Grünfeld through that same fitter, over that same window — what
+ * `mpm/evidence.ts` computes for every take. There the playing arrives as MIDI, because a piano
+ * sends MIDI; here it is note data, as every take in this file is. Either way the two sides are
+ * one procedure over one window, which is the property being relied on.
+ */
+const referenceFitOver = (range: Range): string => fitOf(referenceText, range).studentMpmText;
+
 /** A whole take: alter, render, fit, compare, pair, diff. */
 const takeOf = (mpmText: string, range: Range = TAKE): TakeEvidence => {
-    const fit = fitStudent(playedFrom(mpmText, range), readScaffold(reference, range), scoreMsm);
+    const fit = fitOf(mpmText, range);
     const input: TakeEvidenceInput = {
-        referenceMpmText: fittedText,
+        referenceMpmText: referenceFitOver(range),
         studentMpmText: fit.studentMpmText,
         scoreMsm,
         range,
@@ -82,7 +93,7 @@ const countByType = (evidence: TakeEvidence): Record<string, number> => {
 
 describe('the identity take', () => {
     it('says nothing at all when the whole piece is played back (risk R2, answered)', () => {
-        // The strongest statement available: `reference.fitted.mpm` *is* this fit, so a student
+        // The strongest statement available: the comparison side *is* this fit, so a student
         // who plays Grünfeld's roll exactly produces the reference document itself and the
         // subtraction is zero everywhere. Against the editorial `performance.mpm` the same take
         // produced 22 bpm of tempo difference and 9.2 JND — the bias this file exists to remove.
@@ -94,45 +105,32 @@ describe('the identity take', () => {
         expect(evidence.diffSummary).toContain('No significant differences found.');
     });
 
-    it('says nothing on a four-bar take either, and states what is left over', () => {
+    it('says nothing on a four-bar take either, with nothing left for the gate to absorb', () => {
         const evidence = takeOf(referenceText, TAKE);
         expect(evidence.structuredDiff).toEqual([]);
         expect(evidence.peaks).toEqual([]);
+        expect(evidence.report.aggregate.mean).toBe(0);
 
-        // What the gate had to absorb. A take is fitted over its own window while the reference
-        // was fitted over the whole piece, so the slots at the window's edges — and the
-        // per-def medians articulation takes over "the notes in range" — do not land on exactly
-        // the same numbers. Committed, so that a change to either fitter has to restate it:
-        // every dimension stays under one JND, which is what makes the gate silence them.
-        const means = Object.fromEntries(
-            Object.entries(evidence.report.dimensions).map(([k, d]) => [k, d.mean ?? 0]),
+        // S4 §2's window effect, gone. The reference used to be fitted over the whole piece and
+        // the take over its window, so the slots at the window's own edges — and the per-def
+        // medians articulation takes over "the notes in range" — landed on slightly different
+        // numbers: three ungated instructions at 11520 and 11880, absorbed by the gate. Fitting
+        // the reference over the take's window cancels it by construction rather than hiding
+        // it, which is the assertion here: not "small", but *nothing*, before any gate.
+        const ungated = pairInstructions(
+            new Mpm(referenceFitOver(TAKE)),
+            new Mpm(fitOf(referenceText, TAKE).studentMpmText),
+            TAKE,
         );
-        expect(means.tempo).toBeLessThan(0.6);
-        expect(means.dynamics).toBeLessThan(0.2);
-        expect(means.rubato).toBeLessThan(0.2);
-        expect(means.accentuation).toBeLessThan(0.2);
-        expect(means.ornamentation).toBeLessThan(0.6);
-        expect(evidence.report.aggregate.mean).toBeLessThan(1.5);
-        for (const type of ['tempo', 'dynamics', 'rubato', 'accentuationPattern', 'ornament'] as const) {
-            expect(evidence.suppressed.has(type)).toBe(true);
+        expect(ungated).toEqual([]);
+        for (const [, dimension] of Object.entries(evidence.report.dimensions)) {
+            expect(dimension.mean ?? 0).toBe(0);
         }
-
-        // Ungated, the leftovers are three instructions at the window's own edge — the number
-        // the gate is measured against.
-        const ungated = pairInstructions(new Mpm(fittedText), new Mpm(
-            fitStudent(playedFrom(referenceText, TAKE), readScaffold(reference, TAKE), scoreMsm).studentMpmText,
-        ), TAKE);
-        expect(ungated).toHaveLength(3);
-        expect(new Set(ungated.map((p) => p.type))).toEqual(new Set(['articulation', 'accentuationPattern']));
-        expect(new Set(ungated.map((p) => p.date))).toEqual(new Set([11520, 11880]));
     });
 
     it('localises nothing, because there is nothing it may speak about', () => {
         const evidence = takeOf(referenceText, TAKE);
-        // A take under threshold still has segments — they are cut out of the aggregate
-        // density, which is never exactly zero, and here they are the two window edges. What
-        // the header must not do is print bar numbers for a difference the gate has silenced.
-        expect(evidence.report.segments.length).toBeGreaterThan(0);
+        expect(evidence.report.segments).toEqual([]);
         expect(localisationHeader(evidence.report, TAKE, evidence.suppressed).split('\n')).toHaveLength(1);
         expect(evidence.measuredTypes).toEqual([]);
         expect(evidence.disagreements).toEqual([]);
@@ -311,7 +309,11 @@ describe('rubato against tempo (risk R5)', () => {
         // threshold of saying — the audibility gate's whole purpose.
         const evidence = takeOf(alter(referenceText, 'rubato', ['intensity'], (v) => v * 1.5));
         expect(evidence.report.dimensions.rubato.mean ?? 0).toBeLessThan(JND_FLOOR);
-        expect(evidence.suppressed.get('rubato')?.reason).toContain('under one');
+        // Both of the gate's clauses hold here and it reports whichever fires first. With the
+        // reference fitted over the take's own window the sub-threshold mass clause wins
+        // ("99% of it is below threshold") where the whole-piece fit used to leave the mean
+        // clause ("under one"). The claim is the silence, not which sentence explains it.
+        expect(evidence.suppressed.get('rubato')?.reason).toMatch(/below threshold|under one/);
         expect(evidence.structuredDiff.filter((e) => e.type === 'rubato')).toEqual([]);
     });
 });

@@ -7,24 +7,26 @@
  * already prints those ids (`<tempo xml:id="tempo_720" …>`), so the reference is now simply
  * fetched: `performance.mpm`, the same file the server's corpus reads.
  *
- * Four things are loaded or derived, once:
+ * Three things are loaded or derived, once:
  *
  * | what | from | why |
  * |---|---|---|
  * | `scoreMsm` | `convert(score.mei)`, memoized in `services/mpmRenderer` | the comparison's metric: window, measures, beat grid; the fitter's time signature |
- * | `referenceMpmText` | `client/public/performance.mpm` | the scaffold (`readScaffold`) and the counter-performance's base |
- * | `fittedReferenceMpmText` | `client/public/reference.fitted.mpm` | the comparison side, so that fit is compared with fit (S4 §2) |
- * | `scoreNotes` | one render of the reference over the score | the matcher's reference side, and the take's own starting point |
+ * | `referenceMpmText` | `client/public/performance.mpm` | the scaffold (`readScaffold`), the comparison side's own playing, and the counter-performance's base |
+ * | `scoreNotes` | one render of the reference over the score | the matcher's reference side, for the take *and* for the per-take reference fit |
  *
  * That render is the only derivation, and it is the one thing neither text states: what
  * Grünfeld's document *sounds* like, note by note. It replaces `asMSM`'s `<when>` reading with
  * the same information taken from the document the rest of the pipeline is about (semantics
- * 35), and it is exactly the note array the fitter's own fixtures are built from
- * (`scripts/fit-reference.ts`), so a student who plays the roll back gets the behaviour the
- * tests measured. ~40 ms.
+ * 35). ~40 ms.
+ *
+ * There is no second reference document. The comparison side used to be a committed asset,
+ * `reference.fitted.mpm`; it is now fitted per take, inside the evidence worker, over the take's
+ * own range and through the take's own MIDI path — which is what makes an identity take say
+ * nothing (`mpm/evidence.ts`).
  */
 import { performMsmToData } from 'espressivo';
-import { loadFittedReferenceMpm, loadReferenceMpm, parseReferenceMpm } from '../mpm/reference';
+import { loadReferenceMpm, parseReferenceMpm } from '../mpm/reference';
 import { measuredNotesFromMsmText, measuredNotesFromPerformanceData, withoutUnisons } from '../score/measured';
 import { assertOk } from '../services/api';
 import { convert } from '../services/mpmRenderer';
@@ -50,20 +52,16 @@ export const boot = async (
     const scoreMsm = convert(mei);
     log(`MSM: ready (bytes=${scoreMsm.length}, ms=${Date.now() - startedAt})`);
 
-    log('FETCH: performance.mpm + reference.fitted.mpm');
-    const [referenceMpmText, fittedReferenceMpmText] = await Promise.all([
-        loadReferenceMpm(),
-        loadFittedReferenceMpm(),
-    ]);
-    log(`FETCH: reference ok (editorial=${referenceMpmText.length} B, fitted=${fittedReferenceMpmText.length} B)`);
+    log('FETCH: performance.mpm');
+    const referenceMpmText = await loadReferenceMpm();
+    log(`FETCH: reference ok (bytes=${referenceMpmText.length})`);
 
     // Throws on a document that is not 720 ppq or has no performance — an error page is not a
-    // reference, and a take is the wrong moment to find that out. Both parses are discarded
-    // (the take re-reads the scaffold from the text, in the worker); together they cost 19 ms,
-    // which is the price of failing at boot instead of on the student's first phrase.
+    // reference, and a take is the wrong moment to find that out. The parse is discarded (the
+    // take re-reads the scaffold from the text, in the worker); it costs ~10 ms, which is the
+    // price of failing at boot instead of on the student's first phrase.
     startedAt = Date.now();
     parseReferenceMpm(referenceMpmText);
-    parseReferenceMpm(fittedReferenceMpmText);
     log(`MPM: reference validated (ms=${Date.now() - startedAt})`);
 
     log('SCORE: rendering the reference for the matcher…');
@@ -96,7 +94,6 @@ export const boot = async (
         scoreMsm,
         scoreNotes,
         referenceMpmText,
-        fittedReferenceMpmText,
         reductionMei,
         reductionNotes,
     };

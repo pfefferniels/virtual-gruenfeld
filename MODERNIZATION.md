@@ -296,8 +296,9 @@ Results:
     instruction ids the diff could join on. Grünfeld's document already prints those ids, so the
     client now fetches `client/public/performance.mpm` (the mpm-desk snapshot, byte-identical to
     `assets/all/performance.mpm`, pinned by a test). It is the editorial document: the sound's
-    base, the scaffold every `xml:id` is read from, and what the server's corpus reads. Beside it
-    `client/public/reference.fitted.mpm` is the *comparison* side — see the R2 note below.
+    base, the scaffold every `xml:id` is read from, what the server's corpus reads, and what the
+    comparison side is fitted from per take — see the R2 note below. It is the only MPM the app
+    fetches.
   - **A take is fitted, not re-chained.** `client/src/student/` writes the student's playing into
     Grünfeld's own instruction slots (`scaffold.ts` reads them, `fit.ts` solves them on espressivo's
     primitives — `fitTransitionCurve` with a seeded RNG, the tick⇄ms algebra, `rubatoAt`). The
@@ -327,12 +328,31 @@ Results:
     instructions — scaling every `relativeDuration` ×0.7 changes 0 of 476 rendered notes. The
     audibility gate rightly suppresses the type. Fixing it is a rebake of the editorial document
     (one `<style name.ref="…"/>` in that map) and is Niels' call, not this run's.
-  - **R2, taken:** writing one performance by hand in an editor and solving it from onsets are not
-    the same act — an identity take measured 22 bpm and 9.22 JND apart. So the comparison side is
-    `reference.fitted.mpm`, Grünfeld's own playing through the student's fitter
-    (`scripts/fit-reference.ts`, byte-pinned by `mpm/fittedReference.test.ts`). Cost, documented:
-    the `refValue` numbers the teacher quotes come from the fitted document, the corpus prose from
-    the editorial one.
+  - **R2, taken, then taken further: the comparison side is Grünfeld fitted _per take_.** Writing
+    one performance by hand in an editor and solving it from onsets are not the same act — an
+    identity take measured 22 bpm and 9.22 JND apart — so the comparison side is Grünfeld's own
+    playing through the student's fitter. The first version of that was a committed asset,
+    `client/public/reference.fitted.mpm`, fitted once from `performMsmToData` note *data* over the
+    whole piece. Browser run #2 measured what it left behind: a take does not arrive as note data,
+    it arrives as **MIDI** — unisons folded, velocities integer, the matcher's assignment on top —
+    and over its own window, not the piece; `<ornament @scale>` is a ratio of the velocity gradient
+    across a rolled chord and is sensitive to exactly that. A flawless take was criticised on its
+    ornaments in *every* passage: 3 events at 3.35 JND over m5–m9, 3 at 3.64 over m1–m5, 3 at 4.10
+    over m9–m13, always `<ornament @scale>`/`@intensity` ("oben mehr zeigen", severity `large`),
+    plus one window-edge tempo slot.
+
+    So the reference now goes through the student's own path at take time, inside the evidence
+    worker: `renderMsm(scoreMsm, performance.mpm, range)` → `implantLocal(scoreNotes, midi)` →
+    `fitStudent` → the take's `referenceFitText`, which `pair.ts`, `compare.ts`, `counter.ts` and
+    `path.ts` all read as the reference. The two fitted documents come out **byte-identical** on an
+    identity take, so it is 0 events, 0 peaks and exactly 0 JND by construction, and S4 §2's
+    window-edge effects go with it. Memoized per range (a student repeating a passage pays once);
+    cost 90–230 ms for eight bars, off the main thread. `reference.fitted.mpm`,
+    `scripts/fit-reference.ts` and `mpm/fittedReference.test.ts` are deleted. Cost, unchanged and
+    documented: the `refValue` numbers the teacher quotes come from a fitted document, the corpus
+    prose from the editorial one. One fixture moved with it — `ornament @scale ×0.5` measured 0.67
+    JND once the bias was gone and the gate rightly silenced it, so the altered-take fixture is
+    ×0.25, the smallest swept value that crosses one JND.
   - Lines, per slice (excluding the two committed `.mpm` assets, +1108):
     S1 measured note shape +212/−92 · S2 reference as text +682/−0 · S3 the fitter +3375/−0 ·
     S4 fitted reference +183/−16 and pairing +1911/−7 · S5 the pipeline switch +1070/−1018 ·

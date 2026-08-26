@@ -24,16 +24,13 @@ import { PPQ } from '../shared/constants';
 export const REFERENCE_MPM_URL = 'performance.mpm';
 
 /**
- * The *comparison* side: Grünfeld's own playing, written by the student's own fitter.
- *
- * `performance.mpm` is a bake — sixty `<tempo>` elements drawn by hand in an editor — while a
- * student's are solved from onsets, and the difference between those two ways of writing one
- * performance measured 22 bpm and 9.2 JND on a take where the playing was *identical*. Both
- * sides therefore go through the one procedure: `scripts/fit-reference.ts` generates this file
- * and `mpm/fittedReference.test.ts` pins its bytes. `performance.mpm` stays the scaffold every
- * `xml:id` is read from, the counter-performance's base, and the server's document.
+ * There is no second reference document to fetch. The *comparison* side — Grünfeld's own
+ * playing as the student's fitter would write it — used to be a committed asset here
+ * (`reference.fitted.mpm`); it is now fitted per take, over the take's own range and through
+ * the take's own MIDI path, inside the evidence worker (`mpm/evidence.ts` explains why). This
+ * file stays the scaffold every `xml:id` is read from, what that fit is rendered from, the
+ * counter-performance's base, and the server's document.
  */
-export const FITTED_REFERENCE_MPM_URL = 'reference.fitted.mpm';
 
 const pending = new Map<string, Promise<string>>();
 
@@ -64,10 +61,7 @@ const load = (url: string): Promise<string> => {
  */
 export const loadReferenceMpm = (): Promise<string> => load(REFERENCE_MPM_URL);
 
-/** The fitted reference, on the same terms. */
-export const loadFittedReferenceMpm = (): Promise<string> => load(FITTED_REFERENCE_MPM_URL);
-
-/** Drop both memoized documents. For tests, and for a re-boot that must re-fetch. */
+/** Drop the memoized document. For tests, and for a re-boot that must re-fetch. */
 export const forgetReferenceMpm = (): void => {
     pending.clear();
 };

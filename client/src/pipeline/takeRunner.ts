@@ -106,7 +106,10 @@ export const runTake = async (
             levels: evidence.levels,
             // DESIGN §3.4's stronger reading of `measuredTypes`: past the gate *and* written by
             // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
-            measuredTypes: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
+            // `mpm/evidence.ts` (`measuredTypes: evidence.measuredTypes.filter(t => filled.has(t))`)
+            // has already taken that intersection — the only place both halves are known — so this
+            // is a pass-through, not a second gate.
+            measuredTypes: evidence.measuredTypes,
             studentMpmText: evidence.studentMpmText,
             referenceFitText: evidence.referenceFitText,
             peaks: evidence.peaks,

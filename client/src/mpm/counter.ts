@@ -40,6 +40,15 @@
  * untouched. Both return paths go through the same serializer, so "nothing was shaped" and
  * "something was shaped outside your range" are the same document byte for byte (review-S6,
  * finding 11).
+ *
+ * That byte equality holds *between this module's own two paths*, and not against the fetched
+ * document: a no-op counter-performance comes back at 145,235 bytes where `performance.mpm` is
+ * 154,563, because the writer's whitespace is not the editor's. So `mode: 'reference'` and a
+ * no-op `mode: 'exaggerated'` agree **by value, not by bytes** — both render 54 note-ons with
+ * byte-equal onsets, durations and velocities, which is the equality that matters, and the only
+ * caller that could be misled is one diffing the two *texts* to ask "did anything change?"
+ * (final-pedagogy, finding 8). Ask this module instead: it returns the same string identity when
+ * it shaped nothing.
  */
 import {
     ARTICULATION_MAP,
@@ -152,11 +161,39 @@ type AttributeRule = {
  *    frames are all 720 ticks and abut — so changing one length leaves a gap or an overlap with
  *    its neighbour. It is a structural attribute, not an intensity.
  *
+ * **Calibrated on the render, not on `THRESHOLDS`** (DECISIONS 2026-08-26T20:22:18Z). `THRESHOLDS`
+ * is the *diff's* per-instruction measurement floor; what a student hears is a rendered
+ * performance, where a 0.65 bpm change accumulates over eighteen seconds and a ±0.6 accentuation
+ * scale does not survive the first note. Measured against `mode: 'reference'`'s own MIDI over the
+ * same window at the default strength 0.2, four rows moved:
+ *
+ * - `dynamics @volume` 0.45 → **1.0**: 1.80 → **3.31 velocity RMS** (peak 2 → 4), still ~3×
+ *   inside the ±12 cap,
+ * - `ornament @frameLength` 0.35 → **2.0**: 3.9 → **19.8 ms RMS** (peak 14 → 70 ms), still ~6×
+ *   inside the ±150 cap,
+ * - `accentuationPattern @scale` cap 0.6 → **2.5**, `ornament @scale` cap 0.8 → **2.0**.
+ *
+ * Tempo was left alone: it was already the largest absolute effect of any dimension (165 ms of
+ * displacement, 97 ms RMS) and only looked timid against the wrong yardstick.
+ *
+ * **The last two did not work, and the honest number is here rather than in a report.** Both were
+ * cap moves, made on the reading that the cap was the binding constraint and ±2.5/±2.0 would buy
+ * ≈4 velocity. Measured after the change: accentuation 0.236 → **0.272** velocity RMS, ornament
+ * `@scale` 0.333 → **0.333** — peak 1 velocity in both cases, before and after. Widening the cap
+ * only stopped it binding; the *exponent* binds now (the natural push at `a = 0.2 × 0.4` is 0.86
+ * and 0.82, where the old caps clipped at 0.6 and 0.8). Swept to cap saturation the ceiling is
+ * **3 velocity for accentuation and 2 for `ornament @scale`** — so the first needs its inner
+ * strength raised to ~2.0 as well, at the cost of every measurable deviation saturating the cap
+ * and the demonstration losing its sense of magnitude, and the second cannot reach 3 inside a
+ * ±2.0 cap at any strength. Both are one more row in this table; left for Niels, and pinned as
+ * they stand by `mpm/counter.test.ts`, which measures every one of these numbers **on the
+ * render** rather than on `THRESHOLDS`.
+ *
  * The key order is `allDimensions()`'s order, which a test pins.
  */
 const EXAGGERATION_SPEC: Record<string, readonly AttributeRule[]> = {
     dynamics: [
-        { attr: 'volume', space: 'offset', strength: 0.45, maxAbsDelta: 12, min: 1, max: 127, site: 'instruction' },
+        { attr: 'volume', space: 'offset', strength: 1.0, maxAbsDelta: 12, min: 1, max: 127, site: 'instruction' },
         { attr: 'transition.to', space: 'offset', strength: 0.45, maxAbsDelta: 12, min: 1, max: 127, site: 'instruction' },
     ],
     tempo: [
@@ -171,15 +208,15 @@ const EXAGGERATION_SPEC: Record<string, readonly AttributeRule[]> = {
         { attr: 'intensity', space: 'ratio', strength: 1, maxAbsDelta: 0.15, min: 0.01, max: 10, site: 'instruction' },
     ],
     ornament: [
-        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 0.8, min: 0.1, max: 20, site: 'instruction' },
+        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 2.0, min: 0.1, max: 20, site: 'instruction' },
         { attr: 'intensity', space: 'ratio', strength: 0.35, maxAbsDelta: 0.25, min: 0.01, max: 10, site: 'def', mirrorOnInstruction: true },
-        { attr: 'frameLength', space: 'ratio', strength: 0.35, maxAbsDelta: 150, min: 1, max: 720, site: 'def' },
+        { attr: 'frameLength', space: 'ratio', strength: 2.0, maxAbsDelta: 150, min: 1, max: 720, site: 'def' },
     ],
     asynchrony: [
         { attr: 'milliseconds.offset', space: 'offset', strength: 0.35, maxAbsDelta: 40, min: -500, max: 500, site: 'instruction' },
     ],
     accentuationPattern: [
-        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 0.6, min: 0, max: 10, site: 'instruction' },
+        { attr: 'scale', space: 'ratio', strength: 0.4, maxAbsDelta: 2.5, min: 0, max: 10, site: 'instruction' },
     ],
 };
 
@@ -317,6 +354,9 @@ type Pair = { readonly ref: number; readonly student: number; readonly delta: nu
 
 type Outcome = 'written' | 'capped' | 'unmoved';
 
+/** The one result that writes nothing, shared so the early returns stay one word each. */
+const UNMOVED = { outcome: 'unmoved', coupled: 0 } as const;
+
 /**
  * Push one attribute of one element away from the student it was paired against.
  *
@@ -333,21 +373,29 @@ type Outcome = 'written' | 'capped' | 'unmoved';
  * - a result that rounds back onto `x_ed`, where rewriting the attribute would be an edit
  *   nobody asked for.
  */
-const push = (element: Element, rule: AttributeRule, pair: Pair, a: number): Outcome => {
+/**
+ * What one call to {@link push} did: the outcome for the attribute it was asked to write, and
+ * how many **coupled** attributes it wrote beside it — today only `<temporalSpread>@frame.start`,
+ * which follows `@frameLength`. The log counted the asked-for writes alone and so undercounted
+ * the document's real change by 40 % on an ornament take (final-pedagogy, finding 6).
+ */
+type PushResult = { readonly outcome: Outcome; readonly coupled: number };
+
+const push = (element: Element, rule: AttributeRule, pair: Pair, a: number): PushResult => {
     const editorial = numberAttribute(element, rule.attr);
-    if (editorial === null) return 'unmoved';
+    if (editorial === null) return UNMOVED;
 
     let pushed: number;
     if (rule.space === 'ratio') {
-        if (pair.ref <= 0 || pair.student <= 0 || editorial <= 0) return 'unmoved';
+        if (pair.ref <= 0 || pair.student <= 0 || editorial <= 0) return UNMOVED;
         pushed = editorial * Math.pow(pair.ref / pair.student, a);
     } else {
         pushed = editorial - pair.delta * a;
     }
-    if (!Number.isFinite(pushed)) return 'unmoved';
+    if (!Number.isFinite(pushed)) return UNMOVED;
 
     const exact = applyExaggerationCap(editorial, pushed, rule.maxAbsDelta, rule.min, rule.max);
-    if (Math.sign(exact - editorial) === Math.sign(pair.delta)) return 'unmoved';
+    if (Math.sign(exact - editorial) === Math.sign(pair.delta)) return UNMOVED;
 
     // Rounded where rounding is free; the exact clamp where it would step over a bound. A cap
     // is a ceiling, and a written value may never sit above it.
@@ -355,7 +403,7 @@ const push = (element: Element, rule: AttributeRule, pair: Pair, a: number): Out
     const value = rounded >= rule.min && rounded <= rule.max && Math.abs(rounded - editorial) <= rule.maxAbsDelta
         ? rounded
         : exact;
-    if (value === editorial) return 'unmoved';
+    if (value === editorial) return UNMOVED;
 
     element.getAttribute(rule.attr)?.setValue(String(value));
 
@@ -365,14 +413,19 @@ const push = (element: Element, rule: AttributeRule, pair: Pair, a: number): Out
     // arpeggio off the note it ornaments — a change nobody asked for — so the offset is scaled
     // with the length and the frame keeps its shape around the beat: a before-beat roll still
     // ends on it, a straddling one still straddles it in the same proportion.
+    let coupled = 0;
     if (rule.attr === 'frameLength') {
         const start = numberAttribute(element, 'frame.start');
         if (start !== null && start !== 0) {
             element.getAttribute('frame.start')?.setValue(String(round(start * (value / editorial))));
+            coupled += 1;
         }
     }
 
-    return Math.abs(pushed - editorial) > rule.maxAbsDelta + 1e-12 ? 'capped' : 'written';
+    return {
+        outcome: Math.abs(pushed - editorial) > rule.maxAbsDelta + 1e-12 ? 'capped' : 'written',
+        coupled,
+    };
 };
 
 /**
@@ -474,6 +527,7 @@ export const counterPerformance = ({
     const reachableDefs = defsInRange(document, range);
     const written = new Set<string>();
     let writes = 0;
+    let coupled = 0;
     let capped = 0;
     let underFloor = 0;
 
@@ -503,9 +557,10 @@ export const counterPerformance = ({
                 const a = strength * rule.strength;
 
                 if (rule.site === 'instruction') {
-                    const outcome = push(element, rule, measurement, a);
+                    const { outcome, coupled: alsoWrote } = push(element, rule, measurement, a);
                     if (outcome !== 'unmoved') writes += 1;
                     if (outcome === 'capped') capped += 1;
+                    coupled += alsoWrote;
                     continue;
                 }
 
@@ -517,9 +572,10 @@ export const counterPerformance = ({
                 if (!target || !reachableDefs.has(target.key)) continue;
 
                 if (rule.mirrorOnInstruction) {
-                    const mirrored = push(element, rule, measurement, a);
+                    const { outcome: mirrored, coupled: alsoWrote } = push(element, rule, measurement, a);
                     if (mirrored !== 'unmoved') writes += 1;
                     if (mirrored === 'capped') capped += 1;
+                    coupled += alsoWrote;
                 }
 
                 // One def, one write: several instructions reach the same definition and they
@@ -532,17 +588,23 @@ export const counterPerformance = ({
                     ? allChildElements(target.xml, definitions.child)[0]
                     : target.xml;
                 if (!holder) continue;
-                const outcome = push(holder, rule, measurement, a);
+                const { outcome, coupled: alsoWrote } = push(holder, rule, measurement, a);
                 if (outcome !== 'unmoved') writes += 1;
                 if (outcome === 'capped') capped += 1;
+                coupled += alsoWrote;
             }
         }
 
         log(`counter: ${type} strength=${strength.toFixed(2)} — ${slots} paired slot(s) in range`);
     }
 
+    // `coupled` is named rather than folded into `writes`: the two are different claims — one
+    // is what the demonstration decided to shape, the other what the document had to change to
+    // keep that shaping coherent (`frame.start` following `frameLength`). Adding them silently
+    // would make the log agree with the document while still not saying what happened.
     log(
-        `counter: ${writes} attribute(s) shaped in [${range.from}, ${range.to}], ` +
+        `counter: ${writes} attribute(s) shaped in [${range.from}, ${range.to}]` +
+        `${coupled > 0 ? ` (+${coupled} coupled frame.start offset(s))` : ''}, ` +
         `${capped} at the cap, ${underFloor} under the noise floor`,
     );
 

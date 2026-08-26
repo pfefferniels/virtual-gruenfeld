@@ -23,6 +23,8 @@ export type LessonPlan = {
 };
 
 const DEMO_MODES: readonly string[] = ['exaggerated', 'path', 'reference', 'none'];
+/** `mpm/path.ts`'s `PATH_TYPES` and `src/plan/types.ts`'s, restated here as strings. */
+const PATH_TYPES: readonly string[] = ['tempo', 'dynamics', 'rubato', 'accentuationPattern'];
 const STRENGTH_MIN = 0.05;
 const STRENGTH_MAX = 0.5;
 /** The server's `EDITS_MIN`/`EDITS_MAX`, restated here for the same reason the strengths are. */
@@ -37,13 +39,18 @@ const readRange = (raw: unknown): Range | null => {
     return { from, to };
 };
 
-const readDimensions = (raw: unknown): ExaggerationDimension[] => {
+const readDimensions = (raw: unknown, mode: DemoMode): ExaggerationDimension[] => {
     if (!Array.isArray(raw)) return [];
     const dimensions: ExaggerationDimension[] = [];
     for (const entry of raw) {
         if (typeof entry !== 'object' || entry === null) continue;
         const { type, strength } = entry as { type?: unknown; strength?: unknown };
         if (typeof type !== 'string' || typeof strength !== 'number' || !Number.isFinite(strength)) continue;
+        // The server drops these already (`src/plan/validate.ts`); dropped here too for the same
+        // reason the strengths are re-clamped — this module does not trust the wire. `path`
+        // writes onto the student's own instructions, and `ornament`/`articulation` numbers live
+        // on shared defs it cannot write (`mpm/path.ts`, `PATH_TYPES`).
+        if (mode === 'path' && !PATH_TYPES.includes(type)) continue;
         dimensions.push({ type, strength: Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, strength)) });
     }
     return dimensions;
@@ -58,10 +65,11 @@ const readEdits = (raw: unknown): number | null => {
 export const readLessonPlan = (raw: unknown): LessonPlan | null => {
     if (typeof raw !== 'object' || raw === null) return null;
     const { mode, range, dimensions, edits } = raw as Record<string, unknown>;
+    const demoMode = (typeof mode === 'string' && DEMO_MODES.includes(mode) ? mode : 'exaggerated') as DemoMode;
     return {
-        mode: (typeof mode === 'string' && DEMO_MODES.includes(mode) ? mode : 'exaggerated') as DemoMode,
+        mode: demoMode,
         range: readRange(range),
-        dimensions: readDimensions(dimensions),
+        dimensions: readDimensions(dimensions, demoMode),
         edits: readEdits(edits),
     };
 };

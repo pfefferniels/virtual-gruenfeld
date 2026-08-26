@@ -123,6 +123,12 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
             log('APP: unmount -> disposing MIDI');
             if (disposeMidi) disposeMidi();
         };
+        // `piano.playAudioBuffer` is captured from the closure and deliberately left out of this
+        // list. The effect's job is to open the MIDI input and hold it for the session; adding a
+        // dependency re-runs it, which tears the input down and re-opens it — in the middle of a
+        // take, at worst. `piano.audioContext` is listed because a new context really is a new
+        // session, and it is the one part of `piano` whose identity has to be respected here.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [log, started, piano.audioContext, inputId]);
 
     const clearDebugLines = useMemo(() => () => setDebugLines([]), []);

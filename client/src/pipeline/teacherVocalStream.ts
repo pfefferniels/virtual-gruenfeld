@@ -73,8 +73,13 @@ export const requestVocalStream = async (
         range,
         // A type the take measured is a type the plan may name, even where the student got it
         // right — which the events alone cannot say, since a dimension played correctly produces
-        // none. Omitted when there is nothing to say, so the body stays what it was.
-        ...(measuredTypes.length > 0 ? { measuredTypes } : {}),
+        // none. Sent **unconditionally**, `[]` included: an empty list is the one case this field
+        // exists to describe. Omitting it makes the server fall back to the events' own types
+        // (`src/routes/teacherStream.ts`), and a take that measured nothing has no events either —
+        // so the plan gate would open on all seven types instead of closing on all seven, and the
+        // session record would read `(earlier take, fewer dimensions measured)` for a take from
+        // this very session (final-contracts, finding 1).
+        measuredTypes,
         sessionId: getSessionId(),
         ...(agentic ? { agentic: true } : {}),
     });

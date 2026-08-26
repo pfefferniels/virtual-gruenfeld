@@ -95,8 +95,15 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             const path = await runPath({
                 studentMpmText: take.studentMpmText,
                 referenceMpmText: take.referenceFitText,
+                // The editorial document, for its pedal alone: neither fitted document has a
+                // `<movement>` map, so without this the corrected take is the one demonstration
+                // that plays dry (`mpm/path.ts`, `splicePedal`).
+                editorialReferenceMpmText: ctx.referenceMpmText,
                 scoreMsm: ctx.scoreMsm,
                 range: demoRange,
+                // The audibility gate reaches the demonstration, not just the monologue: what
+                // the student hears corrected is a subset of what the take measured.
+                measured: take.measuredTypes,
                 types: (plan?.dimensions ?? []).map((dimension) => dimension.type),
                 ...(plan?.edits === null || plan?.edits === undefined ? {} : { edits: plan.edits }),
             }, log);

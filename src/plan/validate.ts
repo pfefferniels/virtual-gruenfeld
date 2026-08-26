@@ -6,6 +6,7 @@ import {
     EDITS_MIN,
     INSTRUCTION_TYPES,
     MIN_DEMO_TICKS,
+    PATH_TYPES,
     SHAPING_MODES,
     STRENGTH_MAX,
     STRENGTH_MIN,
@@ -42,6 +43,9 @@ const isMode = (value: unknown): value is DemoMode =>
 
 const isInstructionType = (value: unknown): value is InstructionType =>
     typeof value === 'string' && (INSTRUCTION_TYPES as readonly string[]).includes(value);
+
+/** {@link PATH_TYPES} as a lookup, built once. */
+const PATH_WRITABLE: ReadonlySet<string> = new Set<string>(PATH_TYPES);
 
 const clampStrength = (value: unknown): number | null => {
     if (typeof value !== 'number' || !Number.isFinite(value)) return null;
@@ -114,6 +118,8 @@ const validateEdits = (raw: unknown, mode: DemoMode, warnings: string[]): number
 const validateDimensions = (
     raw: unknown,
     measuredTypes: Set<string> | null,
+    /** `mode: 'path'` may only name what the edit script can write onto an instruction. */
+    writableTypes: ReadonlySet<string> | null,
     warnings: string[],
 ): PlanDimension[] => {
     if (raw === null || raw === undefined) return [];
@@ -135,6 +141,13 @@ const validateDimensions = (
         }
         if (measuredTypes && !measuredTypes.has(type)) {
             warnings.push(`dimensions: dropped ${type} — the diff measured no such deviation`);
+            continue;
+        }
+        if (writableTypes && !writableTypes.has(type)) {
+            warnings.push(
+                `dimensions: dropped ${type} — mode path corrects the student's own instructions `
+                + `and ${type} lives on a shared def it cannot write`,
+            );
             continue;
         }
         if (seen.has(type)) {
@@ -186,7 +199,12 @@ export const validatePlan = (raw: unknown, context: PlanContext = {}): Validated
     // Two modes read the dimensions — `exaggerated` shapes them, `path` filters the edit script
     // by them — and the other two play as-is or not at all.
     const dimensions = (SHAPING_MODES as readonly string[]).includes(mode)
-        ? validateDimensions(demo.dimensions, measuredTypes, warnings)
+        ? validateDimensions(
+            demo.dimensions,
+            measuredTypes,
+            mode === 'path' ? PATH_WRITABLE : null,
+            warnings,
+        )
         : [];
     const edits = validateEdits(demo.edits, mode, warnings);
 

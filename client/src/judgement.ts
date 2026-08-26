@@ -58,6 +58,10 @@ const typeLabel = (type: string): string => {
     }
 };
 
+/** Three decimals, and never `-0` or `NaN` on the wire. */
+const round3 = (value: number): number =>
+    Number.isFinite(value) ? Math.round(value * 1000) / 1000 + 0 : 0;
+
 export const summarizeImmediateJudgement = (
     diffEvents: StructuredDiffEvent[],
     range: Range,
@@ -124,11 +128,13 @@ export const summarizeImmediateJudgement = (
         dominantTypes,
         topIssues,
         // Spread last and only where they exist: a take with no comparison behind it produces
-        // exactly the payload it always did, key for key.
-        ...(distance.distanceJnd === undefined ? {} : { distanceJnd: distance.distanceJnd }),
+        // exactly the payload it always did, key for key. Rounded to 3 dp because the wire
+        // carried the raw double (`"distanceJnd":8.094988085871684`) and the model is told to
+        // read both as magnitudes, not as measurements (final-contracts, finding 7).
+        ...(distance.distanceJnd === undefined ? {} : { distanceJnd: round3(distance.distanceJnd) }),
         ...(distance.subThresholdFraction === undefined
             ? {}
-            : { subThresholdFraction: distance.subThresholdFraction }),
+            : { subThresholdFraction: round3(distance.subThresholdFraction) }),
     };
 };
 

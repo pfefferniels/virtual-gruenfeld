@@ -115,26 +115,25 @@ const cueTextForDiff = (
  * agree/disagree distinction and the `StructuredDiffEvent` assembly are the contract, and they
  * neither know nor care where their peaks came from.
  *
- * The two names below are the ones the contract-bearing region uses. They are kept so that
- * region stays the code the teacher's vocabulary was written against, byte for byte; only the
- * document behind them changed — from an `mpm-ts` `MPM` to this.
+ * The legacy names this region used — `MPM` for the document and `OrnamentDef` for what a def
+ * lookup returns — were kept as aliases through the rewrite so the contract-bearing code below
+ * stayed byte-identical while the document behind it changed. S8 has shipped and the `mpm-ts`
+ * names they preserved are gone from the tree, so they are inlined: a `type MPM` alias is
+ * exactly the misleading leftover in a tree whose point is that `mpm-ts` is not here any more
+ * (review-S5 note 15, final-code finding 7). Nothing about the behaviour moved — the ASCII
+ * table, the cue vocabulary and the events are byte-for-byte what they were.
  */
 type PeakCarrier = {
     readonly __pairedInstructionDiffs: readonly InstructionDiff[];
+    /** Which of the two transformers a def carries (`types.ts`) — what `ornamentRow` asks. */
     getDefinition(kind: string, name: string): OrnamentStyle | null;
 };
 
-type MPM = PeakCarrier;
-
-/** What `ornamentRow` asks a def: which of the two transformers it carries (`types.ts:53`). */
-type OrnamentDef = OrnamentStyle;
-
-// The second document and the range are the legacy signature's. They are kept so that the two
-// entry points below — the contract-bearing region — call it exactly as they always did; the
-// peaks they carry are already paired, already in range and already past the noise floor.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const collectDiffs = (mpm1: MPM, _mpm2: MPM, _range: Range): InstructionDiff[] =>
-    [...mpm1.__pairedInstructionDiffs];
+// Took the second document and the range in the legacy signature; both were dead the moment
+// `mpm/pair.ts` took over the pairing, since the peaks it carries are already paired, already in
+// range and already past the noise floor.
+const collectDiffs = (carrier: PeakCarrier): InstructionDiff[] =>
+    [...carrier.__pairedInstructionDiffs];
 
 const topDiffsByType = (peaks: InstructionDiff[], perTypeN: number): InstructionDiff[] => {
     const byType = new Map<string, InstructionDiff[]>();
@@ -233,7 +232,7 @@ const dynamicsRow = (p: InstructionDiff): string[] => {
     return [tickToPos(p.date), sev, `${dynLabel(vol.ref)}(${Math.round(vol.ref)})`, `${dynLabel(vol.student)}(${Math.round(vol.student)})`, transition];
 };
 
-const ornamentRow = (p: InstructionDiff, mpm: MPM): string[] => {
+const ornamentRow = (p: InstructionDiff, mpm: PeakCarrier): string[] => {
     const entries = Object.entries(p.diffs)
         .filter(([attr, { delta }]) => Math.abs(delta) >= (THRESHOLDS[attr] ?? 0));
     const maxSev = entries.reduce((s, [attr, { delta }]) => {
@@ -242,7 +241,7 @@ const ornamentRow = (p: InstructionDiff, mpm: MPM): string[] => {
     }, 'slight' as string);
     let style = '';
     if (p.nameRef) {
-        const def = mpm.getDefinition('ornamentDef', p.nameRef) as OrnamentDef | null;
+        const def = mpm.getDefinition('ornamentDef', p.nameRef);
         if (def) {
             const tags: string[] = [];
             if (def.temporalSpread) tags.push('arpeggio');
@@ -291,12 +290,10 @@ const PER_TYPE_TOP_N = 3;
 // ── Public API ──
 
 const diffStructured = (
-    mpm1: MPM,
-    mpm2: MPM,
-    range: Range,
+    mpm1: PeakCarrier,
     perTypeN: number = PER_TYPE_TOP_N,
 ): StructuredDiffEvent[] => {
-    const peaks = collectDiffs(mpm1, mpm2, range);
+    const peaks = collectDiffs(mpm1);
     if (peaks.length === 0) return [];
 
     return topDiffsByType(peaks, perTypeN)
@@ -321,8 +318,8 @@ const diffStructured = (
         });
 };
 
-const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_TYPE_TOP_N): string => {
-    const peaks = collectDiffs(mpm1, mpm2, range);
+const diff = (mpm1: PeakCarrier, range: Range, perTypeN: number = PER_TYPE_TOP_N): string => {
+    const peaks = collectDiffs(mpm1);
     if (peaks.length === 0) return "No significant differences found.";
 
     const grouped = new Map<string, InstructionDiff[]>();
@@ -376,7 +373,7 @@ const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_TYPE_TO
 // carrier so that everything from `topDiffsByType` down stays byte-for-byte the code the
 // teacher's contract was written against.
 
-const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLookup): MPM => ({
+const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLookup): PeakCarrier => ({
     __pairedInstructionDiffs: peaks,
     getDefinition: (kind, name) => (kind === 'ornamentDef' ? styles(name) : null),
 });
@@ -384,14 +381,20 @@ const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLook
 /** A document that defines no ornaments — the ornament section then prints `—` for its style. */
 const NO_ORNAMENT_STYLES: OrnamentStyleLookup = () => null;
 
-/** `diffStructured`, from paired instructions. `range` is carried for the caller's symmetry only. */
+/**
+ * `diffStructured`, from paired instructions.
+ *
+ * `_range` is unused and kept: it holds the position `diffFrom`'s `range` occupies, so the two
+ * entry points read alike at every call site, and the peaks arriving here are already confined
+ * to it by `mpm/pair.ts`.
+ */
 export const diffStructuredFrom = (
     peaks: readonly InstructionDiff[],
-    range: Range,
+    _range: Range,
     perTypeN: number = PER_TYPE_TOP_N,
 ): StructuredDiffEvent[] => {
     const source = peakSource(peaks, NO_ORNAMENT_STYLES);
-    return diffStructured(source, source, range, perTypeN);
+    return diffStructured(source, perTypeN);
 };
 
 /**
@@ -406,5 +409,5 @@ export const diffFrom = (
     perTypeN: number = PER_TYPE_TOP_N,
 ): string => {
     const source = peakSource(peaks, styles);
-    return diff(source, source, range, perTypeN);
+    return diff(source, range, perTypeN);
 };

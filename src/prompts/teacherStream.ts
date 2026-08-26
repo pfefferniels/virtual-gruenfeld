@@ -98,7 +98,10 @@ inside it. "demo" is the playback you are prescribing.
   strength at which the point lands. For "path" the strengths do not apply and the types alone say which
   deviations get corrected. Leave dimensions empty for "reference" and "none".
 - Choose by pedagogical clarity, not by size: a passage where the editor documented an intention beats a larger
-  number with nothing behind it. If the student has already been told something, spend this take on something else.`;
+  number with nothing behind it. If the student has already been told something, spend this take on something else.
+- "path" can only correct tempo, dynamics, rubato and accentuationPattern: those live on the student's own
+  instructions. Ornament and articulation are written once for the whole piece, so "path" cannot touch them and
+  naming them there is dropped. To demonstrate an ornament or an articulation, choose "exaggerated" instead.`;
 
 /**
  * Only added when the student asked something out loud. A pure suffix like the

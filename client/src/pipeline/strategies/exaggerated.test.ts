@@ -201,6 +201,17 @@ describe('fixed pedagogy (flag off)', () => {
         expect(requestVocalStream.mock.calls[0][8]).toBe(false);
     });
 
+    it('hands the teacher what the take measured, beside the agentic flag', async () => {
+        const { controls } = makeControls();
+        await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+        // `measuredTypes` is the 10th positional argument (`exaggerated.ts`), appended after
+        // `agentic` at [8]. The plan gate on the server is built from it, so it has to travel:
+        // final-contracts finding 2 found the two halves of the contract each tested and never
+        // meeting, and the untested line was the wrong one.
+        expect(requestVocalStream.mock.calls[0][9]).toBe(TAKE.measuredTypes);
+    });
+
     it('performs the exaggerated clone over the take range and schedules positional cues', async () => {
         const { controls, played } = makeControls();
         await exaggeratedStrategy(makeCtx(false), TAKE, controls);

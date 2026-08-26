@@ -9,6 +9,10 @@ interface PianoContextProps {
     status: PianoStatus;
 }
 
+// The context and its provider ship together on purpose: this file is a thin adapter over the
+// sibling `react-pianosound` checkout and splitting it would leave a two-line module behind. The
+// cost is Fast Refresh replacing the provider instead of patching it, which only shows in dev.
+// eslint-disable-next-line react-refresh/only-export-components
 export const PianoContext = createContext<PianoContextProps | undefined>(undefined);
 
 interface PianoContextProviderProps {

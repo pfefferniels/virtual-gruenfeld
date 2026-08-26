@@ -24,10 +24,10 @@ const note = (
 
 const makeMidi = (): MidiFile => ({
     header: {
-        format: 1,
-        numTracks: 1,
+        formatType: 1,
+        trackCount: 1,
         ticksPerBeat: 480,
-    } as any,
+    } as MidiFile['header'],
     tracks: [[
         { deltaTime: 0, type: 'meta', subtype: 'setTempo', microsecondsPerBeat: 500000 },
         { deltaTime: 0, type: 'channel', subtype: 'noteOn', noteNumber: 60, velocity: 90, channel: 0 },

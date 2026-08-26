@@ -1,7 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { layoutCues, scheduleTalkOnly, talkOnlyDurationSec } from './teacherVocalStream';
+import { describe, it, expect, vi } from 'vitest';
 import type { VocalChunk } from './chunker';
 import type { ScheduledCue } from './types';
+
+const fetchTeacherStream = vi.fn(async () => ({
+    rawText: '', anchors: [], cleanedText: '', audioBase64: '',
+    alignment: { characters: [], character_start_times_seconds: [], character_end_times_seconds: [] },
+    model: '', plan: null, stats: { llmMs: 0, ttsMs: 0, totalMs: 0 },
+})) as unknown as ReturnType<typeof vi.fn> & {
+    mock: { calls: [Record<string, unknown> & { measuredTypes?: readonly string[] }][] };
+};
+
+vi.mock('../services/api', () => ({
+    fetchTeacherStream: (...args: unknown[]) => fetchTeacherStream(...args),
+}));
+vi.mock('../session', () => ({ getSessionId: () => 'test-session' }));
+vi.mock('./chunker', () => ({ chunkVocalStream: async () => [] }));
+
+const { layoutCues, requestVocalStream, scheduleTalkOnly, talkOnlyDurationSec } =
+    await import('./teacherVocalStream');
 
 const layout = (items: { ideal: number; duration: number; gapAfter?: number }[]) =>
     layoutCues(items.map((i) => ({ ...i, gapAfter: i.gapAfter ?? 0.25 })));
@@ -137,5 +153,60 @@ describe('talk-only scheduling (demo mode "none")', () => {
 
     it('schedules nothing when there is nothing to say', () => {
         expect(schedule([])).toEqual([]);
+    });
+});
+
+// ── The POST body ──
+//
+// `measuredTypes` was the one line of S7's contract addition that no test touched, and it was
+// the one that was wrong: it used to be spread in conditionally, so the field vanished from the
+// wire *exactly* when the take measured nothing — the case it exists to describe. The server
+// then falls back to the events' own types, and a take that measured nothing has no events, so
+// the plan gate opens on all seven instead of closing on all seven (final-contracts, finding 1).
+
+describe('requestVocalStream — what reaches the server', () => {
+    const JUDGEMENT = {
+        score: 61,
+        verdict: 'mixed' as const,
+        rangeBeats: 18,
+        eventCount: 0,
+        dominantTypes: [],
+        topIssues: [],
+    };
+
+    const RANGE = { from: 720, to: 13680 };
+
+    const call = async (measuredTypes?: readonly string[]) => {
+        fetchTeacherStream.mockClear();
+        await requestVocalStream(
+            JUDGEMENT,
+            'no deviations',
+            [],
+            RANGE,
+            undefined,
+            'balanced',
+            {} as AudioContext,
+            () => {},
+            false,
+            ...(measuredTypes === undefined ? [] : [measuredTypes] as const),
+        );
+        return fetchTeacherStream.mock.calls[0][0];
+    };
+
+    it('sends measuredTypes when the take measured something', async () => {
+        const body = await call(['tempo', 'ornament']);
+        expect(body.measuredTypes).toEqual(['tempo', 'ornament']);
+    });
+
+    it('sends measuredTypes as an empty array when the take measured nothing', async () => {
+        const body = await call([]);
+        expect('measuredTypes' in body).toBe(true);
+        expect(body.measuredTypes).toEqual([]);
+    });
+
+    it('sends the key even when the caller omits the argument', async () => {
+        const body = await call();
+        expect('measuredTypes' in body).toBe(true);
+        expect(body.measuredTypes).toEqual([]);
     });
 });

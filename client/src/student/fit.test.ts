@@ -751,7 +751,7 @@ describe('what one take costs', () => {
             const elapsed = performance.now() - started;
 
             const bars = (range.to - range.from) / (4 * PPQ);
-            // eslint-disable-next-line no-console
+             
             console.log(`fitStudent, ${bars} bars, ${notes.length} notes: ${elapsed.toFixed(1)} ms`);
             // DESIGN §3.1 budgets the fit at ~250 ms of a ~400 ms evidence pass; the bound here
             // is loose enough for a cold CI box and tight enough to catch a second render

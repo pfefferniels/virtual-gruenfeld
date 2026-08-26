@@ -54,6 +54,34 @@ describe('plan mode', () => {
         const { plan } = validate(demo({ mode: 'path', dimensions: [{ type: 'tempo', strength: 0.3 }] }));
         expect(plan.dimensions).toEqual([{ type: 'tempo', strength: 0.3 }]);
     });
+
+    it('drops a dimension path cannot write, and says why', () => {
+        // `ornament` and `articulation` numbers live on shared `<...Def>` elements; the edit
+        // script writes instructions only (`client/src/mpm/path.ts`, `PATH_TYPES`). Before this
+        // the plan was accepted and the demonstration silently corrected something else — a take
+        // whose ornament spacing was doubled was answered with three tempo edits.
+        const { plan, warnings } = validate(
+            demo({
+                mode: 'path',
+                dimensions: [{ type: 'ornament', strength: 0.3 }, { type: 'tempo', strength: 0.3 }],
+            }),
+            { takeRange: TAKE, measuredTypes: [...MEASURED, 'ornament'] },
+        );
+
+        expect(plan.dimensions).toEqual([{ type: 'tempo', strength: 0.3 }]);
+        expect(warnings[0]).toContain('dropped ornament');
+        expect(warnings[0]).toContain('shared def');
+    });
+
+    it('keeps the same dimension for exaggerated, which can shape it', () => {
+        const { plan, warnings } = validate(
+            demo({ mode: 'exaggerated', dimensions: [{ type: 'ornament', strength: 0.3 }] }),
+            { takeRange: TAKE, measuredTypes: [...MEASURED, 'ornament'] },
+        );
+
+        expect(plan.dimensions).toEqual([{ type: 'ornament', strength: 0.3 }]);
+        expect(warnings).toEqual([]);
+    });
 });
 
 describe('plan edits', () => {

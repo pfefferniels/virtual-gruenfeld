@@ -24,6 +24,19 @@ export const DEMO_MODES: readonly DemoMode[] = ['exaggerated', 'path', 'referenc
 /** The modes that read `dimensions`: one shapes the reference, the other filters the edit script. */
 export const SHAPING_MODES: readonly DemoMode[] = ['exaggerated', 'path'];
 
+/**
+ * The types `mode: 'path'` can actually correct.
+ *
+ * `path` writes onto the student's own **instructions**; `ornament` spacing and `articulation`
+ * are numbers on shared `<...Def>` elements, which carry no `@date` and belong to the whole
+ * piece, and `<ornament @scale>` is excluded with them for risk R3. The client enforces the
+ * same list in `client/src/mpm/path.ts` (`PATH_TYPES`) — this copy exists so a plan naming a
+ * type the demonstration cannot write is corrected *before* it is sent, with a warning the model
+ * can be shown, instead of silently coming out as a correction of something else (a take whose
+ * ornament spacing was doubled was demonstrated with three tempo edits).
+ */
+export const PATH_TYPES: readonly InstructionType[] = ['tempo', 'dynamics', 'rubato', 'accentuationPattern'];
+
 export type PlanDimension = {
     type: InstructionType;
     /** Maps onto `exaggerate()`'s aggressiveness. Always within [MIN, MAX] after validation. */

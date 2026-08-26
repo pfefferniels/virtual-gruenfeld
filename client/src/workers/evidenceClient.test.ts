@@ -50,6 +50,7 @@ const PATH_INPUT: PathInput = {
     referenceMpmText: '<mpm/>',
     scoreMsm: '<msm/>',
     range: { from: 720, to: 1440 },
+    measured: ['tempo'],
 };
 
 // ── a stub for the one object this module talks to ───────────────────────────────────────

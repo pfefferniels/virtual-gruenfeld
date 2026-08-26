@@ -270,7 +270,9 @@ export const evidenceForTake = (input: EvidenceInput): Evidence => {
         })),
         levels,
         aggregateJnd: evidence.report.aggregate.mean ?? 0,
-        subThresholdFraction: evidence.report.equivalence.subThresholdMassFraction,
+        // Same `?? 0` as the line above: `takeRunner.ts` multiplies this by 100 and rounds it for
+        // the log, and an omitted field would print `NaN` (final-contracts, finding 7).
+        subThresholdFraction: evidence.report.equivalence.subThresholdMassFraction ?? 0,
         timings: { fitMs, evidenceMs, referenceFitMs },
     };
 };

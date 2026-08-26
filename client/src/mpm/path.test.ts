@@ -28,10 +28,10 @@ import { describe, expect, it } from 'vitest';
 import { implantLocal } from '../matcher';
 import { measuredNotesFromPerformanceData, type MeasuredNote } from '../score/measured';
 import { convert, perform } from '../services/mpmRenderer';
-import { TAKE_WEIGHTS } from './compare';
+import { JND_FLOOR, TAKE_WEIGHTS } from './compare';
 import { cutPairToRange } from './cut';
 import { evidenceForTake } from './evidence';
-import { DEFAULT_PATH_EDITS, PATH_MAX_BARS, PATH_MAX_TICKS, pathPerformance } from './path';
+import { DEFAULT_PATH_EDITS, PATH_MAX_BARS, PATH_MAX_TICKS, PATH_TYPES, pathPerformance } from './path';
 import type { Range } from './types';
 
 const load = (relative: string): string =>
@@ -103,6 +103,10 @@ const readings = (mpmText: string, names: readonly string[]): Map<string, Readin
     const found = new Map<string, Reading>();
     let ordinal = 0;
     const walk = (element: Element): void => {
+        // The spliced `<movementMap>` is Grünfeld's pedal, not a correction, and it is the one
+        // thing `path` *adds* rather than overwrites — so it would break the structural
+        // invariance below by design. It has its own tests further down.
+        if (element.getLocalName() === 'movementMap') return;
         const raw = element.getAttributeValue('date');
         const attributes = names
             .map((name) => [name, element.getAttributeValue(name)] as const)
@@ -153,18 +157,38 @@ const quietMpm = referenceMpmText.replace(
     (_match, value: string) => `volume="${Math.max(1, Number(value) - 18).toFixed(2)}"`,
 );
 
+/** Both at once, so that a plan narrowing a take to *one* of what it measured has something to narrow. */
+const hurriedAndQuietMpm = quietMpm.replace(
+    /bpm="([\d.]+)"/g,
+    (_match, value: string) => `bpm="${(Number(value) * 1.15).toFixed(4)}"`,
+);
+
 const hurried = takeOn(hurriedMpm, FOUR_BARS);
 const quiet = takeOn(quietMpm, FOUR_BARS);
+const both = takeOn(hurriedAndQuietMpm, FOUR_BARS);
 
-type Take = { evidence: { studentMpmText: string; referenceFitText: string }; range: Range };
-type PathOptions = { types?: readonly string[]; edits?: number; range?: Range };
+type Take = {
+    evidence: { studentMpmText: string; referenceFitText: string; measuredTypes: readonly string[] };
+    range: Range;
+};
+type PathOptions = {
+    types?: readonly string[];
+    edits?: number;
+    range?: Range;
+    /** Overrides the take's own `measuredTypes` — the gate, exercised on its own. */
+    measured?: readonly string[];
+    /** Set to `null` to withhold the editorial document and get a demonstration with no pedal. */
+    pedalFrom?: string | null;
+};
 
 const runPath = (take: Take, options: PathOptions) =>
     pathPerformance({
         studentMpmText: take.evidence.studentMpmText,
         referenceMpmText: take.evidence.referenceFitText,
+        ...(options.pedalFrom === null ? {} : { editorialReferenceMpmText: options.pedalFrom ?? referenceMpmText }),
         scoreMsm,
         range: options.range ?? take.range,
+        measured: options.measured ?? take.evidence.measuredTypes,
         ...(options.types === undefined ? {} : { types: options.types }),
         ...(options.edits === undefined ? {} : { edits: options.edits }),
     });
@@ -218,10 +242,17 @@ describe('what the edit script finds', () => {
     });
 
     it('corrects only the dimensions the plan named', () => {
-        const result = pathFor(hurried, { types: ['dynamics'] });
+        // A take that hurried *and* played quietly, so both are measured and the plan has a real
+        // choice to make. Tempo is the costlier of the two here, which is what makes naming
+        // `dynamics` a narrowing rather than a coincidence.
+        expect(new Set(both.evidence.measuredTypes)).toEqual(new Set(['tempo', 'dynamics']));
+        // Unnarrowed, the costliest three are all dynamics — so naming tempo is a narrowing that
+        // changes the answer, not one that agrees with it.
+        expect(new Set(pathFor(both).edits.map((edit) => edit.type))).toEqual(new Set(['dynamics']));
 
+        const result = pathFor(both, { types: ['tempo'] });
         expect(result.edits.length).toBeGreaterThan(0);
-        expect(new Set(result.edits.map((edit) => edit.type))).toEqual(new Set(['dynamics']));
+        expect(new Set(result.edits.map((edit) => edit.type))).toEqual(new Set(['tempo']));
     });
 
     it('applies exactly the number of corrections it was asked for', () => {
@@ -229,6 +260,61 @@ describe('what the edit script finds', () => {
         expect(pathFor(hurried, { edits: 5 }).edits).toHaveLength(5);
         // The one asked for first is the costliest, whatever k is.
         expect(pathFor(hurried, { edits: 1 }).edits[0].cost).toBe(pathFor(hurried, { edits: 5 }).edits[0].cost);
+    });
+});
+
+// ── 1b. the gate: what the evidence is silent about is not corrected ─────────────────────
+
+describe('the audibility gate', () => {
+    it('corrects nothing on an identity take — the student played it right', () => {
+        // Grünfeld's own document, played back through the renderer, the matcher and the fitter:
+        // `measuredTypes` is empty by construction and the teacher says nothing. Before the gate
+        // reached this module `path` still applied three corrections here, byte-for-byte the same
+        // three a take the teacher was silent about got (final-pedagogy, finding 1).
+        const identity = takeOn(referenceMpmText, FOUR_BARS);
+        expect(identity.evidence.measuredTypes).toEqual([]);
+
+        const result = runPath(identity, {});
+        expect(result.edits).toEqual([]);
+        expect(result.mpm).toBeNull();
+        expect(result.notes.join(' ')).toContain('nothing to correct');
+    });
+
+    it('corrects nothing when the take measured nothing, whatever the plan asked for', () => {
+        const result = pathFor(hurried, { measured: [], types: ['tempo'] });
+
+        expect(result.edits).toEqual([]);
+        expect(result.mpm).toBeNull();
+        // And it did not pay for the edit script to find that out.
+        expect(result.diffMs).toBe(0);
+    });
+
+    it('reads an empty plan list as every MEASURED type, never as every type', () => {
+        // `dimensions: []` is what a plan whose types the server dropped looks like. Read as
+        // "every type" it would widen exactly where the validator narrowed — and it is visible
+        // here, because unnarrowed this take's costliest ops are all dynamics.
+        const result = pathFor(both, { measured: ['tempo'], types: [] });
+
+        expect(result.edits.length).toBeGreaterThan(0);
+        expect(new Set(result.edits.map((edit) => edit.type))).toEqual(new Set(['tempo']));
+    });
+
+    it('never corrects a type whose numbers live on a shared def', () => {
+        // `ornament` and `articulation` are priced on defs this writer does not touch, so a plan
+        // naming one is a plan for a demonstration of something else. `PATH_TYPES` is the list;
+        // `src/plan/validate.ts` enforces the same one before the plan is ever sent.
+        const result = pathFor(hurried, { measured: ['ornament', 'articulation', 'tempo'] });
+
+        expect(result.edits.length).toBeGreaterThan(0);
+        for (const edit of result.edits) expect(PATH_TYPES).toContain(edit.type);
+    });
+
+    it('leaves an op under the JND floor alone', () => {
+        for (const take of [hurried, quiet]) {
+            for (const edit of pathFor(take, { edits: 5 }).edits) {
+                expect(edit.cost).toBeGreaterThanOrEqual(JND_FLOOR);
+            }
+        }
     });
 });
 
@@ -241,7 +327,7 @@ describe('what applying them does', () => {
 
         const before = distanceFromGruenfeld(hurried.evidence.referenceFitText, hurried.evidence.studentMpmText, hurried.range);
         const after = distanceFromGruenfeld(hurried.evidence.referenceFitText, result.mpm!, hurried.range);
-        // eslint-disable-next-line no-console
+         
         console.log(`path, hurried: ${before.toFixed(2)} JND -> ${after.toFixed(2)} JND with ${result.edits.length} edits`);
 
         expect(after).toBeLessThan(before);
@@ -251,7 +337,7 @@ describe('what applying them does', () => {
         const result = pathFor(quiet);
         const before = distanceFromGruenfeld(quiet.evidence.referenceFitText, quiet.evidence.studentMpmText, quiet.range);
         const after = distanceFromGruenfeld(quiet.evidence.referenceFitText, result.mpm!, quiet.range);
-        // eslint-disable-next-line no-console
+         
         console.log(`path, quiet: ${before.toFixed(2)} JND -> ${after.toFixed(2)} JND with ${result.edits.length} edits`);
 
         expect(after).toBeLessThan(before);
@@ -292,6 +378,26 @@ describe('what it leaves alone', () => {
         }
     });
 
+    it('gives the demonstration Grünfeld’s pedal, since the student’s was never captured', () => {
+        // The student's document is a fit, and the fitter writes what it can measure: Web MIDI
+        // hands us no CC64, so `path` was the one demonstration that played dry — mean sounding
+        // note length 10 % shorter than `mode: 'reference'` (final-pedagogy, finding 5).
+        const result = pathFor(hurried);
+        const movementsIn = (mpmText: string): number =>
+            (mpmText.match(/<movement\b/g) ?? []).length;
+
+        expect(movementsIn(hurried.evidence.studentMpmText)).toBe(0);
+        expect(movementsIn(result.mpm!)).toBeGreaterThan(0);
+        expect(result.notes.join(' ')).toContain('spliced');
+    });
+
+    it('says so, and plays dry, when there is no editorial document to take a pedal from', () => {
+        const result = runPath(hurried, { edits: 1, pedalFrom: null });
+
+        expect((result.mpm!.match(/<movement\b/g) ?? []).length).toBe(0);
+        expect(result.notes.join(' ')).toContain('no pedal spliced');
+    });
+
     it('never rewrites a def, which is shared with the whole piece', () => {
         // `<articulationDef>` and `<temporalSpread>` carry no `@date`: correcting one for a demo
         // of four bars would change how bar twenty is played.
@@ -322,7 +428,7 @@ describe('the demonstration itself', () => {
 
         expect(midi).toBeDefined();
         const notes = noteCount(midi);
-        // eslint-disable-next-line no-console
+         
         console.log(`path, hurried: ${notes} notes rendered over ${hurried.range.from}–${hurried.range.to}`);
         expect(notes).toBeGreaterThan(20);
     });
@@ -331,13 +437,22 @@ describe('the demonstration itself', () => {
         const four = pathFor(hurried);
         const eight = pathFor(takeOn(hurriedMpm, EIGHT_BARS));
 
-        // eslint-disable-next-line no-console
+         
         console.log(
             `path: diffMpm 4 bars ${Math.round(four.diffMs)} ms, 8 bars ${Math.round(eight.diffMs)} ms `
             + `(${four.considered} / ${eight.considered} applicable ops)`,
         );
 
-        // Ceilings, not targets: the point is that the cubic has not become quartic under us.
+        // Ceilings, not targets, and the gap between them and the budget is stated rather than
+        // hidden: DESIGN §5 test 11 budgeted `diffMpm` at **600 ms** on the cut pair, and the
+        // measurement under vitest on this machine is **~1.5 s at four bars and ~4 s at eight** —
+        // 2.6x and 6.6x over. The 600 ms was never reached and is not reachable by tuning this
+        // call: `diffMpm` grows as about n^3.2 and a window does not prune it (risk R4). What
+        // `path` actually buys with that time is that it is spent in the evidence worker, after
+        // the plan has arrived, while the teacher is already speaking — so it is latency the
+        // student does not wait through, not latency that was optimised away. These two numbers
+        // are the accepted budget; they are wide enough that only a change of complexity class
+        // trips them, which is the regression this test is for.
         expect(four.diffMs).toBeLessThan(3000);
         expect(eight.diffMs).toBeLessThan(12000);
         expect(eight.diffMs).toBeGreaterThan(four.diffMs);

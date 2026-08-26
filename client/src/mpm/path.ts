@@ -42,6 +42,8 @@ import {
     ASYNCHRONY_MAP,
     DYNAMICS_MAP,
     METRICAL_ACCENTUATION_MAP,
+    MOVEMENT_MAP,
+    MovementMap,
     Mpm,
     ORNAMENTATION_MAP,
     RUBATO_MAP,
@@ -52,16 +54,18 @@ import {
     type AddArticulationOptions,
     type AddAsynchronyOptions,
     type AddDynamicsOptions,
+    type AddMovementOptions,
     type AddOrnamentOptions,
     type AddRubatoOptions,
     type AddTempoOptions,
+    type Dated,
     type EditOp,
     type Element,
     type MapKind,
 } from 'espressivo';
 import { PPQ, tickToPos } from '../shared/constants';
-import { DIMENSION_OF } from './compare';
-import { cutPairToRange } from './cut';
+import { DIMENSION_OF, JND_FLOOR } from './compare';
+import { cutPairToRange, cutToRange } from './cut';
 import { DIFF_TYPES, type DiffType, type Range } from './types';
 
 /**
@@ -76,6 +80,30 @@ export const PATH_MAX_TICKS = PATH_MAX_BARS * 4 * PPQ;
 
 /** `plan.edits ?? 3`: how many corrections the student hears in one demonstration. */
 export const DEFAULT_PATH_EDITS = 3;
+
+/**
+ * The four dimensions this mode can actually correct — the ones whose numbers live on the
+ * instruction itself.
+ *
+ * `ornament` spacing and `articulation` are priced on **defs**, which carry no `@date` and are
+ * shared with the whole piece: the edit script filters its rows to instruction sites
+ * (`src/comparison/diff.ts`), and {@link PATCH_KEYS} writes no def-site row, so an op of either
+ * type either does not arrive or cannot be applied. Before this list existed the effect was
+ * measurable and bad: on a take whose ornament spacing was doubled the teacher said *näher
+ * zusammen* three times and the three corrections applied were **all `tempo`** — the monologue
+ * and the demonstration about different things (final-pedagogy, finding 4).
+ *
+ * `<ornament @scale>` is the one def-borne type with an instruction-site number, and it is
+ * excluded with the rest: risk R3 (the fitted `@scale` drifts through MIDI's folded unisons) puts
+ * an artefact of the round trip in exactly the range a real halved arpeggio occupies, and a cost
+ * floor cannot tell the two apart.
+ *
+ * The same four names are the plan validator's whitelist for `mode: 'path'`
+ * (`src/plan/validate.ts`) and are named to the model in the prompt, so a plan asking for what
+ * this cannot write is corrected before it arrives rather than silently swapped for something
+ * else.
+ */
+export const PATH_TYPES: readonly DiffType[] = ['tempo', 'dynamics', 'rubato', 'accentuationPattern'];
 
 /** The comparison's own dimension names, back to the seven the diff and the plan speak. */
 const TYPE_OF_DIMENSION = new Map<string, DiffType>(
@@ -202,11 +230,40 @@ export type PathInput = {
      * prevailing value at both edges.
      */
     readonly referenceMpmText: string;
+    /**
+     * The **editorial** reference — `ctx.referenceMpmText`, Grünfeld's own document — for its
+     * `<movement>` map alone, cut to {@link range} and spliced into the corrected student
+     * document before it is written.
+     *
+     * Nothing else is taken from it: the corrections are still priced and applied against the
+     * fitted reference above. The pedal is here because neither fitted document has one — the
+     * fitter writes what it can measure and Web MIDI hands us no CC64 — so without the splice
+     * `path` is the one demonstration with no pedal at all, and it sounds it: mean sounding note
+     * length 1183 ms against `mode: 'reference'`'s 1310 ms, −10 % (final-pedagogy, finding 5).
+     * Absent, the splice is skipped and said so in {@link PathResult.notes}.
+     */
+    readonly editorialReferenceMpmText?: string;
     /** The score as MSM text. Part of the metric: the window, the measures, the beat grid. */
     readonly scoreMsm: string;
     /** What the demonstration plays — `plan.range ?? take.range`. Both sides are cut to it. */
     readonly range: Range;
-    /** `plan.dimensions`' types. Empty or absent means every type the script found. */
+    /**
+     * `TakeSnapshot.measuredTypes` — what this take actually measured, past the audibility gate
+     * and written by the fitter.
+     *
+     * The hard gate, applied before {@link types}. Without it the audibility gate that decides
+     * what the teacher may *say* had no bearing on what the student *heard*: on a take with
+     * `measuredTypes = []`, where the teacher says nothing at all, `path` applied three
+     * corrections — byte-for-byte the same three an identity take got (final-pedagogy,
+     * finding 1). Empty means no demonstration, and that is the point.
+     */
+    readonly measured: readonly string[];
+    /**
+     * `plan.dimensions`' types. Empty or absent means every **measured** type — never every
+     * type: an empty list is what a plan whose dimensions the server dropped for not being
+     * measured looks like, and reading it as "correct whatever is costliest anywhere" would
+     * widen exactly where `src/plan/validate.ts` narrowed.
+     */
     readonly types?: readonly string[];
     /** `plan.edits ?? 3`. */
     readonly edits?: number;
@@ -295,6 +352,59 @@ const byCost = (a: Candidate, b: Candidate): number =>
     || a.op.site.index - b.op.site.index;
 
 /**
+ * Give the corrected document Grünfeld's pedal, and say what was done either way.
+ *
+ * Read out of the **cut** editorial document one `<movement>` at a time and written in through
+ * `addMovement` rather than by moving the element itself: the two documents are two DOMs, and
+ * `getMovementOptionsOf` → `addMovement` is a value copy that cannot carry a foreign node across.
+ * `cutToRange` with `dropMaps: []` is what keeps the map — its default drops `movementMap` — and
+ * the cut's opening element is what makes a pedal pressed before the window still be down at its
+ * start.
+ *
+ * The student's own pedal is never captured, so this is Grünfeld's, stated as such: it is the one
+ * thing in a `path` demonstration that is not the student's own playing.
+ *
+ * @returns the line for {@link PathResult.notes}.
+ */
+const splicePedal = (dated: Dated, editorialReferenceMpmText: string | undefined, range: Range): string => {
+    if (editorialReferenceMpmText === undefined) {
+        return 'path: no pedal spliced — no editorial reference was passed; the demonstration plays dry';
+    }
+    if (dated.getMapOfKind(MOVEMENT_MAP) !== null) {
+        return 'path: no pedal spliced — the student document already has a movement map';
+    }
+
+    let source;
+    try {
+        source = new Mpm(cutToRange(editorialReferenceMpmText, range, { dropMaps: [] }))
+            .getPerformance(0)?.getGlobal()?.getDated()?.getMapOfKind(MOVEMENT_MAP) ?? null;
+    } catch (e) {
+        return `path: no pedal spliced — the editorial reference could not be cut (${e})`;
+    }
+    if (source === null || source.size() === 0) {
+        return 'path: no pedal spliced — the editorial reference has no movement map over this range';
+    }
+
+    const movements: AddMovementOptions[] = [];
+    for (let index = 0; index < source.size(); index++) {
+        const movement = source.getMovementOptionsOf(index);
+        if (movement !== null) movements.push(movement);
+    }
+    if (movements.length === 0) {
+        return 'path: no pedal spliced — the movement map holds nothing this writer can read';
+    }
+
+    const target = MovementMap.createMovementMap();
+    for (const movement of movements) target.addMovement(movement);
+    if (dated.addMap(target) === null) {
+        return 'path: no pedal spliced — the student document refused the movement map';
+    }
+
+    return `path: spliced Grünfeld's pedal — ${movements.length} <movement> element(s) from the `
+        + 'editorial reference, cut to this range (the student\'s own pedal is never captured)';
+};
+
+/**
  * The student's own playing, with the k costliest edits applied.
  *
  * Pure, deterministic and structured-clone-safe in and out, because it runs in the evidence
@@ -302,7 +412,7 @@ const byCost = (a: Candidate, b: Candidate): number =>
  * {@link PathResult.notes} and the caller writes it to the log.
  */
 export const pathPerformance = (input: PathInput): PathResult => {
-    const { studentMpmText, referenceMpmText, scoreMsm, range, types, edits } = input;
+    const { studentMpmText, referenceMpmText, editorialReferenceMpmText, scoreMsm, range, measured, types, edits } = input;
     const notes: string[] = [];
     const nothing = (reason: string, diffMs = 0): PathResult => {
         notes.push(reason);
@@ -311,6 +421,25 @@ export const pathPerformance = (input: PathInput): PathResult => {
 
     if (!Number.isFinite(range.from) || !Number.isFinite(range.to) || range.from >= range.to) {
         return nothing(`path: [${range.from}, ${range.to}) is not a range`);
+    }
+
+    // What may be corrected, decided before a millisecond of the cubic is spent: what the take
+    // measured, ∩ what this writer can put on an instruction, ∩ what the plan asked for. An
+    // empty plan list is "every measured type" (see `PathInput.types`), an empty *result* is no
+    // demonstration — a student the evidence is silent about is not corrected.
+    const writable = new Set<string>(PATH_TYPES);
+    const measurable = measured.filter((type) => writable.has(type));
+    const wanted = new Set<string>(
+        types && types.length > 0
+            ? types.filter((type) => measurable.includes(type))
+            : measurable,
+    );
+    if (wanted.size === 0) {
+        return nothing(
+            'path: nothing to correct — measured ['
+            + `${measured.join(' ') || 'nothing'}] ∩ writable [${PATH_TYPES.join(' ')}]`
+            + `${types && types.length > 0 ? ` ∩ planned [${types.join(' ')}]` : ''} is empty`,
+        );
     }
     const span = range.to - range.from;
     if (span > PATH_MAX_TICKS) {
@@ -340,14 +469,12 @@ export const pathPerformance = (input: PathInput): PathResult => {
     });
     const diffMs = now() - startedAt;
 
-    const wanted = new Set<string>(
-        types && types.length > 0 ? types : DIFF_TYPES,
-    );
     const candidates: Candidate[] = [];
     const seenScripts = new Set<string>();
     let unwritable = 0;
     let outOfRange = 0;
     let notSubstitutions = 0;
+    let belowFloor = 0;
 
     for (const script of report.scripts) {
         // Every global script is reported once per evaluated scope, and this score's MSM has two
@@ -371,6 +498,17 @@ export const pathPerformance = (input: PathInput): PathResult => {
                 continue;
             }
 
+            // The same floor the audibility gate applies to a whole dimension (`compare.ts`),
+            // applied here to one op: under 1 JND·quarter is a correction nobody can hear, and
+            // playing it back as *"this is what I would change"* tells a student who played it
+            // right that they played it wrong. It is what separates the direct-fit residue from
+            // a real correction — an identity take's costliest op is 0.45, the smallest genuine
+            // one measured is 1.00 (final-pedagogy, finding 1; DECISIONS 19:39:51Z (a)).
+            if (!(op.cost >= JND_FLOOR)) {
+                belowFloor += 1;
+                continue;
+            }
+
             const quarters = op.dateA ?? op.dateB;
             if (quarters === null) continue;
             const date = Math.round(quarters * PPQ);
@@ -390,12 +528,14 @@ export const pathPerformance = (input: PathInput): PathResult => {
     candidates.sort(byCost);
     notes.push(
         `path: diffMpm ${Math.round(diffMs)} ms over ${tickToPos(range.from)}–${tickToPos(range.to)}, `
+        + `correcting [${[...wanted].join(' ')}], `
         + `${candidates.length} applicable op(s) (${notSubstitutions} not substitutions, `
+        + `${belowFloor} under ${JND_FLOOR} JND, `
         + `${outOfRange} out of range, ${unwritable} attribute(s) this writer does not write)`,
     );
 
     if (candidates.length === 0) {
-        notes.push('path: nothing to correct — the student and Grünfeld align on every priced attribute');
+        notes.push('path: nothing to correct — the student and Grünfeld align audibly on every priced attribute');
         return { mpm: null, edits: [], considered: 0, notes, diffMs };
     }
 
@@ -485,6 +625,8 @@ export const pathPerformance = (input: PathInput): PathResult => {
         notes.push('path: no op could be applied to the student document');
         return { mpm: null, edits: [], considered: candidates.length, notes, diffMs };
     }
+
+    notes.push(splicePedal(dated, editorialReferenceMpmText, range));
 
     const text = student.writeMpm();
     if (text === null) return nothing('path: the corrected document could not be written');

@@ -41,7 +41,7 @@ import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from './clie
 import { buildJudgementMoodRenderPlan } from './client/src/pipeline/judgementMood';
 import { convert, render } from './client/src/services/mpmRenderer';
 import { evidenceForTake } from './client/src/mpm/evidence';
-import { allDimensions, counterPerformance, studentCenter } from './client/src/mpm/counter';
+import { allDimensions, counterPerformance } from './client/src/mpm/counter';
 import { PPQ, positionToTick } from './client/src/shared/constants';
 import type { Range, StructuredDiffEvent } from './client/src/mpm/types';
 
@@ -568,8 +568,10 @@ for (const scenario of scenarios) {
         referenceMpmText,
         range,
         dimensions: allDimensions(AGGRESSIVENESS),
-        center: studentCenter(evidence.levels),
-        events: structuredDiff,
+        // The pivot is the take's own paired instructions, slot by slot — not a level for the
+        // whole passage. `studentCenter`/`events` went with the counter-performance rewrite
+        // (`mpm/counter.ts`); `pipeline/strategies/exaggerated.ts` calls it exactly this way.
+        peaks: evidence.peaks,
         measured: evidence.measuredTypes,
         log: (msg) => console.log(`    ${msg}`),
     });

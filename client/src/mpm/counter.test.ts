@@ -29,7 +29,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Mpm, allChildElements, performMsmToData, type Element } from 'espressivo';
 import { describe, expect, it } from 'vitest';
-import { implantLocal } from '../matcher';
+import { extractNotesFromMidi, implantLocal } from '../matcher';
 import { measuredNotesFromPerformanceData, type MeasuredNote } from '../score/measured';
 import { convert, perform } from '../services/mpmRenderer';
 import { takeEvidence } from './compare';
@@ -66,9 +66,9 @@ const MAX_ABS_DELTA: Record<string, Record<string, number>> = {
     tempo: { bpm: 10, 'transition.to': 10 },
     articulation: { relativeDuration: 0.2, relativeVelocity: 0.2 },
     rubato: { intensity: 0.15 },
-    ornament: { scale: 0.8, intensity: 0.25, frameLength: 150 },
+    ornament: { scale: 2.0, intensity: 0.25, frameLength: 150 },
     asynchrony: { 'milliseconds.offset': 40 },
-    accentuationPattern: { scale: 0.6 },
+    accentuationPattern: { scale: 2.5 },
 };
 
 const BOUNDS: Record<string, Record<string, [number, number]>> = {
@@ -493,6 +493,164 @@ describe('one dimension at a time', () => {
         expect(take.measured).not.toContain('articulation');
         expect(take.peaks.some((peak) => peak.type === 'articulation')).toBe(false);
         expect(counterFor(take)).toBe(untouched);
+    });
+});
+
+// ── 3b. what the student actually hears ──────────────────────────────────────────────────
+
+/**
+ * The demonstration against `mode: 'reference'`, as sound.
+ *
+ * Every assertion above this point is on the *document*: which attribute moved, by how much, in
+ * which direction, inside which cap. None of that says whether the student can hear it, and
+ * `THRESHOLDS` — used as the yardstick until now — is the wrong instrument for the question: it
+ * is the diff's per-instruction *measurement* floor, so it mis-ranks every time-domain dimension
+ * upward and every velocity-domain one downward. A 0.65 bpm change is far under it and displaces
+ * the passage by 171 ms; a ±0.6 accentuation scale is well over it and does not survive the
+ * first note (final-pedagogy §1–2, DECISIONS 2026-08-26T20:22:18Z).
+ *
+ * So these render both documents over the same window and compare the MIDI: the counter-
+ * performance against the plain reference, which is exactly the choice the plan makes between
+ * `mode: 'exaggerated'` and `mode: 'reference'`. Notes are paired **by order** after sorting on
+ * (onset, pitch), which is sound because the counter-performance only ever rewrites values —
+ * it adds and removes nothing, and the pairing asserts the two renders agree on note count.
+ */
+type Audibility = {
+    /** Largest onset difference, in milliseconds. */
+    readonly maxOnsetMs: number;
+    /** Root mean square of the onset differences, in milliseconds. */
+    readonly rmsOnsetMs: number;
+    /** Largest velocity difference, in MIDI velocity units. */
+    readonly maxVelocity: number;
+    /** Root mean square of the velocity differences. */
+    readonly rmsVelocity: number;
+    readonly notes: number;
+};
+
+const sortedNotes = (mpmText: string, range: Range) => {
+    const midi = perform(mei, mpmText, range);
+    if (!midi) throw new Error('the demonstration could not be rendered');
+    return extractNotesFromMidi(midi)
+        .slice()
+        .sort((a, b) => a.onset - b.onset || a.pitch - b.pitch);
+};
+
+const audibility = (counterMpmText: string, range: Range = FOUR_BARS): Audibility => {
+    const demo = sortedNotes(counterMpmText, range);
+    const plain = sortedNotes(referenceMpmText, range);
+    expect(demo.length, 'the demonstration lost or gained notes').toBe(plain.length);
+
+    let maxOnsetMs = 0;
+    let sumOnsetSq = 0;
+    let maxVelocity = 0;
+    let sumVelocitySq = 0;
+    for (let index = 0; index < demo.length; index++) {
+        const onsetMs = Math.abs(demo[index].onset - plain[index].onset) * 1000;
+        const velocity = Math.abs(demo[index].velocity - plain[index].velocity);
+        maxOnsetMs = Math.max(maxOnsetMs, onsetMs);
+        maxVelocity = Math.max(maxVelocity, velocity);
+        sumOnsetSq += onsetMs * onsetMs;
+        sumVelocitySq += velocity * velocity;
+    }
+    const n = Math.max(1, demo.length);
+    return {
+        maxOnsetMs,
+        rmsOnsetMs: Math.sqrt(sumOnsetSq / n),
+        maxVelocity,
+        rmsVelocity: Math.sqrt(sumVelocitySq / n),
+        notes: demo.length,
+    };
+};
+
+describe('audible at the default strength, measured on the render', () => {
+    const report = (name: string, heard: Audibility): void => {
+        console.log(
+            `counter, ${name}: ${heard.notes} notes, onset max ${heard.maxOnsetMs.toFixed(1)} ms / `
+            + `rms ${heard.rmsOnsetMs.toFixed(1)} ms, velocity max ${heard.maxVelocity.toFixed(2)} / `
+            + `rms ${heard.rmsVelocity.toFixed(2)}`,
+        );
+    };
+
+    it('displaces a hurried take’s passage by at least 100 ms', () => {
+        const heard = audibility(counterFor(takeOf(ALTERED.tempo)));
+        report('tempo x1.15', heard);
+        expect(heard.maxOnsetMs).toBeGreaterThanOrEqual(100);
+    });
+
+    it('answers a quiet take by at least 3 velocity RMS', () => {
+        // The row that moved: `dynamics @volume` inner strength 0.45 -> 1.0. At 0.45 this take was
+        // answered with 1.8 velocity RMS — a demonstration inside the noise of a piano sample.
+        const heard = audibility(counterFor(takeOf(ALTERED.dynamics)));
+        report('dynamics -18', heard);
+        expect(heard.rmsVelocity).toBeGreaterThanOrEqual(3);
+    });
+
+    /**
+     * **The two `@scale` dimensions are still not audible, and this is the record of it.**
+     *
+     * The calibration widened their caps — `accentuationPattern @scale` 0.6 -> 2.5, `ornament
+     * @scale` 0.8 -> 2.0 — on final-pedagogy's reading that the cap was the binding constraint
+     * and ±2.5 / ±2.0 "would put both at ~4 velocity on their peaks". Measured on the render
+     * afterwards, that estimate does not hold. Before and after, at the default strength:
+     *
+     * | take | before | after | target |
+     * |---|---|---|---|
+     * | accentuation x10 | 1 vel peak / 0.236 RMS | 1 vel peak / **0.272** RMS | 3 vel peak |
+     * | ornament scale x0.25 | 1 vel peak / 0.333 RMS | 1 vel peak / **0.333** RMS | 3 vel peak |
+     *
+     * The cap stopped binding and the *exponent* started: the natural push at
+     * `a = 0.2 x 0.4 = 0.08` is 0.86 for accentuation (was clipped to 0.6) and 0.82 for ornament
+     * (was clipped to 0.8, so that row's sound did not change at all). Sweeping the inner
+     * strength to saturation — 2.0, 4.0, 8.0, all identical, i.e. against the new cap — gives a
+     * **ceiling of 3 velocity for accentuation and 2 for ornament @scale**. So 3 velocity is
+     * reachable for accentuation only by also raising its inner strength to ~2.0, which would
+     * make every measurable deviation saturate the cap and cost the demonstration its sense of
+     * magnitude; and for `ornament @scale` it is **not reachable inside a ±2.0 cap at any
+     * strength**. Both are one more constants row and Niels' call, so the assertions below pin
+     * what the shipped table actually does rather than a target it does not meet.
+     */
+    it('answers an over-accented take, though still under the 3-velocity target', () => {
+        const heard = audibility(counterFor(takeOf(ALTERED.accentuation)));
+        report('accentuation x10', heard);
+        // A real, if small, effect — and a guard against the dimension going silent altogether.
+        expect(heard.maxVelocity).toBeGreaterThanOrEqual(1);
+        expect(heard.rmsVelocity).toBeGreaterThan(0.25);
+    });
+
+    it('answers a flattened arpeggio, though still under the 3-velocity target', () => {
+        const heard = audibility(counterFor(takeOf(ALTERED.ornamentScale)));
+        report('ornament scale x0.25', heard);
+        expect(heard.maxVelocity).toBeGreaterThanOrEqual(1);
+        expect(heard.rmsVelocity).toBeGreaterThan(0.3);
+    });
+
+    it('writes further than the old cap allowed, which is what the widening bought', () => {
+        // The document side of the two rows above: the widened caps are load-bearing on the
+        // accentuation row (0.60 clipped -> 0.86 natural) and marginal on the ornament one
+        // (0.80 clipped -> 0.82 natural). Without this the cap change would be invisible to
+        // every test in the file, since the render cannot yet tell the difference.
+        const largest = (take: Take, type: string): number => Math.max(
+            ...moved(counterFor(take))
+                .filter((write) => write.ref.type === type && write.attr === 'scale')
+                .map((write) => Math.abs(write.to - write.from)),
+        );
+
+        expect(largest(takeOf(ALTERED.accentuation), 'accentuationPattern')).toBeGreaterThan(0.6);
+        expect(largest(takeOf(ALTERED.ornamentScale), 'ornament')).toBeGreaterThan(0.8);
+    });
+
+    it('answers an over-wide roll by at least 20 ms', () => {
+        // The row that moved: `ornament @frameLength` inner strength 0.35 -> 2.0. At 0.35 the
+        // rolls narrowed by 4 ms RMS, which is nothing.
+        const heard = audibility(counterFor(takeOf(ALTERED.ornamentFrame)));
+        report('ornament frameLength x2', heard);
+        expect(heard.maxOnsetMs).toBeGreaterThanOrEqual(20);
+    });
+
+    it('says nothing at all on an identity take, in sound as in bytes', () => {
+        const heard = audibility(counterFor(takeOf(referenceMpmText)));
+        expect(heard.maxOnsetMs).toBe(0);
+        expect(heard.maxVelocity).toBe(0);
     });
 });
 

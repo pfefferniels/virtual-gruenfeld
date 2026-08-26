@@ -85,3 +85,44 @@ const measuredNoteFromMsmNote = (note: MsmNoteLike): MeasuredNote => {
 export const measuredNotesFromMsm = (
     msm: { allNotes?: readonly MsmNoteLike[] } | null | undefined,
 ): MeasuredNote[] => (msm?.allNotes ?? []).map(measuredNoteFromMsmNote);
+
+/**
+ * The other direction across the same boundary: espressivo's own `PerformanceData` — what
+ * `performMsm` / `performMsmToData` hand back — read as measured notes.
+ *
+ * Its note record is *nested* (`{ id, pitch, date, duration, velocity, milliseconds: { date,
+ * end } }`) where {@link MeasuredNote} is flat in MSM's attribute names, and its parts are
+ * indexed from 0 where MSM numbers them from 1; this is the one place either difference is
+ * spelled out. Everything is already in milliseconds, so nothing is scaled.
+ *
+ * It is what makes a rendered performance usable as a take: the round-trip test plays
+ * Grünfeld's own document back at the fitter, and a synthetic student is a render with one
+ * dimension altered.
+ */
+export const measuredNotesFromPerformanceData = (
+    data: {
+        parts?: readonly {
+            index?: number;
+            notes?: readonly {
+                id?: string | null;
+                date?: number;
+                duration?: number;
+                pitch?: number;
+                velocity?: number;
+                milliseconds?: { date?: number; end?: number };
+            }[];
+        }[];
+    } | null | undefined,
+): MeasuredNote[] =>
+    (data?.parts ?? []).flatMap((part, position) =>
+        (part.notes ?? []).map((note) => ({
+            'xml:id': typeof note.id === 'string' ? note.id : '',
+            part: numberOr(part.index, position) + 1,
+            date: numberOr(note.date, 0),
+            duration: numberOr(note.duration, 0),
+            'midi.pitch': numberOr(note.pitch, 0),
+            'milliseconds.date': numberOr(note.milliseconds?.date, 0),
+            'milliseconds.date.end': numberOr(note.milliseconds?.end, 0),
+            velocity: numberOr(note.velocity, 0),
+        })),
+    );

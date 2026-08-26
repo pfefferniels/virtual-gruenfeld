@@ -13,6 +13,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { render } from './client/src/services/mpmRenderer';
 
 // ── Dynamic imports (ESM-compatible) ────────────────────────────────────────
 const { MPM } = await import('/Users/nielspfeffer/Projects/mpm-ts/src/MPM.ts');
@@ -805,37 +806,13 @@ console.log('\n=== Test 20: exportMPM produces valid XML from exaggerated MPM ==
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PART 3: Full pipeline test with /perform endpoint (requires server)
+// PART 3: Full pipeline test through the in-process renderer (espressivo)
 // ═══════════════════════════════════════════════════════════════════════════
 
-console.log('\n=== Test 21: Full pipeline with /perform endpoint (optional, requires server) ===');
-
-const PERFORM_URL = 'http://localhost:8080/perform';
-
-async function testPerformEndpoint() {
-    // Check if server is available
-    try {
-        const probe = await fetch(PERFORM_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mei: '', mpm: '', from: 0, to: 0 }),
-            signal: AbortSignal.timeout(2000),
-        });
-        // Any response (even error) means server is up
-    } catch {
-        console.log('  SKIP: /perform server not available at ' + PERFORM_URL);
-        return;
-    }
-
-    // Load the real MEI score
+console.log('\n=== Test 21: Full pipeline through render() ===');
+{
     const meiPath = path.resolve('/Users/nielspfeffer/Projects/virtual-gruenfeld/client/public/score.mei');
-    let mei: string;
-    try {
-        mei = fs.readFileSync(meiPath, 'utf8');
-    } catch {
-        console.log('  SKIP: could not read score.mei');
-        return;
-    }
+    const mei = fs.readFileSync(meiPath, 'utf8');
 
     // Build an MPM with known exaggerated values
     const ref = buildMPM({
@@ -848,47 +825,14 @@ async function testPerformEndpoint() {
     });
     exaggerate(ref, student, range, 1.2, noop);
 
-    const mpmXml = exportMPM(ref);
-    const performRange = { from: 0, to: 2880 }; // first 4 beats
+    const bytes = render(mei, exportMPM(ref), { from: 0, to: 2880 }); // first 4 beats
+    assert(bytes !== undefined && bytes.length > 0, 'render returned MIDI bytes');
 
-    try {
-        const response = await fetch(PERFORM_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                mei,
-                mpm: mpmXml,
-                ...performRange,
-                ppq: 720,
-            }),
-            signal: AbortSignal.timeout(10000),
-        });
+    const header = Buffer.from(bytes!.slice(0, 4)).toString('ascii');
+    assert(header === 'MThd', `MIDI starts with MThd header, got "${header}"`);
 
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            console.log(`  SKIP: /perform returned HTTP ${response.status}: ${text.slice(0, 200)}`);
-            return;
-        }
-
-        const payload = await response.json();
-        const b64 = payload?.midi_b64;
-        assert(typeof b64 === 'string' && b64.length > 0, '/perform returned non-empty midi_b64');
-
-        // Decode and basic sanity check
-        const binary = Buffer.from(b64, 'base64');
-        assert(binary.length > 0, 'decoded MIDI has non-zero length');
-
-        // Check MThd header
-        const header = binary.slice(0, 4).toString('ascii');
-        assert(header === 'MThd', `MIDI starts with MThd header, got "${header}"`);
-
-        console.log(`  /perform MIDI: ${binary.length} bytes`);
-    } catch (err) {
-        console.log(`  SKIP: /perform request failed -> ${String(err)}`);
-    }
+    console.log(`  render MIDI: ${bytes!.length} bytes`);
 }
-
-await testPerformEndpoint();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PART 4: Edge case and symmetry tests

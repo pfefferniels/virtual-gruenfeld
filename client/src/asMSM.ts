@@ -3,9 +3,8 @@ import { v4 } from "uuid";
 import { convert } from "./services/mpmRenderer";
 
 /** Convert MEI to MSM using only score data (no performance enrichment). */
-export const asMSMBasic = async (mei: string): Promise<MSM> => {
-    const json = await convert(mei);
-    const msmDoc = new DOMParser().parseFromString(json.msm, 'application/xml');
+export const asMSMBasic = (mei: string): MSM => {
+    const msmDoc = new DOMParser().parseFromString(convert(mei), 'application/xml');
 
     const seen = new Map<string, Element>();
     for (const note of msmDoc.querySelectorAll('note')) {
@@ -37,9 +36,8 @@ export const asMSMBasic = async (mei: string): Promise<MSM> => {
     });
 };
 
-export const asMSM = async (mei: string) => {
-    const json = await convert(mei);
-    const msmDoc = new DOMParser().parseFromString(json.msm, 'application/xml')
+export const asMSM = (mei: string) => {
+    const msmDoc = new DOMParser().parseFromString(convert(mei), 'application/xml')
 
     // Enrich the official MSM with performance information
     const meiDoc = new DOMParser().parseFromString(mei, 'application/xml')

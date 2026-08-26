@@ -74,10 +74,10 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
     }
 
     // `none` skips the render entirely; `reference` plays Grünfeld untouched.
-    let demoPerf: Awaited<ReturnType<typeof performTeacherPlayback>> = undefined;
+    let demoPerf: ReturnType<typeof performTeacherPlayback> = undefined;
     if (demoMode !== 'none') {
         const performStartedAt = Date.now();
-        demoPerf = await performTeacherPlayback(
+        demoPerf = performTeacherPlayback(
             ctx.mei,
             ctx.baseMsm,
             demoMode === 'reference' ? ctx.referenceMpm : take.referenceMpmClone,
@@ -134,7 +134,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     // Render mood chord if available
     const moodPerf = moodPlan
-        ? await performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
+        ? performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
         : undefined;
     if (isCancelled()) return;
 

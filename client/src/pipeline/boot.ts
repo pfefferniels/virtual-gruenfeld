@@ -1,5 +1,5 @@
 import { asMSM, asMSMBasic } from '../asMSM';
-import { assertOk, warmPerformEndpoint } from '../api';
+import { assertOk } from '../api';
 import { mpmify } from '../mpm';
 import type { PipelineContext } from './types';
 
@@ -21,14 +21,12 @@ export const boot = async (
     log(`FETCH: score.mei ok (bytes=${mei.length})`);
 
     log('MSM: asMSM(score.mei)…');
-    const baseMsm = await asMSM(mei);
+    const baseMsm = asMSM(mei);
     log(`MSM: ready (notes=${JSON.stringify(baseMsm.allNotes[0]) ?? 'unknown'})`);
 
     log('MPM: building referenceMpm…');
     const referenceMpm = mpmify(baseMsm, transformations, { log });
     log(`MPM: referenceMpm ready (instructions=${referenceMpm.getInstructions().length})`);
-
-    warmPerformEndpoint();
 
     // Load harmonic reduction (optional — two-pass mode requires it)
     let reductionMei: string | undefined;
@@ -38,7 +36,7 @@ export const boot = async (
         if (reductionResp.ok) {
             reductionMei = await reductionResp.text();
             log(`FETCH: harmonic_reduction.mei ok (bytes=${reductionMei.length})`);
-            reductionMsm = await asMSMBasic(reductionMei);
+            reductionMsm = asMSMBasic(reductionMei);
             log(`MSM: reduction ready (notes=${reductionMsm.allNotes.length})`);
         }
     } catch (e) {

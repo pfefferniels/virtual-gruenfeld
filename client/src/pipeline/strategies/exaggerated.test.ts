@@ -122,11 +122,11 @@ const makeControls = () => {
 
 const renderedAs = (id: string) => ({ midi: { id }, timingMap: [] });
 
-/** What the strategy asked the Java renderer to perform, ignoring the mood chord. */
+/** What the strategy asked the renderer to perform, ignoring the mood chord. */
 const demoCall = () => performTeacherPlayback.mock.calls.find((call) => call[0] === '<mei/>');
 
 beforeEach(() => {
-    performTeacherPlayback.mockImplementation(async (mei: string) =>
+    performTeacherPlayback.mockImplementation((mei: string) =>
         renderedAs(mei === '<mei/>' ? 'demo' : 'mood'));
     requestVocalStream.mockResolvedValue({ chunks: CHUNKS, plan: null });
     buildJudgementMoodRenderPlan.mockReturnValue(null);

@@ -11,7 +11,7 @@ You play Schumann's *Träumerei*, and Alfred Grünfeld's 1905 Welte-Mignon recor
 5. An LLM generates a short spoken critique in German, calibrated to the severity of deviations
 6. The reference performance is exaggerated *away* from your playing and rendered as MIDI — so you hear the contrast
 
-The whole loop runs in the browser, except for MEI↔MSM conversion and MIDI rendering (Java, port 8080) and the LLM + TTS call (Node server).
+The whole loop runs in the browser — the MEI→MSM conversion and the MIDI rendering included, via [espressivo](https://github.com/pfefferniels/espressivo), a TypeScript port of meico — except for the LLM + TTS call (Node server).
 
 ## What the teacher knows
 
@@ -74,7 +74,8 @@ client/src/
   pipeline/                Turn choreography: cues, playback, strategies
   teacherCues.ts           Scheduling spoken cues against the music
   useVoiceQuestion.ts      Push-to-talk
-  asMSM.ts                 MEI → MSM via meico
+  asMSM.ts                 MEI → MSM, enriched with the roll's timings
+  services/mpmRenderer.ts  MEI → MSM and MPM → MIDI, in-process via espressivo
 client/public/
   score.mei                Schumann Träumerei Op. 15 No. 7
   info.json                CIDOC-CRM metadata with mpmify transformer chain
@@ -85,7 +86,7 @@ scripts/smoke-teacher.ts   Live smoke tests against the real APIs
 ## Dependencies
 
 - [mpm-ts](https://github.com/pfefferniels/mpm-ts) and [mpmify](https://github.com/pfefferniels/mpmify) — local packages for Music Performance Markup
-- [meico](https://github.com/cemfi/meico) — MEI converter/renderer, runs as a Java server on port 8080
+- [espressivo](https://github.com/pfefferniels/espressivo) — MEI converter and MPM renderer, a TypeScript port of [meico](https://github.com/cemfi/meico); local package at `../meico-ts`
 - OpenAI for the teacher, transcription and the student profile
 - ElevenLabs for German TTS
 - For the test script: fluidsynth + a soundfont, ffmpeg
@@ -98,7 +99,8 @@ cd client && npm install
 cp .env.example .env   # add OPENAI_API_KEY, ELEVENLABS_API_KEY
 ```
 
-Start the meico server on port 8080, then:
+The three local packages are linked from sibling checkouts (`../mpm-ts`, `../mpmify`, and
+`../meico-ts` for espressivo) and need to be built first. Then:
 
 ```bash
 npm run dev

@@ -24,9 +24,9 @@ does not survive contact with the code. The teacher service:
 Porting that to a Worker means bundling the corpus as an asset, moving sessions to KV or D1,
 and giving up the process-lifetime caches. That is a project, not a deployment step.
 
-Meanwhile you already run a host that serves the Java MPM renderer at `api.welte225.org`.
-It has a disk and a process supervisor. **Put the teacher there.** The rest of this document
-assumes that host.
+Meanwhile you already run a host at `api.welte225.org` — it served the Java MPM renderer
+until the client took that job in-process (espressivo). It has a disk and a process
+supervisor. **Put the teacher there.** The rest of this document assumes that host.
 
 ---
 
@@ -199,15 +199,14 @@ Then `VITE_TEACHER_URL=https://teacher.welte225.org`.
 ### Option B — a path under the existing api host
 
 No new DNS record or certificate, but the prefix must be **stripped** before it reaches Node,
-which serves `/teacher-stream` and `/teacher-ask` at its root:
+which serves `/teacher-stream` and `/teacher-ask` at its root. (Nothing else needs to live
+on this host any more — the Java renderer it used to proxy on port 8080 is retired; the
+client renders in-process.)
 
 ```caddyfile
 api.welte225.org {
     handle_path /teacher/* {          # handle_path strips the prefix; `handle` would not
         reverse_proxy 127.0.0.1:3002
-    }
-    handle {
-        reverse_proxy 127.0.0.1:8080  # the existing Java renderer
     }
 }
 ```

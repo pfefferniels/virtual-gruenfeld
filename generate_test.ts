@@ -5,7 +5,6 @@
  * Uses the /teacher-stream endpoint for a single LLM + TTS call.
  *
  * Requires:
- *   - meico server at http://localhost:8080 (/convert, /perform)
  *   - virtual-gruenfeld server (/teacher-stream)
  *   - timidity or fluidsynth + SF2_PATH (MIDI → WAV)
  *   - ffmpeg (audio concat + MP3 encoding)
@@ -25,6 +24,7 @@ import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from './clie
 import {
     buildJudgementMoodRenderPlan,
 } from './client/src/pipeline/judgementMood';
+import { convert, render } from './client/src/services/mpmRenderer';
 
 /** Extra sustain-pedal hold after the correction entry point (ms). */
 const JUDGEMENT_MOOD_PEDAL_BUFFER_MS = 3000;
@@ -41,8 +41,6 @@ type MSM = InstanceType<typeof MSM>;
 
 // ── Config ──
 
-const CONVERT_URL = 'http://localhost:8080/convert';
-const PERFORM_URL = 'http://localhost:8080/perform';
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3002';
 const PPQ = 720;
 const BEAT = PPQ;
@@ -61,25 +59,6 @@ const assertOk = async (r: Response, label: string) => {
     try { text = await r.text(); } catch { /* ignore */ }
     throw new Error(`${label}: HTTP ${r.status} ${r.statusText}${text ? `: ${text}` : ''}`);
 };
-
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-/** Fetch with retry on connection errors (meico sometimes drops connections) */
-async function fetchRetry(url: string, init: RequestInit, label: string, retries = 2): Promise<Response> {
-    for (let i = 0; i <= retries; i++) {
-        try {
-            return await fetch(url, init);
-        } catch (e: any) {
-            if (i < retries && (e.cause?.code === 'ECONNRESET' || e.cause?.code === 'ECONNREFUSED')) {
-                console.log(`    (${label}: connection error, retrying in 2s...)`);
-                await sleep(2000);
-                continue;
-            }
-            throw e;
-        }
-    }
-    throw new Error('unreachable');
-}
 
 function parseMsmNotes(msmXml: string): any[] {
     const notes: any[] = [];
@@ -1114,14 +1093,8 @@ console.log('Loading resources...');
 const mei = fs.readFileSync('client/public/score.mei', 'utf8');
 const infoJson = fs.readFileSync('client/public/info.json', 'utf8');
 
-console.log('Converting MEI → MSM via /convert...');
-const convertResp = await fetchRetry(CONVERT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mei }),
-}, 'convert');
-await assertOk(convertResp, '/convert');
-const msmXml = (await convertResp.json()).msm;
+console.log('Converting MEI → MSM...');
+const msmXml = convert(mei);
 
 const msmNotes = parseMsmNotes(msmXml);
 const matched = enrichWithPerformanceData(msmNotes, mei);
@@ -1143,14 +1116,7 @@ try {
     reductionMei = fs.readFileSync('client/public/harmonic_reduction.mei', 'utf8');
     console.log(`  Reduction MEI: ${reductionMei.length} bytes`);
 
-    const reductionConvertResp = await fetchRetry(CONVERT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mei: reductionMei }),
-    }, 'convert reduction');
-    await assertOk(reductionConvertResp, '/convert (reduction)');
-    const reductionMsmXml = (await reductionConvertResp.json()).msm;
-    reductionMsmNotes = parseMsmNotes(reductionMsmXml);
+    reductionMsmNotes = parseMsmNotes(convert(reductionMei));
     // No performance enrichment — reduction has no <when> elements
     console.log(`  Reduction MSM: ${reductionMsmNotes.length} notes`);
 } catch (e: any) {
@@ -1167,29 +1133,16 @@ for (const scenario of scenarios) {
     console.log(`  Range: ${scenario.startDate}–${scenario.endDate}`);
     console.log('═'.repeat(60));
 
-    // 1. Render student MIDI via /perform
+    // 1. Render student MIDI
     console.log('  [1/7] Rendering student MIDI...');
-    const studentPerformResp = await fetchRetry(PERFORM_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            mei, mpm: scenario.mpm,
-            from: scenario.startDate, to: scenario.endDate, ppq: PPQ,
-        }),
-    }, 'student perform');
-    await assertOk(studentPerformResp, '/perform (student)');
-    const studentMidiBytes = Buffer.from((await studentPerformResp.json()).midi_b64, 'base64');
+    const studentMidiBytes = render(mei, scenario.mpm, { from: scenario.startDate, to: scenario.endDate });
+    if (!studentMidiBytes) throw new Error(`${scenario.name}: student render produced nothing`);
     const studentMidPath = `${OUT_DIR}/${scenario.name}_student.mid`;
     fs.writeFileSync(studentMidPath, studentMidiBytes);
 
     // 2. Match + implant (local matcher — same as frontend)
     console.log('  [2/7] Matching & implanting...');
-    const midiFile = readMidi(
-        studentMidiBytes.buffer.slice(
-            studentMidiBytes.byteOffset,
-            studentMidiBytes.byteOffset + studentMidiBytes.byteLength,
-        ),
-    );
+    const midiFile = readMidi(studentMidiBytes);
     const dateHint = (scenario.startDate + scenario.endDate) / 2;
     const { studentMsm, range } = implantLocal(baseMsm, midiFile, dateHint);
     console.log(`    Implant range: [${range.from}, ${range.to}]`);
@@ -1215,25 +1168,16 @@ for (const scenario of scenarios) {
     exaggerate(teacherMpm, studentMpm, range, AGGRESSIVENESS);
     const teacherMpmXml = exportMPM(teacherMpm);
 
-    // Helper: render a MIDI performance via /perform
+    // Helper: render a MIDI performance
     const renderMidi = async (
         passLabel: string,
         passMei: string,
         passRange: Range,
         opts?: { mpmXml?: string },
     ): Promise<Buffer> => {
-        const perfBody: Record<string, unknown> = {
-            mei: passMei,
-            mpm: opts?.mpmXml ?? teacherMpmXml,
-            from: passRange.from, to: passRange.to, ppq: PPQ,
-        };
-        const perfResp = await fetchRetry(PERFORM_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(perfBody),
-        }, `${passLabel} perform`);
-        await assertOk(perfResp, `/perform (${passLabel})`);
-        const midiBytes = Buffer.from((await perfResp.json()).midi_b64, 'base64');
+        const bytes = render(passMei, opts?.mpmXml ?? teacherMpmXml, passRange);
+        if (!bytes) throw new Error(`${scenario.name}/${passLabel}: render produced nothing`);
+        const midiBytes = Buffer.from(bytes);
         fs.writeFileSync(`${OUT_DIR}/${scenario.name}_${passLabel}.mid`, midiBytes);
         return midiBytes;
     };

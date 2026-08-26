@@ -2,12 +2,12 @@
  * visualize_implant.ts — Extract implantation data and render a piano roll PNG.
  *
  * Uses the same real pipeline as generate_test.ts:
- *   MEI → /convert → MSM → enrich → implantLocal(MSM, studentMIDI)
+ *   MEI → convert (espressivo) → MSM → enrich → implantLocal(MSM, studentMIDI)
  *
  * Student scenario: realistic amateur — close to Grünfeld's tempo (~50 BPM)
  * but with local timing jitter, missed notes, and accidental wrong notes.
  *
- * Requires: meico at localhost:8080, python3 with matplotlib
+ * Requires: python3 with matplotlib
  * Run:  npx tsx visualize_implant.ts
  */
 
@@ -22,11 +22,10 @@ import {
     matchSubsequence,
     type StudentNote,
 } from './client/src/matcher';
+import { convert, render } from './client/src/services/mpmRenderer';
 
 const { MSM } = await import('../mpmify/src/index.ts');
 
-const CONVERT_URL = 'http://localhost:8080/convert';
-const PERFORM_URL = 'http://localhost:8080/perform';
 const PPQ = 720;
 const BEAT = PPQ;
 const MEASURE = 4 * BEAT;
@@ -338,14 +337,8 @@ const scenario = {
 console.log('Loading MEI...');
 const mei = fs.readFileSync('client/public/score.mei', 'utf8');
 
-console.log('Converting MEI → MSM via /convert...');
-const convertResp = await fetch(CONVERT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mei }),
-});
-if (!convertResp.ok) throw new Error(`/convert: ${convertResp.status}`);
-const msmXml = (await convertResp.json()).msm;
+console.log('Converting MEI → MSM...');
+const msmXml = convert(mei);
 
 const msmNotes = parseMsmNotes(msmXml);
 enrichWithPerformanceData(msmNotes, mei);
@@ -357,26 +350,13 @@ console.log = () => {};
 const baseMsm = new MSM(enrichedNotes, { numerator: 4, denominator: 4 });
 console.log = savedLog;
 
-// Render clean student MIDI via /perform
-console.log('Rendering student MIDI via /perform...');
-const studentPerformResp = await fetch(PERFORM_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        mei, mpm: scenario.mpm,
-        from: scenario.startDate, to: scenario.endDate, ppq: PPQ,
-    }),
-});
-if (!studentPerformResp.ok) throw new Error(`/perform: ${studentPerformResp.status}`);
-const cleanMidiBytes = Buffer.from((await studentPerformResp.json()).midi_b64, 'base64');
+// Render clean student MIDI
+console.log('Rendering student MIDI...');
+const cleanMidiBytes = render(mei, scenario.mpm, { from: scenario.startDate, to: scenario.endDate });
+if (!cleanMidiBytes) throw new Error('render: nothing to play');
 
 // Parse clean MIDI → notes
-const cleanMidi = readMidi(
-    cleanMidiBytes.buffer.slice(
-        cleanMidiBytes.byteOffset,
-        cleanMidiBytes.byteOffset + cleanMidiBytes.byteLength,
-    ),
-);
+const cleanMidi = readMidi(cleanMidiBytes);
 const cleanNotes = extractNotesFromMidi(cleanMidi);
 console.log(`  Clean student notes: ${cleanNotes.length}`);
 

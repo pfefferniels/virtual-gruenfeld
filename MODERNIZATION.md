@@ -24,7 +24,8 @@ Full analysis: `~/.claude/projects/-Users-nielspfeffer-Projects-virtual-gruenfel
 5. **Behavior-compatible by default**: the «MARKER» output contract, ElevenLabs timestamp slicing,
    and client choreography keep working at every commit. New capabilities behind flags where risky.
 6. **Don't touch**: `arbeitsverlauf.docx` (personal, uncommitted), `client/src/matcher.ts` internals
-   (deterministic moat, 63 tests), the Java renderer contract (`/convert`, `/perform` on api.welte225.org).
+   (deterministic moat, 63 tests), and what `client/src/services/mpmRenderer.ts` plays — it
+   reproduces the retired Java renderer's `/perform` note for note, in-process via espressivo.
 
 ## Context-management protocol
 

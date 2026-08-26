@@ -2,16 +2,16 @@
 // Consumers (Dialog.tsx, midi.ts) can import from here without changes.
 
 import { MidiFile } from "midifile-ts";
-import { MPM } from "mpm-ts";
+import { exportMPM, MPM } from "mpm-ts";
 import { MSM } from "mpmify";
 import type { Range } from "./mpm";
 import { implantLocal } from "./matcher";
 import { buildTimingMap, type TimingMapPoint } from "./teacherCues";
-import { perform, warmPerformEndpoint } from "./services/mpmRenderer";
+import { perform } from "./services/mpmRenderer";
 import { assertOk } from "./services/api";
 
 // Re-exports from services/
-export { assertOk, warmPerformEndpoint };
+export { assertOk };
 
 export const implant = (
     msm: MSM,
@@ -36,14 +36,17 @@ type RenderedTeacherPerformance = {
     timingMap: TimingMapPoint[];
 };
 
-export const performTeacherPlayback = async (
+/**
+ * Render `mpm` over `range` and align it to the reference, for the cues. Renders in
+ * process (espressivo), so this blocks for the render — ~50 ms for a couple of bars.
+ */
+export const performTeacherPlayback = (
     mei: string,
     referenceMsm: MSM,
     mpm: MPM,
     range: Range,
-    opts?: { sketchiness?: number },
-): Promise<RenderedTeacherPerformance | undefined> => {
-    const midi = await perform(mei, mpm, range, opts);
+): RenderedTeacherPerformance | undefined => {
+    const midi = perform(mei, exportMPM(mpm), range);
     if (!midi) return undefined;
 
     return {

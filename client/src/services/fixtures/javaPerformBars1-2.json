@@ -1,0 +1,104 @@
+[
+  {
+    "tick": 0,
+    "channel": 0,
+    "pitch": 60,
+    "velocity": 41
+  },
+  {
+    "tick": 964,
+    "channel": 0,
+    "pitch": 65,
+    "velocity": 37
+  },
+  {
+    "tick": 1874,
+    "channel": 0,
+    "pitch": 53,
+    "velocity": 32
+  },
+  {
+    "tick": 1904,
+    "channel": 0,
+    "pitch": 60,
+    "velocity": 32
+  },
+  {
+    "tick": 3606,
+    "channel": 0,
+    "pitch": 64,
+    "velocity": 36
+  },
+  {
+    "tick": 4041,
+    "channel": 0,
+    "pitch": 65,
+    "velocity": 38
+  },
+  {
+    "tick": 4495,
+    "channel": 0,
+    "pitch": 69,
+    "velocity": 42
+  },
+  {
+    "tick": 4983,
+    "channel": 0,
+    "pitch": 72,
+    "velocity": 44
+  },
+  {
+    "tick": 5660,
+    "channel": 0,
+    "pitch": 77,
+    "velocity": 43
+  },
+  {
+    "tick": 6375,
+    "channel": 0,
+    "pitch": 65,
+    "velocity": 35
+  },
+  {
+    "tick": 6566,
+    "channel": 0,
+    "pitch": 77,
+    "velocity": 32
+  },
+  {
+    "tick": 734,
+    "channel": 0,
+    "pitch": 41,
+    "velocity": 40
+  },
+  {
+    "tick": 850,
+    "channel": 0,
+    "pitch": 41,
+    "velocity": 39
+  },
+  {
+    "tick": 1740,
+    "channel": 0,
+    "pitch": 48,
+    "velocity": 32
+  },
+  {
+    "tick": 1892,
+    "channel": 0,
+    "pitch": 57,
+    "velocity": 32
+  },
+  {
+    "tick": 6197,
+    "channel": 0,
+    "pitch": 53,
+    "velocity": 42
+  },
+  {
+    "tick": 6250,
+    "channel": 0,
+    "pitch": 62,
+    "velocity": 39
+  }
+]

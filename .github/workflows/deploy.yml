@@ -34,10 +34,18 @@ jobs:
           repository: pfefferniels/react-pianosound
           path: react-pianosound
 
+      # The MEI→MSM conversion and the MPM→MIDI render run in the browser via
+      # espressivo (the repo is linked as ../meico-ts, see package.json).
+      - name: Checkout espressivo
+        uses: actions/checkout@v4
+        with:
+          repository: pfefferniels/espressivo
+          path: meico-ts
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # espressivo needs >= 22
 
       - name: Build mpm-ts
         working-directory: mpm-ts
@@ -45,6 +53,10 @@ jobs:
 
       - name: Build mpmify
         working-directory: mpmify
+        run: npm ci && npm run build
+
+      - name: Build espressivo
+        working-directory: meico-ts
         run: npm ci && npm run build
 
       - name: Install react-pianosound deps
@@ -78,8 +90,6 @@ jobs:
 
       - name: Install and build client
         working-directory: virtual-gruenfeld/client
-        env:
-          VITE_API_URL: https://api.welte225.org
         run: npm ci && npm run build
 
       - name: Deploy to Cloudflare Pages

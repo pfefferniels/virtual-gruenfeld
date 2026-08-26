@@ -15,6 +15,7 @@
 
 import type { MidiFile } from "midifile-ts";
 import type { MSM } from "mpmify";
+import { IMPLANTED, measuredNotesFromMsm, msToSeconds, type MeasuredNote } from "./score/measured";
 
 // ---------------------------------------------------------------------------
 //  Types
@@ -147,19 +148,27 @@ export function extractNotesFromMidi(midi: MidiFile): StudentNote[] {
 }
 
 /**
- * Extract reference notes from MSM.
+ * Input projection: measured notes (milliseconds) into the matcher's own
+ * seconds domain. The mirror of the output projection in `implantLocal`.
  */
-export function extractRefNotes(msm: MSM): RefNote[] {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return msm.allNotes.map((n: any, i: number) => ({
+export function refNotesFrom(notes: readonly MeasuredNote[]): RefNote[] {
+    return notes.map((n, i) => ({
         id: n['xml:id'],
         pitch: n['midi.pitch'],
-        date: n['date'],
-        onset: n['midi.onset'],
-        duration: n['midi.duration'],
-        velocity: n['midi.velocity'],
+        date: n.date,
+        onset: msToSeconds(n['milliseconds.date']),
+        duration: msToSeconds(n['milliseconds.date.end'] - n['milliseconds.date']),
+        velocity: n.velocity,
         index: i,
     }));
+}
+
+/**
+ * Extract reference notes from MSM. Legacy entry point for the callers that
+ * still hold an `MSM`; it goes when the MSM path does.
+ */
+export function extractRefNotes(msm: MSM): RefNote[] {
+    return refNotesFrom(measuredNotesFromMsm(msm));
 }
 
 // ---------------------------------------------------------------------------
@@ -685,12 +694,16 @@ export function matchSubsequence(
 /**
  * Perform subsequence matching and implant student timings into the MSM.
  * This replaces the Python parangonar /implant endpoint.
+ *
+ * The take leaves here as `notes`: one `MeasuredNote` per surviving note, in
+ * milliseconds (`score/measured.ts`). `studentMsm` is the same measurement in
+ * the old seconds-based MSM shape, kept while the mpmify path is still wired up.
  */
 export function implantLocal(
     msm: MSM,
     midi: MidiFile,
     dateHint?: number,
-): { studentMsm: MSM; range: { from: number; to: number } } {
+): { studentMsm: MSM; notes: MeasuredNote[]; range: { from: number; to: number } } {
     const studentNotes = extractNotesFromMidi(midi);
     const refNotes = extractRefNotes(msm);
 
@@ -747,7 +760,7 @@ export function implantLocal(
             implanted['midi.onset'] = stuMatch.onset;
             implanted['midi.duration'] = stuMatch.duration;
             implanted['midi.velocity'] = stuMatch.velocity;
-            implanted['source'] = 'implanted';
+            implanted['source'] = IMPLANTED;
             newNotes.push(implanted);
         } else if (date < from) {
             // Before matched region: shift by headShift
@@ -767,5 +780,7 @@ export function implantLocal(
     }
 
     studentMsm.allNotes = newNotes;
-    return { studentMsm, range: result.range };
+    // Output projection: seconds -> milliseconds, midi.onset/midi.duration/
+    // midi.velocity -> milliseconds.date/milliseconds.date.end/velocity.
+    return { studentMsm, notes: measuredNotesFromMsm({ allNotes: newNotes }), range: result.range };
 }

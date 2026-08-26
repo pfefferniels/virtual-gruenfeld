@@ -1,7 +1,7 @@
 import type { MidiFile } from 'midifile-ts';
-import type { MSM } from 'mpmify';
-import { extractNotesFromMidi, extractRefNotes, matchSubsequence } from './matcher';
+import { extractNotesFromMidi, matchSubsequence, refNotesFrom } from './matcher';
 import type { Range, StructuredDiffEvent } from './mpm';
+import type { MeasuredNote } from './score/measured';
 import { positionToTick } from './shared/constants';
 import { severityWeight } from './shared/severity';
 import { normalizeV3Tag } from './shared/tts';
@@ -82,8 +82,8 @@ const collapseTimingMap = (points: TimingMapPoint[]): TimingMapPoint[] => {
         .sort((a, b) => a.date - b.date || a.sec - b.sec);
 };
 
-const fallbackTimingMap = (referenceMsm: MSM, range: Range): TimingMapPoint[] => {
-    const notes = extractRefNotes(referenceMsm)
+const fallbackTimingMap = (referenceNotes: readonly MeasuredNote[], range: Range): TimingMapPoint[] => {
+    const notes = refNotesFrom(referenceNotes)
         .filter(note => note.date >= range.from && note.date <= range.to)
         .sort((a, b) => a.date - b.date || a.onset - b.onset);
     if (notes.length === 0) return [];
@@ -96,16 +96,16 @@ const fallbackTimingMap = (referenceMsm: MSM, range: Range): TimingMapPoint[] =>
 };
 
 export const buildTimingMap = (
-    referenceMsm: MSM,
+    referenceNotes: readonly MeasuredNote[],
     renderedMidi: MidiFile,
     range: Range,
 ): TimingMapPoint[] => {
-    const refNotes = extractRefNotes(referenceMsm)
+    const refNotes = refNotesFrom(referenceNotes)
         .filter(note => note.date >= range.from && note.date <= range.to);
     const renderedNotes = extractNotesFromMidi(renderedMidi);
 
     if (refNotes.length === 0 || renderedNotes.length === 0) {
-        return fallbackTimingMap(referenceMsm, range);
+        return fallbackTimingMap(referenceNotes, range);
     }
 
     const matched = matchSubsequence(refNotes, renderedNotes, {
@@ -118,7 +118,7 @@ export const buildTimingMap = (
         sec: match.stu.onset,
     })));
 
-    return points.length > 0 ? points : fallbackTimingMap(referenceMsm, range);
+    return points.length > 0 ? points : fallbackTimingMap(referenceNotes, range);
 };
 
 export const secAtDate = (timingMap: TimingMapPoint[], date: number): number => {

@@ -1,5 +1,5 @@
-import type { MSM } from 'mpmify';
 import { MPM, type Dynamics, type Movement, type Ornament, type Tempo, type Style, type OrnamentDef, type Scope, type AnyInstruction } from 'mpm-ts';
+import type { MeasuredNote } from '../score/measured';
 
 const FIXED_JUDGEMENT_BPM = 30;
 const FIXED_BEAT_LENGTH = 0.25;
@@ -10,16 +10,9 @@ const MIN_ARPEGGIO_SPAN_MS = 700;
 const MAX_ARPEGGIO_SPAN_MS = 1800;
 const POST_ARPEGGIO_HOLD_MS = 1400;
 
-type MsmNoteLike = {
-    'xml:id': string;
-    date: number;
-    duration: number;
-    'midi.pitch': number;
-};
-
 type JudgementMoodChord = {
     date: number;
-    notes: MsmNoteLike[];
+    notes: MeasuredNote[];
     nextDate: number | null;
 };
 
@@ -62,23 +55,17 @@ const numericValue = (value: unknown): number | null => {
     return null;
 };
 
-const byDateThenPitch = (a: MsmNoteLike, b: MsmNoteLike): number =>
+const byDateThenPitch = (a: MeasuredNote, b: MeasuredNote): number =>
     a.date - b.date || a['midi.pitch'] - b['midi.pitch'];
 
 const pickReductionChord = (
-    reductionMsm: MSM,
+    reductionNotes: readonly MeasuredNote[],
     targetDate: number,
 ): JudgementMoodChord | null => {
-    const grouped = new Map<number, MsmNoteLike[]>();
+    const grouped = new Map<number, MeasuredNote[]>();
 
-    for (const raw of reductionMsm.allNotes as unknown as MsmNoteLike[]) {
-        if (typeof raw.date !== 'number' || typeof raw['midi.pitch'] !== 'number') continue;
-        const note: MsmNoteLike = {
-            'xml:id': raw['xml:id'],
-            date: raw.date,
-            duration: raw.duration,
-            'midi.pitch': raw['midi.pitch'],
-        };
+    for (const note of reductionNotes) {
+        if (typeof note.date !== 'number' || typeof note['midi.pitch'] !== 'number') continue;
         const group = grouped.get(note.date) ?? [];
         group.push(note);
         grouped.set(note.date, group);
@@ -141,18 +128,18 @@ const resolveMoodDynamics = (
     return clampMidi(Math.round(base * MOOD_DYNAMICS_SCALE), 25);
 };
 
-const buildPitchById = (msm: MSM): Map<string, number> => {
+const buildPitchById = (notes: readonly MeasuredNote[]): Map<string, number> => {
     const byId = new Map<string, number>();
-    for (const raw of msm.allNotes as Array<Record<string, unknown>>) {
-        const id = typeof raw['xml:id'] === 'string' ? raw['xml:id'] : null;
-        const pitch = typeof raw['midi.pitch'] === 'number' ? raw['midi.pitch'] : null;
+    for (const note of notes) {
+        const id = typeof note['xml:id'] === 'string' ? note['xml:id'] : null;
+        const pitch = typeof note['midi.pitch'] === 'number' ? note['midi.pitch'] : null;
         if (id && pitch != null) byId.set(id, pitch);
     }
     return byId;
 };
 
 const buildReductionOrder = (
-    chordNotes: MsmNoteLike[],
+    chordNotes: MeasuredNote[],
     orderText: string | undefined,
     fullScorePitchById: Map<string, number>,
 ): string => {
@@ -304,13 +291,13 @@ const insertPedalEnvelope = (
 };
 
 export const buildJudgementMoodRenderPlan = (
-    reductionMsm: MSM,
-    baseMsm: MSM,
+    reductionNotes: readonly MeasuredNote[],
+    scoreNotes: readonly MeasuredNote[],
     referenceMpm: MPM,
     targetDate: number,
     options: JudgementMoodOptions = {},
 ): JudgementMoodRenderPlan | null => {
-    const chord = pickReductionChord(reductionMsm, targetDate);
+    const chord = pickReductionChord(reductionNotes, targetDate);
     if (!chord) return null;
 
     const ornament = pickMoodOrnament(referenceMpm, targetDate);
@@ -318,7 +305,7 @@ export const buildJudgementMoodRenderPlan = (
         ? clonePlain(referenceMpm.getDefinition('ornamentDef', ornament['name.ref']) as OrnamentDef | null)
         : null;
     const effectiveDef = buildSlowMoodOrnamentDef(ornamentDef, chord.notes.length);
-    const reductionOrder = buildReductionOrder(chord.notes, ornament?.['note.order'], buildPitchById(baseMsm));
+    const reductionOrder = buildReductionOrder(chord.notes, ornament?.['note.order'], buildPitchById(scoreNotes));
     const spread = estimateSpreadWindow(effectiveDef, ornament);
 
     const renderFrom = Math.max(0, chord.date - PEDAL_RAMP_TICKS);

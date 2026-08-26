@@ -3,32 +3,27 @@
 
 import { MidiFile } from "midifile-ts";
 import { exportMPM, MPM } from "mpm-ts";
-import { MSM } from "mpmify";
 import type { Range } from "./mpm";
 import { implantLocal } from "./matcher";
-import { isImplanted, measuredNotesFromMsm, type MeasuredNote } from "./score/measured";
+import { isImplanted, type MeasuredNote } from "./score/measured";
 import { buildTimingMap, type TimingMapPoint } from "./teacherCues";
 import { perform } from "./services/mpmRenderer";
-import { assertOk } from "./services/api";
-
-// Re-exports from services/
-export { assertOk };
 
 export const implant = (
-    msm: MSM,
+    scoreNotes: readonly MeasuredNote[],
     midi: MidiFile,
     log: (msg: string) => void,
     dateHint?: number,
-): Promise<{ studentMsm: MSM; notes: MeasuredNote[]; range: Range }> => {
+): Promise<{ notes: MeasuredNote[]; range: Range }> => {
     if (dateHint != null) {
         log(`IMPLANT: using date_hint=${dateHint}`);
     }
-    log(`IMPLANT: matching ${msm.allNotes?.length ?? 0} ref notes against student MIDI…`);
+    log(`IMPLANT: matching ${scoreNotes.length} ref notes against student MIDI…`);
 
-    const { studentMsm, notes, range } = implantLocal(msm, midi, dateHint);
+    const { notes, range } = implantLocal(scoreNotes, midi, dateHint);
 
     log(`IMPLANT: range=[${range.from}, ${range.to}], notes: ${notes.length}, implanted: ${notes.filter(isImplanted).length}`);
-    return Promise.resolve({ studentMsm, notes, range });
+    return Promise.resolve({ notes, range });
 };
 
 type RenderedTeacherPerformance = {
@@ -42,7 +37,7 @@ type RenderedTeacherPerformance = {
  */
 export const performTeacherPlayback = (
     mei: string,
-    referenceMsm: MSM,
+    referenceNotes: readonly MeasuredNote[],
     mpm: MPM,
     range: Range,
 ): RenderedTeacherPerformance | undefined => {
@@ -51,6 +46,6 @@ export const performTeacherPlayback = (
 
     return {
         midi,
-        timingMap: buildTimingMap(measuredNotesFromMsm(referenceMsm), midi, range),
+        timingMap: buildTimingMap(referenceNotes, midi, range),
     };
 };

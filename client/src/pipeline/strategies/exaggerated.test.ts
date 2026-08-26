@@ -75,10 +75,12 @@ const EXAGGERATED_MPM = { id: 'exaggerated-clone' };
 
 const makeCtx = (withReduction: boolean): PipelineContext => ({
     mei: '<mei/>',
-    transformations: '[]',
-    baseMsm: { id: 'base' },
+    scoreMsm: '<msm/>',
+    scoreNotes: [],
+    referenceMpmText: '<mpm/>',
+    fittedReferenceMpmText: '<mpm/>',
     referenceMpm: REFERENCE_MPM,
-    ...(withReduction ? { reductionMei: '<reduction/>', reductionMsm: { id: 'reduction' } } : {}),
+    ...(withReduction ? { reductionMei: '<reduction/>', reductionNotes: [] } : {}),
 } as unknown as PipelineContext);
 
 const TAKE = {

@@ -15,7 +15,15 @@
  *
  * `source` is the marker `implantLocal` writes on the notes the student really
  * played, as opposed to reference notes merely shifted around the take.
+ *
+ * Two readers fill the shape, and between them they replace `asMSM.ts`:
+ * {@link measuredNotesFromPerformanceData} for a *performed* score (the take's
+ * scaffold — the score under Grünfeld's own document, which is where the roll's
+ * timings now come from) and {@link measuredNotesFromMsmText} for a score with
+ * no performance attached (the harmonic reduction, which only ever needed dates
+ * and pitches).
  */
+import { Msm, getAllDescendantsByName, type Element } from 'espressivo';
 
 export type MeasuredNote = {
     'xml:id': string;
@@ -41,50 +49,76 @@ export const IMPLANTED = 'implanted';
 
 export const isImplanted = (note: MeasuredNote): boolean => note.source === IMPLANTED;
 
-const secondsToMs = (seconds: number): number => seconds * 1000;
-
 export const msToSeconds = (ms: number): number => ms / 1000;
 
-/**
- * The legacy MSM note shape: the same note, timed in **seconds**, as `mpmify`'s
- * `MSM` carries it. This bridge is the single place the old unit is converted;
- * it goes when the MSM path does.
- */
-type MsmNoteLike = {
-    'xml:id'?: string;
-    part?: number;
-    date?: number;
-    duration?: number;
-    'midi.pitch'?: number;
-    'midi.onset'?: number;
-    'midi.duration'?: number;
-    'midi.velocity'?: number;
-    source?: string;
-};
+/** Milliseconds from seconds — the matcher's boundary, in the other direction. */
+export const secondsToMs = (seconds: number): number => seconds * 1000;
 
 const numberOr = (value: unknown, fallback: number): number =>
     typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 
-const measuredNoteFromMsmNote = (note: MsmNoteLike): MeasuredNote => {
-    const onsetMs = secondsToMs(numberOr(note['midi.onset'], 0));
-    const measured: MeasuredNote = {
-        'xml:id': typeof note['xml:id'] === 'string' ? note['xml:id'] : '',
-        part: numberOr(note.part, 0),
-        date: numberOr(note.date, 0),
-        duration: numberOr(note.duration, 0),
-        'midi.pitch': numberOr(note['midi.pitch'], 0),
-        'milliseconds.date': onsetMs,
-        'milliseconds.date.end': onsetMs + secondsToMs(numberOr(note['midi.duration'], 0)),
-        velocity: numberOr(note['midi.velocity'], 0),
-    };
-    if (note.source != null) measured.source = note.source;
-    return measured;
+const XML_NS = 'http://www.w3.org/XML/1998/namespace';
+
+const attribute = (element: Element, name: string, fallback: number): number =>
+    numberOr(Number(element.getAttributeValue(name)), fallback);
+
+/**
+ * One note per (date, pitch): the score as a MIDI keyboard can possibly report it.
+ *
+ * A piano score notates the same pitch twice at the same moment whenever two voices meet on it
+ * — 18 times in Träumerei. MIDI has no way to say that: one key goes down and one note-on
+ * arrives, so the matcher would be looking for a note the student *cannot* have played, would
+ * count it a deletion, and would drag the alignment around it. `asMSM` deduplicated for
+ * exactly this reason ("keep the longest"), and the rule outlives it: the longest note is the
+ * one that sounds the pitch for as long as the ear hears it.
+ *
+ * Ties keep the earlier note, so the result is a deterministic function of the input order.
+ */
+export const withoutUnisons = (notes: readonly MeasuredNote[]): MeasuredNote[] => {
+    const kept = new Map<string, MeasuredNote>();
+    for (const note of notes) {
+        const key = `${note.date}:${note['midi.pitch']}`;
+        const existing = kept.get(key);
+        if (!existing || note.duration > existing.duration) kept.set(key, note);
+    }
+    return [...kept.values()];
 };
 
-/** Project an `MSM`-shaped document (seconds) onto measured notes (milliseconds). */
-export const measuredNotesFromMsm = (
-    msm: { allNotes?: readonly MsmNoteLike[] } | null | undefined,
-): MeasuredNote[] => (msm?.allNotes ?? []).map(measuredNoteFromMsmNote);
+/**
+ * An MSM document's notes, read straight off the XML — the score as written, with no
+ * performance attached and therefore no sounding times.
+ *
+ * This is what `asMSMBasic` did: `<note>` elements out of `convert(mei)`, with `xml:id`,
+ * `@date`, `@duration` and `@midi.pitch`, and the part number off the enclosing `<part>`.
+ * `milliseconds.date`, `milliseconds.date.end` and `velocity` are `0` because the document
+ * states none; the one consumer — the mood chord's harmonic reduction — asks only for dates
+ * and pitches.
+ *
+ * espressivo's own parser rather than `DOMParser`, so this module also loads in a Web Worker
+ * and under vitest.
+ */
+export const measuredNotesFromMsmText = (msmXml: string): MeasuredNote[] => {
+    const root = new Msm(msmXml).getRootElement();
+    if (!root) return [];
+
+    const notes: MeasuredNote[] = [];
+    for (const part of getAllDescendantsByName('part', root) ?? []) {
+        const number = attribute(part, 'number', 0);
+        for (const note of getAllDescendantsByName('note', part) ?? []) {
+            notes.push({
+                'xml:id': note.getAttributeValue('id', XML_NS) ?? '',
+                part: number,
+                date: attribute(note, 'date', 0),
+                duration: attribute(note, 'duration', 0),
+                'midi.pitch': attribute(note, 'midi.pitch', 0),
+                'milliseconds.date': 0,
+                'milliseconds.date.end': 0,
+                velocity: 0,
+            });
+        }
+    }
+    return notes;
+};
 
 /**
  * The other direction across the same boundary: espressivo's own `PerformanceData` — what

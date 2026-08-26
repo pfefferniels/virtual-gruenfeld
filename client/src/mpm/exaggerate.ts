@@ -1,6 +1,65 @@
-import type { MPM } from "mpm-ts";
-import { inRange, indexInstructions } from "./helpers";
+import { Mpm } from "espressivo";
+import { importMPM, type MPM } from "mpm-ts";
+import { readInstructions } from "./pair";
 import type { Range } from "./types";
+
+/**
+ * One instruction, as far as the exaggeration is concerned: a type, the join key, and whatever
+ * numeric attributes the document states.
+ *
+ * The reference side is still an `mpm-ts` document, because `exaggerate` mutates its
+ * instructions in place and `exportMPM` then serialises them for the renderer. The *student*
+ * side is only ever read, attribute by attribute, so it is typed structurally: the take's
+ * student performance is an espressivo document now, and `mpm/pair.ts`'s reader answers this
+ * shape from it without a second parser. Both go when `counter.ts` replaces this file.
+ */
+export type InstructionSource = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getInstructions(): readonly any[];
+};
+
+/**
+ * `performance.mpm` as the document the counter-performance is built on.
+ *
+ * The one place an `mpm-ts` document is still constructed from text. The reference crosses
+ * every other boundary as XML (DESIGN §3.5, semantics 30: a fresh parse cannot be mutated by
+ * anyone else, so the clone-and-keep-pristine discipline is structural here).
+ */
+export const counterPerformanceBase = (referenceMpmText: string): MPM => importMPM(referenceMpmText);
+
+/**
+ * The student's side of the exaggeration: what `fitStudent` wrote, read back as instructions.
+ *
+ * `mpm/pair.ts` already reads a document exactly this way — raw attributes, defs dereferenced,
+ * nothing defaulted — and its reading covers every attribute `EXAGGERATION_SPEC` names, so the
+ * push is computed off the same numbers the teacher's evidence quotes.
+ */
+export const studentInstructionsFrom = (studentMpmText: string): InstructionSource => {
+    const instructions = readInstructions(new Mpm(studentMpmText)).all.map((reading) => ({
+        type: reading.type,
+        'xml:id': reading.xmlId,
+        date: reading.date,
+        ...reading.values,
+    }));
+    return { getInstructions: () => instructions };
+};
+
+/** `[range.from, range.to]`, inclusive at both ends — `mpm/pair.ts` selects on the same rule. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const inRange = (i: any, range: Range) => {
+    const date = i.date ?? i["date"];
+    return typeof date === 'number' && date >= range.from && date <= range.to;
+};
+
+/** The join: `${type}::${xml:id}`, the identity the reference prints and the fitter writes into. */
+const indexInstructions = (source: InstructionSource) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const idx = new Map<string, any>();
+    for (const i of source.getInstructions()) {
+        idx.set(`${i.type}::${i["xml:id"]}`, i);
+    }
+    return idx;
+};
 
 const logExaggerate = (ref: number, student: number, aggressiveness: number, min: number, max: number): number => {
     if (student <= 0 || ref <= 0) return ref;
@@ -103,7 +162,7 @@ export const allDimensions = (
  */
 export const exaggerate = (
     mpm1: MPM,
-    mpm2: MPM,
+    mpm2: InstructionSource,
     range: Range,
     dimensions: ExaggerationDimension[],
     log: (msg: string) => void,

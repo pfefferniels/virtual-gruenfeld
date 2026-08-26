@@ -14,8 +14,7 @@
  */
 
 import type { MidiFile } from "midifile-ts";
-import type { MSM } from "mpmify";
-import { IMPLANTED, measuredNotesFromMsm, msToSeconds, type MeasuredNote } from "./score/measured";
+import { IMPLANTED, msToSeconds, secondsToMs, type MeasuredNote } from "./score/measured";
 
 // ---------------------------------------------------------------------------
 //  Types
@@ -30,15 +29,15 @@ export type StudentNote = {
     velocity: number;       // 0-127
 };
 
-/** A reference note extracted from the MSM. */
+/** A reference note, in the matcher's own seconds domain. */
 export type RefNote = {
     id: string;             // xml:id
     pitch: number;          // midi.pitch
     date: number;           // score ticks
-    onset: number;          // midi.onset (seconds)
-    duration: number;       // midi.duration (seconds)
-    velocity: number;       // midi.velocity
-    index: number;          // original index in allNotes
+    onset: number;          // sounding onset (seconds)
+    duration: number;       // sounding duration (seconds)
+    velocity: number;       // 0–127
+    index: number;          // original index in the score's note list
 };
 
 /** A matched pair: reference note <-> student note */
@@ -62,18 +61,75 @@ type MatchResult = {
 //  MIDI parsing
 // ---------------------------------------------------------------------------
 
+/** One tempo in force from `atTick` on, with the elapsed time up to it already accumulated. */
+type TempoPoint = { atTick: number; atSec: number; usPQ: number };
+
+/**
+ * The file's tempo map, collected across **all** tracks.
+ *
+ * A Format 1 MIDI file puts its tempo changes in the conductor track and the notes in the
+ * others, on one shared tick timeline — which is exactly what espressivo's expressive export
+ * writes (`setTempo 720000` on track 0, so that one tick is one millisecond, notes on tracks
+ * 1 and 2). Reading each track with its own tempo cursor left those tracks at the 120 BPM
+ * default and compressed every onset by 500000/720000 = 0.694; the cue timing map
+ * (`teacherCues.buildTimingMap`) is built out of these onsets, so every cue landed 31 % early.
+ * `pianosound/MidiNote.addAbsoluteTime`, which schedules the audio, has always done it this
+ * way; now the two agree.
+ *
+ * The student's own take is a single-track file with its tempo at tick 0 and is unaffected.
+ */
+function tempoMapOf(midi: MidiFile): TempoPoint[] {
+    const changes: { atTick: number; usPQ: number }[] = [];
+    for (const track of midi.tracks) {
+        let tick = 0;
+        for (const event of track) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const e = event as any;
+            tick += e.deltaTime ?? 0;
+            if (e.type === 'meta' && e.subtype === 'setTempo') {
+                changes.push({ atTick: tick, usPQ: e.microsecondsPerBeat });
+            }
+        }
+    }
+    changes.sort((a, b) => a.atTick - b.atTick);
+
+    const tpb = midi.header.ticksPerBeat;
+    const points: TempoPoint[] = [{ atTick: 0, atSec: 0, usPQ: 500_000 }]; // default 120 BPM
+    for (const change of changes) {
+        const previous = points[points.length - 1];
+        if (change.atTick === previous.atTick) {
+            // Two tempi at one tick: the last one wins, as it does in any sequencer.
+            points[points.length - 1] = { ...previous, usPQ: change.usPQ };
+            continue;
+        }
+        const atSec = previous.atSec
+            + ((change.atTick - previous.atTick) / tpb) * (previous.usPQ / 1_000_000);
+        points.push({ atTick: change.atTick, atSec, usPQ: change.usPQ });
+    }
+    return points;
+}
+
+/** Absolute seconds at a tick, accumulating across tempo changes rather than assuming one. */
+function secondsAtTick(points: TempoPoint[], tick: number, tpb: number): number {
+    let point = points[0];
+    for (const candidate of points) {
+        if (candidate.atTick > tick) break;
+        point = candidate;
+    }
+    return point.atSec + ((tick - point.atTick) / tpb) * (point.usPQ / 1_000_000);
+}
+
 /**
  * Extract note events from a parsed MidiFile.
  * Computes absolute onset times in seconds using tempo meta-events.
  */
 export function extractNotesFromMidi(midi: MidiFile): StudentNote[] {
     const tpb = midi.header.ticksPerBeat;
+    const tempos = tempoMapOf(midi);
     const notes: StudentNote[] = [];
 
     for (const track of midi.tracks) {
         let tickCursor = 0;
-        let usPQ = 500_000; // default 120 BPM
-        let secCursor = 0;
 
         // Pending note-ons: pitch -> { onset, velocity }
         const pending = new Map<number, { onset: number; velocity: number }>();
@@ -81,21 +137,12 @@ export function extractNotesFromMidi(midi: MidiFile): StudentNote[] {
         for (const event of track) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const e = event as any;
-            const deltaTicks: number = e.deltaTime ?? 0;
-            const deltaSec = (deltaTicks / tpb) * (usPQ / 1_000_000);
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            tickCursor += deltaTicks;
-            secCursor += deltaSec;
+            tickCursor += e.deltaTime ?? 0;
+            const secCursor = secondsAtTick(tempos, tickCursor, tpb);
 
             // midifile-ts uses type='meta' + subtype='setTempo', etc.
             const subtype: string | undefined = e.subtype;
             const type: string = e.type;
-
-            // Tempo change
-            if (type === 'meta' && subtype === 'setTempo') {
-                usPQ = e.microsecondsPerBeat;
-                continue;
-            }
 
             if (type === 'channel' && subtype === 'noteOn') {
                 if (e.velocity > 0) {
@@ -161,14 +208,6 @@ export function refNotesFrom(notes: readonly MeasuredNote[]): RefNote[] {
         velocity: n.velocity,
         index: i,
     }));
-}
-
-/**
- * Extract reference notes from MSM. Legacy entry point for the callers that
- * still hold an `MSM`; it goes when the MSM path does.
- */
-export function extractRefNotes(msm: MSM): RefNote[] {
-    return refNotesFrom(measuredNotesFromMsm(msm));
 }
 
 // ---------------------------------------------------------------------------
@@ -692,25 +731,28 @@ export function matchSubsequence(
 // ---------------------------------------------------------------------------
 
 /**
- * Perform subsequence matching and implant student timings into the MSM.
+ * Perform subsequence matching and implant student timings into the score's notes.
  * This replaces the Python parangonar /implant endpoint.
  *
- * The take leaves here as `notes`: one `MeasuredNote` per surviving note, in
- * milliseconds (`score/measured.ts`). `studentMsm` is the same measurement in
- * the old seconds-based MSM shape, kept while the mpmify path is still wired up.
+ * In: the score as {@link MeasuredNote}s — every note of the piece, timed as the
+ * reference performance sounds it (`pipeline/boot.ts` renders `performance.mpm`
+ * over the score once). Out: the same list with the student's own onsets,
+ * durations and velocities written onto the notes they actually played, marked
+ * `source: 'implanted'`; notes before and after the take keep the reference's
+ * timing, shifted onto the student's clock so the piece stays one timeline.
+ *
+ * Everything here is milliseconds (`score/measured.ts`); the matcher itself keeps
+ * seconds, because MIDI is a seconds domain, and projects at both boundaries.
  */
 export function implantLocal(
-    msm: MSM,
+    scoreNotes: readonly MeasuredNote[],
     midi: MidiFile,
     dateHint?: number,
-): { studentMsm: MSM; notes: MeasuredNote[]; range: { from: number; to: number } } {
+): { notes: MeasuredNote[]; range: { from: number; to: number } } {
     const studentNotes = extractNotesFromMidi(midi);
-    const refNotes = extractRefNotes(msm);
+    const refNotes = refNotesFrom(scoreNotes);
 
     const result = matchSubsequence(refNotes, studentNotes, { dateHint });
-
-    // Build the modified MSM
-    const studentMsm = msm.deepClone();
 
     // Create a map from ref note id -> student note for fast lookup
     const matchMap = new Map<string, StudentNote>();
@@ -740,38 +782,41 @@ export function implantLocal(
         }
     }
 
-    const headShift = firstStuOnset - firstRefOnset;
-    const tailShift = lastStuEnd - lastRefEnd;
+    const headShift = secondsToMs(firstStuOnset - firstRefOnset);
+    const tailShift = secondsToMs(lastStuEnd - lastRefEnd);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newNotes: any[] = [];
+    const shiftedBy = (note: MeasuredNote, ms: number): MeasuredNote => ({
+        ...note,
+        'milliseconds.date': note['milliseconds.date'] + ms,
+        'milliseconds.date.end': note['milliseconds.date.end'] + ms,
+    });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const note of studentMsm.allNotes as any[]) {
-        const date = note['date'] as number;
+    const newNotes: MeasuredNote[] = [];
+
+    for (const note of scoreNotes) {
+        const id = note['xml:id'];
+        const date = note.date;
 
         // Skip deleted notes in the matched range
-        if (deletedIds.has(note['xml:id'])) continue;
+        if (deletedIds.has(id)) continue;
 
-        const stuMatch = matchMap.get(note['xml:id']);
+        const stuMatch = matchMap.get(id);
         if (stuMatch) {
             // Implant student timings
-            const implanted = { ...note };
-            implanted['midi.onset'] = stuMatch.onset;
-            implanted['midi.duration'] = stuMatch.duration;
-            implanted['midi.velocity'] = stuMatch.velocity;
-            implanted['source'] = IMPLANTED;
-            newNotes.push(implanted);
+            const onsetMs = secondsToMs(stuMatch.onset);
+            newNotes.push({
+                ...note,
+                'milliseconds.date': onsetMs,
+                'milliseconds.date.end': onsetMs + secondsToMs(stuMatch.duration),
+                velocity: stuMatch.velocity,
+                source: IMPLANTED,
+            });
         } else if (date < from) {
             // Before matched region: shift by headShift
-            const shifted = { ...note };
-            shifted['midi.onset'] = note['midi.onset'] + headShift;
-            newNotes.push(shifted);
+            newNotes.push(shiftedBy(note, headShift));
         } else if (date > to) {
             // After matched region: shift by tailShift
-            const shifted = { ...note };
-            shifted['midi.onset'] = note['midi.onset'] + tailShift;
-            newNotes.push(shifted);
+            newNotes.push(shiftedBy(note, tailShift));
         } else {
             // In matched region but not matched and not deleted — keep as is
             // (This shouldn't happen often; the note might be in overlapping chords)
@@ -779,8 +824,5 @@ export function implantLocal(
         }
     }
 
-    studentMsm.allNotes = newNotes;
-    // Output projection: seconds -> milliseconds, midi.onset/midi.duration/
-    // midi.velocity -> milliseconds.date/milliseconds.date.end/velocity.
-    return { studentMsm, notes: measuredNotesFromMsm({ allNotes: newNotes }), range: result.range };
+    return { notes: newNotes, range: result.range };
 }

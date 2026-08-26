@@ -1,6 +1,4 @@
-import { MPM, OrnamentDef } from "mpm-ts";
 import { tickToPos } from "../shared/constants";
-import { inRange, indexInstructions } from "./helpers";
 import type {
     Range,
     InstructionDiff,
@@ -107,72 +105,36 @@ const cueTextForDiff = (
 // ── Diff collection ──
 
 /**
- * What `mpm/pair.ts` hands `diff` and `diffStructured` instead of two `mpm-ts` documents.
+ * What `mpm/pair.ts` hands `diff` and `diffStructured`.
  *
- * The espressivo path does its own pairing — the reference already prints the join key — so
- * there is nothing left for `collectDiffs` to compute; it carries the finished peaks and the
- * one lookup the ASCII table still asks the reference for. Everything below this point then
- * runs unchanged on either path, which is the whole point: the cue table, the severity ladder,
- * the top-3 selection, the transition agree/disagree distinction and the `StructuredDiffEvent`
- * assembly are the contract, and they neither know nor care where their peaks came from.
+ * Until S5 these two took two `mpm-ts` documents and computed the peaks themselves; the
+ * espressivo path does its own pairing — the reference already prints the join key — so what
+ * is left is a carrier for the finished peaks and the one lookup the ASCII table still asks
+ * the reference for. Everything below this point runs on it unchanged, which is the whole
+ * point: the cue table, the severity ladder, the top-3 selection, the transition
+ * agree/disagree distinction and the `StructuredDiffEvent` assembly are the contract, and they
+ * neither know nor care where their peaks came from.
  *
- * The cast is deliberate and confined to this file, which is the legacy path's file: `MPM` is
- * `mpm-ts`'s type, the carrier is not one, and S5 deletes both when it deletes `mpmify`.
+ * The two names below are the ones the contract-bearing region uses. They are kept so that
+ * region stays the code the teacher's vocabulary was written against, byte for byte; only the
+ * document behind them changed — from an `mpm-ts` `MPM` to this.
  */
 type PeakCarrier = {
     readonly __pairedInstructionDiffs: readonly InstructionDiff[];
     getDefinition(kind: string, name: string): OrnamentStyle | null;
 };
 
-const carriedPeaks = (mpm: MPM): readonly InstructionDiff[] | undefined =>
-    (mpm as unknown as Partial<PeakCarrier>).__pairedInstructionDiffs;
+type MPM = PeakCarrier;
 
-const collectDiffs = (mpm1: MPM, mpm2: MPM, range: Range): InstructionDiff[] => {
-    const carried = carriedPeaks(mpm1);
-    if (carried) return [...carried];
+/** What `ornamentRow` asks a def: which of the two transformers it carries (`types.ts:53`). */
+type OrnamentDef = OrnamentStyle;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const allInstructions: any[] = mpm1.getInstructions().filter(i => inRange(i, range));
-    const idx = indexInstructions(mpm2);
-    const peaks: InstructionDiff[] = [];
-
-    for (const instruction of allInstructions) {
-        const corresp = idx.get(`${instruction.type}::${instruction["xml:id"]}`);
-        if (!corresp) continue;
-        const attrs = ATTRS_TO_COMPARE[instruction.type];
-        if (!attrs) continue;
-
-        const diffs: Record<string, { ref: number; student: number; delta: number }> = {};
-        let magnitude = 0, hasSignificant = false;
-
-        for (const attr of attrs) {
-            const refVal = instruction[attr], studentVal = corresp[attr];
-            if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
-            const delta = studentVal - refVal;
-            if (Math.abs(delta) >= (THRESHOLDS[attr] ?? 0)) hasSignificant = true;
-            diffs[attr] = { ref: refVal, student: studentVal, delta };
-            magnitude += Math.abs(delta);
-        }
-
-        if (instruction.type === 'ornament' && instruction['name.ref']) {
-            const refDef = mpm1.getDefinition('ornamentDef', instruction['name.ref']) as OrnamentDef | null;
-            const stuDef = mpm2.getDefinition('ornamentDef', corresp['name.ref'] ?? instruction['name.ref']) as OrnamentDef | null;
-            const refFL = refDef?.temporalSpread?.frameLength;
-            const stuFL = stuDef?.temporalSpread?.frameLength;
-            if (typeof refFL === 'number' && typeof stuFL === 'number') {
-                const delta = stuFL - refFL;
-                if (Math.abs(delta) >= (THRESHOLDS['frameLength'] ?? 0)) hasSignificant = true;
-                diffs['frameLength'] = { ref: refFL, student: stuFL, delta };
-                magnitude += Math.abs(delta);
-            }
-        }
-
-        if (!hasSignificant || Object.keys(diffs).length === 0) continue;
-        peaks.push({ date: instruction.date, type: instruction.type, nameRef: instruction['name.ref'], diffs, magnitude });
-    }
-
-    return peaks;
-};
+// The second document and the range are the legacy signature's. They are kept so that the two
+// entry points below — the contract-bearing region — call it exactly as they always did; the
+// peaks they carry are already paired, already in range and already past the noise floor.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const collectDiffs = (mpm1: MPM, _mpm2: MPM, _range: Range): InstructionDiff[] =>
+    [...mpm1.__pairedInstructionDiffs];
 
 const topDiffsByType = (peaks: InstructionDiff[], perTypeN: number): InstructionDiff[] => {
     const byType = new Map<string, InstructionDiff[]>();
@@ -328,7 +290,7 @@ const PER_TYPE_TOP_N = 3;
 
 // ── Public API ──
 
-export const diffStructured = (
+const diffStructured = (
     mpm1: MPM,
     mpm2: MPM,
     range: Range,
@@ -359,7 +321,7 @@ export const diffStructured = (
         });
 };
 
-export const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_TYPE_TOP_N): string => {
+const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_TYPE_TOP_N): string => {
     const peaks = collectDiffs(mpm1, mpm2, range);
     if (peaks.length === 0) return "No significant differences found.";
 
@@ -406,21 +368,18 @@ export const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_
     return sections.join('\n');
 };
 
-// ── The espressivo path (S4): the same two functions, fed by `mpm/pair.ts` ──
+// ── The two entry points, fed by `mpm/pair.ts` ──
 //
-// `pairInstructions` produces exactly what `collectDiffs` produced, so the two entry points
-// above are reused rather than reimplemented: one severity ladder, one cue table, one ASCII
-// table, one `id` scheme. Both take the peaks through the carrier so that everything from
-// `topDiffsByType` down stays byte-for-byte the code the teacher's contract was written
-// against. When S5 removes the legacy path these two become the only entry points.
+// `pairInstructions` produces exactly what `collectDiffs` used to compute out of two `mpm-ts`
+// documents, so `diff` and `diffStructured` are reused rather than reimplemented: one severity
+// ladder, one cue table, one ASCII table, one `id` scheme. Both take the peaks through the
+// carrier so that everything from `topDiffsByType` down stays byte-for-byte the code the
+// teacher's contract was written against.
 
-const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLookup): MPM => {
-    const carrier: PeakCarrier = {
-        __pairedInstructionDiffs: peaks,
-        getDefinition: (kind, name) => (kind === 'ornamentDef' ? styles(name) : null),
-    };
-    return carrier as unknown as MPM;
-};
+const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLookup): MPM => ({
+    __pairedInstructionDiffs: peaks,
+    getDefinition: (kind, name) => (kind === 'ornamentDef' ? styles(name) : null),
+});
 
 /** A document that defines no ornaments — the ornament section then prints `—` for its style. */
 const NO_ORNAMENT_STYLES: OrnamentStyleLookup = () => null;

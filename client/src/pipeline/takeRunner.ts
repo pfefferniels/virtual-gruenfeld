@@ -1,12 +1,27 @@
-import type { MSM } from 'mpmify';
-import { mpmify, diff, diffStructured } from '../mpm';
+/**
+ * One take: the student's playing in, the teacher's evidence out, the strategy handed both.
+ *
+ * The two lines this used to be — `mpmify(studentMsm, info.json)` followed by
+ * `diff(referenceMpm, studentMpm, range)` — replayed Grünfeld's whole editorial chain over the
+ * student in order to *manufacture* instructions the diff could pair by id. The reference
+ * prints those ids, so the student is fitted into them instead (`student/fit.ts`) and the
+ * pairing is a `Map` lookup. What that buys is in `mpm/compare.ts`: six of seven dimensions
+ * measured where three were, and an audibility gate over all of them.
+ *
+ * The evidence runs in a Web Worker (`workers/evidenceClient.ts`), because it is ~90 ms of
+ * parsing and rendering that would otherwise land on the main thread in the second after the
+ * student lifts their hands.
+ */
+import { counterPerformanceBase, studentInstructionsFrom } from '../mpm';
 import type { Range } from '../mpm';
 import { summarizeImmediateJudgement } from '../judgement';
+import type { MeasuredNote } from '../score/measured';
+import { runEvidence } from '../workers/evidenceClient';
 import type { PipelineContext, TeacherStrategy, TakeRunnerControls } from './types';
 
 export const runTake = async (
     ctx: PipelineContext,
-    studentMsm: MSM,
+    notes: readonly MeasuredNote[],
     range: Range,
     strategy: TeacherStrategy,
     controls: TakeRunnerControls,
@@ -15,15 +30,42 @@ export const runTake = async (
     controls.stop();
     controls.log(`CALLBACK: take implanted -> range=[${range.from}, ${range.to}]`);
 
-    controls.log('MPM: building studentMpm…');
-    const studentMpm = mpmify(studentMsm, ctx.transformations, { referenceMsm: ctx.baseMsm, log: controls.log });
-    controls.log(`MPM: studentMpm ready (instructions=${studentMpm.getInstructions().length})`);
+    controls.log('EVIDENCE: fitting the take into Grünfeld’s slots…');
+    const evidence = await runEvidence(
+        {
+            notes,
+            range,
+            scoreMsm: ctx.scoreMsm,
+            referenceMpmText: ctx.referenceMpmText,
+            fittedReferenceMpmText: ctx.fittedReferenceMpmText,
+        },
+        controls.log,
+    );
 
-    const referenceMpmClone = ctx.referenceMpm.clone();
+    controls.log(
+        `EVIDENCE: fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}` +
+        ` aggregate=${evidence.aggregateJnd.toFixed(2)} JND (${Math.round(evidence.subThresholdFraction * 100)}% sub-threshold)`,
+    );
+    controls.log(`EVIDENCE: fitted=[${evidence.filled.join(', ')}] measured=[${evidence.measuredTypes.join(', ')}]`);
+    for (const { type, reason } of evidence.suppressed) {
+        controls.log(`EVIDENCE: gate closed ${type} — ${reason}`);
+    }
+    if (evidence.skipped.length > 0) {
+        controls.log(`EVIDENCE: ${evidence.skipped.length} slot(s) not fitted (${evidence.skipped[0].type}: ${evidence.skipped[0].reason}, …)`);
+    }
+    for (const { type, meanSigned, medianDelta } of evidence.disagreements) {
+        // The instruction pair wins: the cue table is calibrated on raw deltas (DESIGN §3.3.4).
+        controls.log(`EVIDENCE: direction disagreement on ${type} (meanSigned=${meanSigned.toFixed(3)}, medianDelta=${medianDelta.toFixed(3)})`);
+    }
 
-    const diffSummary = diff(ctx.referenceMpm, studentMpm, range);
-    const structuredDiff = diffStructured(ctx.referenceMpm, studentMpm, range);
+    const { diffSummary, structuredDiff } = evidence;
     const judgementSummary = summarizeImmediateJudgement(structuredDiff, range);
+
+    // Text in, a fresh document out: nothing the demonstration mutates can reach anyone else
+    // (semantics 30), and `ctx.referenceMpm` stays the pristine Grünfeld `mode: 'reference'`
+    // plays.
+    const referenceMpmClone = counterPerformanceBase(ctx.referenceMpmText);
+    const studentMpm = studentInstructionsFrom(evidence.studentMpmText);
 
     controls.onDiff(diffSummary);
     controls.onJudgement('');

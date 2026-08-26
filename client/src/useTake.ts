@@ -69,14 +69,14 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                 const ctx = await boot(log);
                 if (cancelled) return;
 
-                const res = await waitForPlayingSafe(ctx.baseMsm, async (studentMsm, range) => {
+                const res = await waitForPlayingSafe(ctx.scoreNotes, async (notes, range) => {
                     if (cancelled) return;
                     lastMatchRef.current = range;
 
                     const takeId = ++takeSeqRef.current;
                     log(`TAKE #${takeId} (session ${getSessionId().slice(0, 8)})`);
 
-                    await runTake(ctx, studentMsm, range, exaggeratedStrategy, {
+                    await runTake(ctx, notes, range, exaggeratedStrategy, {
                         log,
                         stop: () => { stopRef.current(); clearTimeout(teacherEndTimer.current); setTeacherPlaying(false); },
                         play: ((...args: Parameters<PlayFn>) => {

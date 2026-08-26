@@ -73,9 +73,10 @@ worth more than the porting effort.
 
 ## 3. Pianist Transformer vs. mpmify's `ml/` tree
 
-`../mpmify/ml/` is an abandoned attempt at the same idea current expressive-rendering
-transformers (Pianist Transformer and relatives) pursue: learn to produce a performance
-model rather than hand-fit one. It did not fail on the idea. Reading `ml/LOG.md`, it failed
+mpmify is no longer part of this project — the pipeline runs on espressivo alone — but its
+repository is still on disk, and `../mpmify/ml/` is an abandoned attempt at the same idea
+current expressive-rendering transformers (Pianist Transformer and relatives) pursue: learn to
+produce a performance model rather than hand-fit one. It did not fail on the idea. Reading `ml/LOG.md`, it failed
 on an 8 GB M1 — MPS training hangs outright in torch 2.11, and the v0 recipe swap-thrashed
 at ~100× slowdown. The synthetic-data generator, the lossless tempo DSL, and the exact port
 of meico's tempo math (validated to 0.000000000 ms) all survive and are the expensive parts.

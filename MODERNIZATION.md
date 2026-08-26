@@ -36,7 +36,7 @@ Full analysis: `~/.claude/projects/-Users-nielspfeffer-Projects-virtual-gruenfel
 - If the orchestrator context is compacted or lost: re-read this file, `git log --oneline -15`,
   and `git status` — that is the complete state.
 
-## Key-file map (verified 2026-08-08)
+## Key-file map (verified 2026-08-08; expressive rows re-verified 2026-08-26)
 
 | Concern | File |
 |---|---|
@@ -44,8 +44,11 @@ Full analysis: `~/.claude/projects/-Users-nielspfeffer-Projects-virtual-gruenfel
 | Prompt | `src/prompts/teacherStream.ts` (monologue, «JUDGE»/«m2.3» markers, German) |
 | Model config | `src/config.ts` (3-tier: gpt-4.1-mini / gpt-5-mini / gpt-5.2) |
 | TTS | `src/tts/synthesizeWithTimestamps.ts` (ElevenLabs v3, char timestamps) |
+| The student's playing as a document | `client/src/student/` (`scaffold.ts` reads Grünfeld's slots, `fit.ts` solves them) |
+| Evidence | `client/src/mpm/evidence.ts` → `compare.ts` (JND + audibility gate) + `pair.ts` (raw units), in `client/src/workers/` |
 | Diff + reduction | `client/src/mpm/diff.ts` (`PER_TYPE_TOP_N=3` truncation, ASCII table) |
-| Counter-performance | `client/src/mpm/exaggerate.ts` (`EXAGGERATION_TUNING`, aggressiveness 0.2) |
+| Counter-performance | `client/src/mpm/counter.ts` (per-instruction pivot away from the student, legacy caps, strength 0.2) |
+| Corrected-take demo | `client/src/mpm/path.ts` (`diffMpm`, the k costliest edits on the student's own document) |
 | Turn choreography | `client/src/pipeline/strategies/exaggerated.ts`, `takeRunner.ts`, `useTake.ts` |
 | Cue scheduling | `client/src/teacherCues.ts`, `client/src/pipeline/teacherVocalStream.ts` |
 | Corpus (unused by LLM today) | `assets/all/score.mei` (~31k tok), `assets/all/performance.mpm` (~28k), `client/public/info.json` (158 argumentations, ~52k), `MPM.md` spec |
@@ -285,3 +288,68 @@ Results:
   das") while roll/reconstruction/editor stay backstage. Guard kept: never claim a specific
   intention the record does not document. Dialog.tsx's outside description ("modeled after")
   and profile.ts (unspoken note-keeper) intentionally unchanged.
+- 2026-08-26 — **espressivo only: mpmify and mpm-ts removed** (branch ai-modernization, commits
+  097779d..HEAD, eight slices). The expressive pipeline was rebuilt on espressivo alone; the Java
+  MPM renderer had already gone in-process (b750465). What replaced what:
+  - **The reference is a document, not a rebuild.** Boot used to run `mpmify(baseMsm, info.json)`
+    — 494 transformer calls over 136 argumentations — to *manufacture* a reference MPM whose
+    instruction ids the diff could join on. Grünfeld's document already prints those ids, so the
+    client now fetches `client/public/performance.mpm` (the mpm-desk snapshot, byte-identical to
+    `assets/all/performance.mpm`, pinned by a test). It is the editorial document: the sound's
+    base, the scaffold every `xml:id` is read from, and what the server's corpus reads. Beside it
+    `client/public/reference.fitted.mpm` is the *comparison* side — see the R2 note below.
+  - **A take is fitted, not re-chained.** `client/src/student/` writes the student's playing into
+    Grünfeld's own instruction slots (`scaffold.ts` reads them, `fit.ts` solves them on espressivo's
+    primitives — `fitTransitionCurve` with a seeded RNG, the tick⇄ms algebra, `rubatoAt`). The
+    student's MPM is then a document like his, and pairing is a `Map` lookup on `${type}::${xml:id}`.
+  - **The comparison has two layers.** `compareMpm` prices the whole window in JND and gates out
+    what is inaudible (`mpm/compare.ts`); `mpm/pair.ts` says what changed where, in bpm, velocity
+    and milliseconds — the raw units the severity ladder and the German cue table were calibrated
+    on. `mpm/evidence.ts` composes both, off the main thread (`workers/evidence.worker.ts`).
+  - **The counter-performance pivots per instruction.** `mpm/counter.ts` writes onto the cut
+    editorial document, at the same `xml:id`, for every attribute the take actually paired: ratio
+    attributes `x' = x_ed·(ref_fit/stu)^a`, signed offsets `x' = x_ed − (stu − ref_fit)·a`, with
+    per-attribute strengths and the legacy caps (±12 velocity, ±10 bpm, ±0.2 multiplier), only for
+    types the take measured, confined to the range, the reference kept pristine. An identity take
+    is a no-op by construction. (An earlier draft used espressivo's `exaggerateMpm(reference,
+    {center})`: one exponent per type serves only one side of the neutral, so it refused 8 of 22
+    sites on an identity take. It remains available for whole-performance sampling.)
+  - **A third demonstration: `path`.** `mpm/path.ts` runs `diffMpm` over the two cut documents and
+    plays the student's *own* take back with the k costliest edits applied — "your playing,
+    corrected where it matters". Skipped above 12 bars, where the edit script's ~n^3.2 bites.
+  - The mood chord, the cue scheduling and the teacher/LLM server contract are unchanged.
+  - **Two findings the old chain had been hiding.** (a) *Tempo was silent.* The stale `mpmify/lib`
+    the app actually ran did not register `InsertTempo`, so the boot-built reference carried no
+    tempo at all — and with no tempo, no rubato, no `relativeDuration`, no pedal. Of the seven
+    dimensions the teacher believed it heard, three reached the LLM. Six do now. (b) *Articulation
+    is inert in `performance.mpm` itself*: its `articulationMap` has no `<style>` switch, so
+    `@name.ref` resolves to nothing and neither the renderer nor `compareMpm` applies its 47
+    instructions — scaling every `relativeDuration` ×0.7 changes 0 of 476 rendered notes. The
+    audibility gate rightly suppresses the type. Fixing it is a rebake of the editorial document
+    (one `<style name.ref="…"/>` in that map) and is Niels' call, not this run's.
+  - **R2, taken:** writing one performance by hand in an editor and solving it from onsets are not
+    the same act — an identity take measured 22 bpm and 9.22 JND apart. So the comparison side is
+    `reference.fitted.mpm`, Grünfeld's own playing through the student's fitter
+    (`scripts/fit-reference.ts`, byte-pinned by `mpm/fittedReference.test.ts`). Cost, documented:
+    the `refValue` numbers the teacher quotes come from the fitted document, the corpus prose from
+    the editorial one.
+  - Lines, per slice (excluding the two committed `.mpm` assets, +1108):
+    S1 measured note shape +212/−92 · S2 reference as text +682/−0 · S3 the fitter +3375/−0 ·
+    S4 fitted reference +183/−16 and pairing +1911/−7 · S5 the pipeline switch +1070/−1018 ·
+    S5 fix +555/−34 · S6 counter-performance +1646/−746 · S7 `path` mode +1607/−115 ·
+    S8 removal (this entry). Net over the run: +11,341 / −1,941 across 95 files.
+  - **S8, the removal itself:** `mpmify` and `mpm-ts` are gone from `package.json`,
+    `package-lock.json`, `knip.json` and `.github/workflows/deploy.yml` (two checkout and two build
+    steps; espressivo and react-pianosound stay, Node 22 stays). `generate_test.ts` and
+    `visualize_implant.ts` were rewritten onto the client's own modules — `generate_test.ts` had
+    carried a ~530-line private copy of the diff and the exaggeration because the browser code
+    could not be imported outside Vite, and it no longer needs it (1427 → 838 lines);
+    `client/tsconfig.scripts.json` + `npm run type-check:scripts` keep both honest.
+    `test_pipeline.ts` and `test_teacher_sync.ts` were deleted: both tested private copies of
+    objects that no longer exist, and vitest covers what they covered (diff and pairing:
+    `mpm/pair.test.ts`, `mpm/compare.test.ts`, `mpm/evidence.test.ts`; exaggeration caps, range
+    confinement, determinism and non-mutation: `mpm/counter.test.ts`; render:
+    `services/mpmRenderer.test.ts`; timing map and cue spacing: `teacherCues.test.ts`).
+  - Verified: 645 tests green (352 at the start of the run), `npm run type-check` and
+    `cd client && npx tsc --noEmit` clean, `npm run knip` clean, `cd client && npm run build`
+    succeeds. `node_modules` holds espressivo and nothing else MPM-shaped.

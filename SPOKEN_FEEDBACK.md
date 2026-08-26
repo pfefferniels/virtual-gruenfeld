@@ -8,18 +8,20 @@ To additionally enable **spoken feedback** (the teacher comments on your playing
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) 18 or later
+- [Node.js](https://nodejs.org/) 22 or later (espressivo needs it)
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 - An [ElevenLabs API key](https://elevenlabs.io/) (for text-to-speech)
 
 ## Setup
 
-1. Clone this repository and its two sibling packages, side by side:
+1. Clone this repository and espressivo, side by side. Everything expressive — the score
+   conversion, the fit of your playing, the comparison and the rendering — runs on espressivo,
+   and it is linked as `../meico-ts`:
 
    ```sh
-   git clone https://github.com/pfefferniels/mpm-ts.git
-   git clone https://github.com/pfefferniels/mpmify.git
+   git clone https://github.com/pfefferniels/espressivo.git meico-ts
    git clone https://github.com/pfefferniels/virtual-gruenfeld.git
+   (cd meico-ts && npm ci && npm run build)
    cd virtual-gruenfeld
    ```
 

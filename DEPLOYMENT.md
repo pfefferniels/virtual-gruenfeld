@@ -59,20 +59,25 @@ Never commit any of these. `.env` is gitignored; `.env.example` lists the shape.
 
 ## 2. Build and run the service
 
-The teacher process never imports `mpm-ts` or `mpmify` — but they are `file:../` dependencies
-of the root `package.json` (the *client* build needs them), so `npm ci` wants them on disk.
-Clone all three side by side, exactly as `.github/workflows/deploy.yml` does:
+The teacher process imports nothing from espressivo — it parses `info.json` and
+`performance.mpm` with its own code (`src/corpus/parse.ts`). But espressivo is a `file:../`
+dependency of the root `package.json`, because the *client* build is built from the same
+checkout, so `npm ci` wants it on disk. Clone the two side by side, exactly as
+`.github/workflows/deploy.yml` does:
 
 ```bash
 cd /srv
-git clone https://github.com/pfefferniels/mpm-ts.git
-git clone https://github.com/pfefferniels/mpmify.git
+git clone https://github.com/pfefferniels/espressivo.git meico-ts
 git clone https://github.com/pfefferniels/virtual-gruenfeld.git
+
+cd /srv/meico-ts && npm ci && npm run build
 
 cd /srv/virtual-gruenfeld
 npm ci
 npm run build:server        # tsc -> dist/
 ```
+
+Node 22 or later, which is what espressivo requires.
 
 The checkout must stay in place: the corpus is loaded from `client/public/info.json` and
 `assets/all/performance.mpm` relative to it (`findRepoRoot()` walks up from `dist/corpus/`).

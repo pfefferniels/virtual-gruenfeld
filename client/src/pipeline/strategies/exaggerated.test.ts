@@ -53,7 +53,7 @@ vi.mock('../../pianosound/midiSequence', () => ({
 }));
 
 const { exaggeratedStrategy } = await import('./exaggerated');
-const { allDimensions, studentCenter } = await import('../../mpm');
+const { allDimensions } = await import('../../mpm');
 
 // ── Fixtures ──
 
@@ -95,9 +95,17 @@ const makeCtx = (withReduction: boolean): PipelineContext => ({
 } as unknown as PipelineContext);
 
 const LEVELS = { student: { bpm: [58, 62, 66], volume: [40, 44] } };
+/** What the counter-performance pushes Grunfeld away from: one paired slot, per attribute. */
+const PEAKS = [{
+    date: 1440,
+    type: 'tempo',
+    diffs: { bpm: { ref: 60, student: 72, delta: 12 } },
+    magnitude: 12,
+}];
 
 const TAKE = {
     levels: LEVELS,
+    peaks: PEAKS,
     measuredTypes: ['tempo', 'dynamics'],
     diffSummary: '4 deviations',
     structuredDiff: [],
@@ -165,10 +173,10 @@ describe('fixed pedagogy (flag off)', () => {
         expect(call.referenceMpmText).toBe(REFERENCE_MPM);
         expect(call.range).toBe(TAKE_RANGE);
         expect(call.dimensions).toEqual(allDimensions());
-        // The pivot is the student's own playing, and the gate is what the take measured.
-        expect(call.center).toEqual(studentCenter(LEVELS));
+        // The pivot is this student's own deviation, slot by slot, and the gate is what the
+        // take measured.
+        expect(call.peaks).toBe(TAKE.peaks);
         expect(call.measured).toBe(TAKE.measuredTypes);
-        expect(call.events).toBe(TAKE.structuredDiff);
 
         // The demo is shaped before the model is asked, so the render overlaps the call.
         expect(counterPerformance.mock.invocationCallOrder[0])

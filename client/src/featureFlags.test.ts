@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    isAgenticTeacher, isVoiceTeacher, setFlagOverride, TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
+    ESPRESSIVO_DIFF_KEY, isAgenticTeacher, isEspressivoDiff, isVoiceTeacher, setFlagOverride,
+    TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
 } from './featureFlags';
 
 /** A localStorage that only knows the keys a test puts in it. */
@@ -28,6 +29,21 @@ describe('feature flags', () => {
         vi.stubEnv('VITE_TEACHER_VOICE', '');
         vi.stubEnv('VITE_TEACHER_AGENTIC', '');
         expect(isVoiceTeacher()).toBe(false);
+        expect(isAgenticTeacher()).toBe(false);
+    });
+
+    it('leave the espressivo evidence path off until a build or a browser asks for it', () => {
+        // The migration switch: off means the take runs the legacy mpmify path, so a build that
+        // says nothing must not change what the app does. S5 wires it into the take runner.
+        vi.stubEnv('VITE_ESPRESSIVO_DIFF', '');
+        expect(isEspressivoDiff()).toBe(false);
+
+        vi.stubEnv('VITE_ESPRESSIVO_DIFF', '1');
+        expect(isEspressivoDiff()).toBe(true);
+
+        vi.stubEnv('VITE_ESPRESSIVO_DIFF', '');
+        withStorage({ [ESPRESSIVO_DIFF_KEY]: '1' });
+        expect(isEspressivoDiff()).toBe(true);
         expect(isAgenticTeacher()).toBe(false);
     });
 

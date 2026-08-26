@@ -37,6 +37,20 @@ export const isVoiceTeacher = (): boolean =>
     readFlag(TEACHER_VOICE_KEY, import.meta.env.VITE_TEACHER_VOICE);
 
 /**
+ * The espressivo evidence path: the student fitted into Grünfeld's own instruction
+ * slots, paired by `xml:id` and gated by `compareMpm`, instead of the mpmify
+ * chain replayed over both sides. Off means the take runs the legacy path;
+ * both are built, so one take can be run through each and the two compared.
+ *
+ * This is a migration switch with a known end: S5 wires it into the take runner
+ * and S5's successor removes it together with the legacy path.
+ */
+export const ESPRESSIVO_DIFF_KEY = 'ESPRESSIVO_DIFF';
+
+export const isEspressivoDiff = (): boolean =>
+    readFlag(ESPRESSIVO_DIFF_KEY, import.meta.env.VITE_ESPRESSIVO_DIFF);
+
+/**
  * Pin a flag for this browser, whatever the build says. `null` drops the
  * override and hands the flag back to the build variable. Storage can be
  * unavailable (private mode), in which case the switch simply does not stick.

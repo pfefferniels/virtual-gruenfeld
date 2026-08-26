@@ -41,7 +41,12 @@ import type { Range } from './types';
  */
 export const DROPPED_MAPS: readonly string[] = ['movementMap'];
 
-export type CutOptions = {
+/**
+ * Not exported: the two functions below name it in their signatures, so a caller passing an
+ * object literal needs nothing, and nobody yet needs to hold one in a variable. Export it again
+ * on the day someone does.
+ */
+type CutOptions = {
     /** Map element names to remove entirely. Defaults to {@link DROPPED_MAPS}. */
     readonly dropMaps?: readonly string[];
 };

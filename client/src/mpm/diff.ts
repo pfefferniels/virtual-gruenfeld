@@ -1,11 +1,24 @@
 import { MPM, OrnamentDef } from "mpm-ts";
 import { tickToPos } from "../shared/constants";
 import { inRange, indexInstructions } from "./helpers";
-import type { Range, InstructionDiff, StructuredDiffEvent, DiffSeverity } from "./types";
+import type {
+    Range,
+    InstructionDiff,
+    StructuredDiffEvent,
+    DiffSeverity,
+    OrnamentStyle,
+    OrnamentStyleLookup,
+} from "./types";
 
 // ── Thresholds & severity ──
 
-const THRESHOLDS: Record<string, number> = {
+/**
+ * The noise floor, in raw MPM units, and the single copy of it: `mpm/pair.ts` imports this
+ * table rather than restating it. Below a floor a difference is measurement, not playing
+ * (semantics 19). These numbers are quoted in the server's teacher prompt — tune a
+ * `TAKE_WEIGHTS` entry, never one of these (risk R8).
+ */
+export const THRESHOLDS: Record<string, number> = {
     volume: 4,
     bpm: 4,
     "transition.to": 4,
@@ -17,7 +30,8 @@ const THRESHOLDS: Record<string, number> = {
     frameLength: 50,
 };
 
-const ATTRS_TO_COMPARE: Record<string, string[]> = {
+/** Which attributes each type is compared on. Also `pair.ts`'s reading list. */
+export const ATTRS_TO_COMPARE: Record<string, string[]> = {
     dynamics: ['volume', 'transition.to'],
     tempo: ['bpm', 'transition.to'],
     articulation: ['relativeDuration', 'relativeVelocity'],
@@ -92,7 +106,31 @@ const cueTextForDiff = (
 
 // ── Diff collection ──
 
+/**
+ * What `mpm/pair.ts` hands `diff` and `diffStructured` instead of two `mpm-ts` documents.
+ *
+ * The espressivo path does its own pairing — the reference already prints the join key — so
+ * there is nothing left for `collectDiffs` to compute; it carries the finished peaks and the
+ * one lookup the ASCII table still asks the reference for. Everything below this point then
+ * runs unchanged on either path, which is the whole point: the cue table, the severity ladder,
+ * the top-3 selection, the transition agree/disagree distinction and the `StructuredDiffEvent`
+ * assembly are the contract, and they neither know nor care where their peaks came from.
+ *
+ * The cast is deliberate and confined to this file, which is the legacy path's file: `MPM` is
+ * `mpm-ts`'s type, the carrier is not one, and S5 deletes both when it deletes `mpmify`.
+ */
+type PeakCarrier = {
+    readonly __pairedInstructionDiffs: readonly InstructionDiff[];
+    getDefinition(kind: string, name: string): OrnamentStyle | null;
+};
+
+const carriedPeaks = (mpm: MPM): readonly InstructionDiff[] | undefined =>
+    (mpm as unknown as Partial<PeakCarrier>).__pairedInstructionDiffs;
+
 const collectDiffs = (mpm1: MPM, mpm2: MPM, range: Range): InstructionDiff[] => {
+    const carried = carriedPeaks(mpm1);
+    if (carried) return [...carried];
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const allInstructions: any[] = mpm1.getInstructions().filter(i => inRange(i, range));
     const idx = indexInstructions(mpm2);
@@ -366,4 +404,48 @@ export const diff = (mpm1: MPM, mpm2: MPM, range: Range, perTypeN: number = PER_
     }
 
     return sections.join('\n');
+};
+
+// ── The espressivo path (S4): the same two functions, fed by `mpm/pair.ts` ──
+//
+// `pairInstructions` produces exactly what `collectDiffs` produced, so the two entry points
+// above are reused rather than reimplemented: one severity ladder, one cue table, one ASCII
+// table, one `id` scheme. Both take the peaks through the carrier so that everything from
+// `topDiffsByType` down stays byte-for-byte the code the teacher's contract was written
+// against. When S5 removes the legacy path these two become the only entry points.
+
+const peakSource = (peaks: readonly InstructionDiff[], styles: OrnamentStyleLookup): MPM => {
+    const carrier: PeakCarrier = {
+        __pairedInstructionDiffs: peaks,
+        getDefinition: (kind, name) => (kind === 'ornamentDef' ? styles(name) : null),
+    };
+    return carrier as unknown as MPM;
+};
+
+/** A document that defines no ornaments — the ornament section then prints `—` for its style. */
+const NO_ORNAMENT_STYLES: OrnamentStyleLookup = () => null;
+
+/** `diffStructured`, from paired instructions. `range` is carried for the caller's symmetry only. */
+export const diffStructuredFrom = (
+    peaks: readonly InstructionDiff[],
+    range: Range,
+    perTypeN: number = PER_TYPE_TOP_N,
+): StructuredDiffEvent[] => {
+    const source = peakSource(peaks, NO_ORNAMENT_STYLES);
+    return diffStructured(source, source, range, perTypeN);
+};
+
+/**
+ * `diff`, from paired instructions. `styles` answers what kind of figure an `<ornamentDef>`
+ * describes and comes off the *reference* document (`pair.ts`'s `ornamentStylesOf`), which is
+ * the document `ornamentRow` has always asked.
+ */
+export const diffFrom = (
+    peaks: readonly InstructionDiff[],
+    range: Range,
+    styles: OrnamentStyleLookup = NO_ORNAMENT_STYLES,
+    perTypeN: number = PER_TYPE_TOP_N,
+): string => {
+    const source = peakSource(peaks, styles);
+    return diff(source, source, range, perTypeN);
 };

@@ -72,7 +72,7 @@ import {
 } from 'espressivo';
 import type { MeasuredNote } from '../score/measured';
 import { PPQ } from '../shared/constants';
-import { hashSeed, seededRandom } from './random';
+import { hashSeed, seededRandom, type Random } from './random';
 import { detectArpeggio, gradientScale, type Arpeggio } from './ornament';
 import {
     calculateRubatoOnDate,
@@ -673,7 +673,7 @@ export const fitStudent = (
         }));
         // Seeded from the points themselves, so the bend is a pure function of what was played
         // (semantics 5) — `fitTransitionCurve` anneals, and its default source is `Math.random`.
-        const random = seededRandom(hashSeed(JSON.stringify(samples)));
+        const random: Random = seededRandom(hashSeed(JSON.stringify(samples)));
         const bend = fitTransitionCurve(
             { startDate: slot.date, endDate: slot.endDate, from: volume, to: transitionTo },
             samples,

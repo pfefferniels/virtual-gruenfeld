@@ -61,6 +61,29 @@ describe('summarizeImmediateJudgement', () => {
         expect(payload.dominantTypes[0].type).toBe('dynamics');
         expect(payload.topIssues[0].type).toBe('dynamics');
     });
+
+    it('carries the comparison’s two numbers when the take has them', () => {
+        const payload = summarizeImmediateJudgement([], { from: 0, to: 2880 }, {
+            distanceJnd: 3.4218,
+            subThresholdFraction: 0.91,
+        });
+
+        expect(payload.distanceJnd).toBe(3.4218);
+        expect(payload.subThresholdFraction).toBe(0.91);
+        // Additive, and only additive: the score, the verdict and the √(rangeBeats/4)
+        // normalisation are what they were (semantics 24).
+        expect(payload.score).toBe(100);
+        expect(payload.verdict).toBe('excellent');
+    });
+
+    it('produces the payload it always did when there is no comparison behind the take', () => {
+        const withNumbers = summarizeImmediateJudgement([], { from: 0, to: 2880 }, {});
+        const without = summarizeImmediateJudgement([], { from: 0, to: 2880 });
+
+        expect(Object.keys(withNumbers)).toEqual(Object.keys(without));
+        expect('distanceJnd' in without).toBe(false);
+        expect('subThresholdFraction' in without).toBe(false);
+    });
 });
 
 describe('fallbackImmediateJudgement', () => {

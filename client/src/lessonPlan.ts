@@ -7,7 +7,7 @@
 import type { ExaggerationDimension } from './mpm';
 import type { Range } from './mpm';
 
-export type DemoMode = 'exaggerated' | 'reference' | 'none';
+export type DemoMode = 'exaggerated' | 'path' | 'reference' | 'none';
 
 export type LessonPlan = {
     mode: DemoMode;
@@ -15,11 +15,19 @@ export type LessonPlan = {
     range: Range | null;
     /** Empty means every dimension at the default strength. */
     dimensions: ExaggerationDimension[];
+    /**
+     * `mode: 'path'` only — how many of the costliest corrections the student hears. Null means
+     * the module's own default (`mpm/path.ts`'s three).
+     */
+    edits: number | null;
 };
 
-const DEMO_MODES: readonly string[] = ['exaggerated', 'reference', 'none'];
+const DEMO_MODES: readonly string[] = ['exaggerated', 'path', 'reference', 'none'];
 const STRENGTH_MIN = 0.05;
 const STRENGTH_MAX = 0.5;
+/** The server's `EDITS_MIN`/`EDITS_MAX`, restated here for the same reason the strengths are. */
+const EDITS_MIN = 1;
+const EDITS_MAX = 5;
 
 const readRange = (raw: unknown): Range | null => {
     if (typeof raw !== 'object' || raw === null) return null;
@@ -41,14 +49,20 @@ const readDimensions = (raw: unknown): ExaggerationDimension[] => {
     return dimensions;
 };
 
+const readEdits = (raw: unknown): number | null => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+    return Math.max(EDITS_MIN, Math.min(EDITS_MAX, Math.round(raw)));
+};
+
 /** Null when the response carried no plan — the caller then demos as it always did. */
 export const readLessonPlan = (raw: unknown): LessonPlan | null => {
     if (typeof raw !== 'object' || raw === null) return null;
-    const { mode, range, dimensions } = raw as Record<string, unknown>;
+    const { mode, range, dimensions, edits } = raw as Record<string, unknown>;
     return {
         mode: (typeof mode === 'string' && DEMO_MODES.includes(mode) ? mode : 'exaggerated') as DemoMode,
         range: readRange(range),
         dimensions: readDimensions(dimensions),
+        edits: readEdits(edits),
     };
 };
 
@@ -57,5 +71,6 @@ export const describePlan = (plan: LessonPlan): string => {
     const dimensions = plan.dimensions.length > 0
         ? plan.dimensions.map((d) => `${d.type}@${d.strength}`).join(',')
         : 'all@default';
-    return `${plan.mode} ${range} ${dimensions}`;
+    const edits = typeof plan.edits === 'number' ? ` ${plan.edits} edit${plan.edits === 1 ? '' : 's'}` : '';
+    return `${plan.mode} ${range} ${dimensions}${edits}`;
 };

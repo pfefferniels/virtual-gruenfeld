@@ -85,7 +85,13 @@ export const runTake = async (
     }
 
     const { diffSummary, structuredDiff } = evidence;
-    const judgementSummary = summarizeImmediateJudgement(structuredDiff, range);
+    // The two comparison numbers ride along with the counted events: how far the take sits from
+    // Grünfeld in JND, and how much of that distance is below the threshold of hearing. Optional
+    // on the payload, so the score, the verdict and everything downstream are unchanged.
+    const judgementSummary = summarizeImmediateJudgement(structuredDiff, range, {
+        distanceJnd: evidence.aggregateJnd,
+        subThresholdFraction: evidence.subThresholdFraction,
+    });
 
     controls.onDiff(diffSummary);
     controls.onJudgement('');
@@ -100,6 +106,7 @@ export const runTake = async (
             // DESIGN §3.4's stronger reading of `measuredTypes`: past the gate *and* written by
             // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
             measuredTypes: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
+            studentMpmText: evidence.studentMpmText,
             diffSummary,
             structuredDiff,
             judgementSummary,

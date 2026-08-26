@@ -2,8 +2,11 @@ import { positionToTick, tickToPos } from '../shared/musicalTime';
 import {
     DEFAULT_PLAN,
     DEMO_MODES,
+    EDITS_MAX,
+    EDITS_MIN,
     INSTRUCTION_TYPES,
     MIN_DEMO_TICKS,
+    SHAPING_MODES,
     STRENGTH_MAX,
     STRENGTH_MIN,
     type DemoMode,
@@ -16,8 +19,16 @@ import {
 type PlanContext = {
     /** The take the plan has to stay inside. Absent for the legacy diff-string path. */
     takeRange?: { from: number; to: number };
-    /** Deviation types the diff actually reported. A plan cannot shape what was not measured. */
-    diffTypes?: Iterable<string>;
+    /**
+     * The types this take actually measured — the audibility gate's list intersected with what
+     * the fitter wrote (DESIGN §3.4), sent by the client since S5/S6. A plan may only shape a
+     * type the diff measured (semantics 26); absent, nothing is filtered, which is what the
+     * legacy diff-string path and the probe get.
+     *
+     * It is a stronger list than "types that produced an event": a type can be measured on a
+     * take where the student got it right, and the demonstration is then allowed to name it.
+     */
+    measuredTypes?: Iterable<string>;
 };
 
 type ValidatedPlan = {
@@ -84,9 +95,25 @@ const validateRange = (
     return { from: lo, to: hi };
 };
 
+/**
+ * `mode: 'path'`'s k. Anything unusable falls back to `null`, which is the client's own default
+ * of three — a demonstration of the wrong number of corrections beats no demonstration.
+ */
+const validateEdits = (raw: unknown, mode: DemoMode, warnings: string[]): number | null => {
+    if (mode !== 'path') return null;
+    if (raw === null || raw === undefined) return null;
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+        warnings.push(`edits: ${JSON.stringify(raw)} is not a number, using the default`);
+        return null;
+    }
+    const clamped = Math.max(EDITS_MIN, Math.min(EDITS_MAX, Math.round(raw)));
+    if (clamped !== raw) warnings.push(`edits: ${raw} clamped to ${clamped}`);
+    return clamped;
+};
+
 const validateDimensions = (
     raw: unknown,
-    diffTypes: Set<string> | null,
+    measuredTypes: Set<string> | null,
     warnings: string[],
 ): PlanDimension[] => {
     if (raw === null || raw === undefined) return [];
@@ -106,7 +133,7 @@ const validateDimensions = (
             warnings.push(`dimensions: dropped unknown type ${JSON.stringify(type)}`);
             continue;
         }
-        if (diffTypes && !diffTypes.has(type)) {
+        if (measuredTypes && !measuredTypes.has(type)) {
             warnings.push(`dimensions: dropped ${type} — the diff measured no such deviation`);
             continue;
         }
@@ -138,7 +165,7 @@ const validateDimensions = (
  */
 export const validatePlan = (raw: unknown, context: PlanContext = {}): ValidatedPlan => {
     const warnings: string[] = [];
-    const diffTypes = context.diffTypes ? new Set(context.diffTypes) : null;
+    const measuredTypes = context.measuredTypes ? new Set(context.measuredTypes) : null;
 
     if (typeof raw !== 'object' || raw === null) {
         warnings.push('demo: missing, falling back to the exaggerated whole take');
@@ -156,12 +183,14 @@ export const validatePlan = (raw: unknown, context: PlanContext = {}): Validated
     }
 
     const range = validateRange(demo.range, context.takeRange, warnings);
-    // Only the exaggerated demo shapes anything; the other modes play as-is or not at all.
-    const dimensions = mode === 'exaggerated'
-        ? validateDimensions(demo.dimensions, diffTypes, warnings)
+    // Two modes read the dimensions — `exaggerated` shapes them, `path` filters the edit script
+    // by them — and the other two play as-is or not at all.
+    const dimensions = (SHAPING_MODES as readonly string[]).includes(mode)
+        ? validateDimensions(demo.dimensions, measuredTypes, warnings)
         : [];
+    const edits = validateEdits(demo.edits, mode, warnings);
 
-    return { plan: { mode, range, dimensions }, warnings };
+    return { plan: { mode, range, dimensions, edits }, warnings };
 };
 
 /**
@@ -188,5 +217,6 @@ export const describePlan = (plan: LessonPlan): string => {
     const dimensions = plan.dimensions.length > 0
         ? plan.dimensions.map((d) => `${d.type}@${d.strength}`).join(',')
         : 'all@default';
-    return `${plan.mode} | ${range} | ${dimensions}`;
+    const edits = typeof plan.edits === 'number' ? ` | ${plan.edits} edit${plan.edits === 1 ? '' : 's'}` : '';
+    return `${plan.mode} | ${range} | ${dimensions}${edits}`;
 };

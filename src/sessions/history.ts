@@ -15,6 +15,19 @@ const round = (value: number): string =>
 const movement = (from: number | undefined, to: number | undefined): string =>
     from === undefined || to === undefined ? '' : ` ${round(from)}->${round(to)}`;
 
+/**
+ * What a take could hear (DESIGN risk R7).
+ *
+ * A record stamped with `measured` says so where the list is not everything; one written before
+ * the field existed says only that it was written then. Silence about a dimension means "nothing
+ * was listening", never "it was fine", and the teacher is told which of the two it is reading.
+ */
+const measuredNote = (take: TakeRecord): string => {
+    if (!take.measured) return '(earlier take, fewer dimensions measured)';
+    if (take.measured.length === 0) return '(nothing measurable in this take)';
+    return `measured ${take.measured.join(' ')}`;
+};
+
 const takeLine = (take: TakeRecord, number: number): string => {
     const head = [`[take ${number}]`];
     if (take.rangeLabel) head.push(take.rangeLabel);
@@ -25,6 +38,7 @@ const takeLine = (take: TakeRecord, number: number): string => {
     const { total, byType, largest } = take.diffDigest;
     const types = byType.map((entry) => `${entry.type}x${entry.count}`).join(' ');
     head.push(`${total} dev${types ? `: ${types}` : ''}`);
+    head.push(measuredNote(take));
     if (largest.length > 0) {
         head.push(`worst ${largest
             .map((event) => `${event.position} ${event.type} ${event.severity}${movement(event.refValue, event.studentValue)}`)

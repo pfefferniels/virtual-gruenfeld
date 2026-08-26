@@ -94,6 +94,11 @@ type TeacherStreamRequestPayload = {
     structuredDiff?: StructuredDiffEvent[];
     /** Take range in ticks, so the server can attach the passage's scholarly record. */
     range?: Range;
+    /**
+     * What this take measured (DESIGN §3.4): what a plan may name, and what the take record is
+     * stamped with so later takes know which dimensions were even listened for (risk R7).
+     */
+    measuredTypes?: readonly string[];
     /** Ties this take to the earlier ones of the same sitting (see `session.ts`). */
     sessionId?: string;
     /** Ask the teacher to plan the demonstration instead of always exaggerating the whole take. */

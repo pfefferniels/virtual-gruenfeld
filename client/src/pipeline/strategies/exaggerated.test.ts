@@ -25,10 +25,14 @@ const requestVocalStream = vi.fn();
 const scheduleVocalStream = vi.fn();
 const buildJudgementMoodRenderPlan = vi.fn();
 const isAgenticTeacher = vi.fn(() => false);
+const runPath = vi.fn();
 
 vi.mock('../../mpm', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../mpm')>()),
     counterPerformance: (...args: unknown[]) => counterPerformance(...args),
+}));
+vi.mock('../../workers/evidenceClient', () => ({
+    runPath: (...args: unknown[]) => runPath(...args),
 }));
 vi.mock('../../api', () => ({
     performTeacherPlayback: (...args: unknown[]) => performTeacherPlayback(...args),
@@ -84,6 +88,9 @@ const REFERENCE_MPM = '<mpm id="reference"/>';
 /** What the mocked `counterPerformance` hands back. */
 const COUNTER_MPM = '<mpm id="counter"/>';
 const MOOD_MPM = '<mpm id="mood"/>';
+/** The student's own document, and what `mode: 'path'` makes of it. */
+const STUDENT_MPM = '<mpm id="student"/>';
+const PATH_MPM = '<mpm id="corrected"/>';
 
 const makeCtx = (withReduction: boolean): PipelineContext => ({
     mei: '<mei/>',
@@ -99,6 +106,7 @@ const LEVELS = { student: { bpm: [58, 62, 66], volume: [40, 44] } };
 const TAKE = {
     levels: LEVELS,
     measuredTypes: ['tempo', 'dynamics'],
+    studentMpmText: STUDENT_MPM,
     diffSummary: '4 deviations',
     structuredDiff: [],
     judgementSummary: JUDGEMENT,
@@ -147,6 +155,7 @@ beforeEach(() => {
     requestVocalStream.mockResolvedValue({ chunks: CHUNKS, plan: null });
     buildJudgementMoodRenderPlan.mockReturnValue(null);
     isAgenticTeacher.mockReturnValue(false);
+    runPath.mockResolvedValue({ mpm: PATH_MPM, edits: [], considered: 4, notes: ['path: two edits'], diffMs: 480 });
 });
 
 afterEach(() => {
@@ -200,6 +209,7 @@ describe('agentic pedagogy (flag on)', () => {
         mode: 'exaggerated',
         range: null,
         dimensions: [],
+        edits: null,
         ...overrides,
     });
 
@@ -248,6 +258,78 @@ describe('agentic pedagogy (flag on)', () => {
             expect(counterPerformance.mock.calls[0][0].dimensions).toEqual(allDimensions());
             expect(played[0].midi.id).toBe('delayed(demo)');
             expect(logs.some((line) => line.includes('PLAN: none returned'))).toBe(true);
+        });
+    });
+
+    describe('mode: path', () => {
+        it('corrects the student’s own document and performs that, never the reference', async () => {
+            withPlan(plan({ mode: 'path', range: PLAN_RANGE, edits: 2, dimensions: [{ type: 'tempo', strength: 0.3 }] }));
+            const { controls, played } = makeControls();
+            await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+            expect(counterPerformance).not.toHaveBeenCalled();
+            expect(runPath).toHaveBeenCalledTimes(1);
+            const [input] = runPath.mock.calls[0];
+            expect(input).toMatchObject({
+                studentMpmText: STUDENT_MPM,
+                // The comparison's own side, not the editorial document: both halves of the edit
+                // script have to come out of one procedure (S4 §2).
+                referenceMpmText: '<mpm fitted="1"/>',
+                range: PLAN_RANGE,
+                types: ['tempo'],
+                edits: 2,
+            });
+            expect(demoCall()?.slice(2)).toEqual([PATH_MPM, PLAN_RANGE]);
+            expect(played[0].midi.id).toBe('delayed(demo)');
+        });
+
+        it('asks only after the plan has arrived — the edit script is not on the take’s clock', async () => {
+            withPlan(plan({ mode: 'path' }));
+            const { controls } = makeControls();
+            await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+            expect(runPath.mock.invocationCallOrder[0])
+                .toBeGreaterThan(requestVocalStream.mock.invocationCallOrder[0]);
+            // No plan dimensions is "correct whatever the script found costliest".
+            expect(runPath.mock.calls[0][0].types).toEqual([]);
+            expect(runPath.mock.calls[0][0].edits).toBeUndefined();
+        });
+
+        it('says what was corrected, in the worker’s own words', async () => {
+            withPlan(plan({ mode: 'path' }));
+            const { controls, logs } = makeControls();
+            await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+            expect(logs.some((line) => line.includes('path: two edits'))).toBe(true);
+            expect(logs.some((line) => line.includes('corrected take'))).toBe(true);
+        });
+
+        it('falls back to Grünfeld when there was nothing to correct', async () => {
+            withPlan(plan({ mode: 'path', range: PLAN_RANGE }));
+            runPath.mockResolvedValue({
+                mpm: null,
+                edits: [],
+                considered: 0,
+                notes: ['path: 14.0 bars is more than 12'],
+                diffMs: 0,
+            });
+            const { controls, played, logs } = makeControls();
+            await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+            expect(demoCall()?.slice(2)).toEqual([REFERENCE_MPM, PLAN_RANGE]);
+            expect(played[0].midi.id).toBe('delayed(demo)');
+            expect(logs.some((line) => line.includes('falling back to the reference'))).toBe(true);
+        });
+
+        it('loses the demonstration, not the take, when the worker throws', async () => {
+            withPlan(plan({ mode: 'path', range: PLAN_RANGE }));
+            runPath.mockRejectedValue(new Error('worker did not answer'));
+            const { controls, played, logs } = makeControls();
+            await exaggeratedStrategy(makeCtx(false), TAKE, controls);
+
+            expect(demoCall()?.slice(2)).toEqual([REFERENCE_MPM, PLAN_RANGE]);
+            expect(played).toHaveLength(1);
+            expect(logs.some((line) => line.includes('path demonstration failed'))).toBe(true);
         });
     });
 

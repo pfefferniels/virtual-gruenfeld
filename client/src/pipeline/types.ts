@@ -36,6 +36,12 @@ export type TakeSnapshot = {
      * a dimension with no student behind it could only caricature the editorial bake.
      */
     measuredTypes: readonly string[];
+    /**
+     * The student's own performance, as the fitter wrote it. `mode: 'path'` is the only thing
+     * that reads it: the demonstration there *is* the student's document, with the k costliest
+     * edits of the script applied (`mpm/path.ts`).
+     */
+    studentMpmText: string;
     diffSummary: string;
     structuredDiff: StructuredDiffEvent[];
     judgementSummary: ImmediateJudgementPayload;

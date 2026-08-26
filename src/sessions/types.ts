@@ -39,6 +39,16 @@ export type TakeRecord = {
     judgement: TakeJudgement;
     diffDigest: DiffDigest;
     teacherSaid: TeacherSaid;
+    /**
+     * The deviation types this take was able to measure at all (DESIGN risk R7).
+     *
+     * Absent from every record written before six of seven dimensions became measurable, and
+     * that absence is the point: those takes never mentioned tempo, rubato or articulation
+     * because nothing was listening for them, and a teacher reading the history would otherwise
+     * conclude the student's tempo had always been fine. `history.ts` renders a record without
+     * this field as *"(earlier take, fewer dimensions measured)"* rather than pretending.
+     */
+    measured?: string[];
 };
 
 /**

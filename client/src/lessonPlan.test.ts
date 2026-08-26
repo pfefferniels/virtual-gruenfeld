@@ -13,7 +13,25 @@ describe('readLessonPlan', () => {
             mode: 'reference',
             range: { from: 2880, to: 8640 },
             dimensions: [{ type: 'tempo', strength: 0.35 }],
+            edits: null,
         });
+    });
+
+    it('keeps the fourth mode, and the edit count that only it uses', () => {
+        expect(readLessonPlan({ mode: 'path', range: null, dimensions: [], edits: 2 })).toEqual({
+            mode: 'path',
+            range: null,
+            dimensions: [],
+            edits: 2,
+        });
+    });
+
+    it('re-applies the edit bounds and reads a missing count as the default', () => {
+        const edits = (raw: unknown) => readLessonPlan({ mode: 'path', range: null, dimensions: [], edits: raw })?.edits;
+        expect(edits(9)).toBe(5);
+        expect(edits(0)).toBe(1);
+        expect(edits(2.6)).toBe(3);
+        for (const unusable of [null, undefined, 'three', Number.NaN]) expect(edits(unusable)).toBeNull();
     });
 
     it('returns null when the response carried no plan', () => {
@@ -54,12 +72,16 @@ describe('readLessonPlan', () => {
     });
 
     it('describes a plan for the debug log', () => {
-        expect(describePlan({ mode: 'none', range: null, dimensions: [] })).toBe('none full take all@default');
+        expect(describePlan({ mode: 'none', range: null, dimensions: [], edits: null }))
+            .toBe('none full take all@default');
         expect(describePlan({
             mode: 'exaggerated',
             range: { from: 2880, to: 8640 },
             dimensions: [{ type: 'tempo', strength: 0.4 }],
+            edits: null,
         })).toBe('exaggerated [2880, 8640] tempo@0.4');
+        expect(describePlan({ mode: 'path', range: null, dimensions: [], edits: 1 }))
+            .toBe('path full take all@default 1 edit');
     });
 });
 

@@ -12,6 +12,7 @@ import {
     talkOnlyDurationSec,
     type VocalStreamResult,
 } from '../teacherVocalStream';
+import { runPath } from '../../workers/evidenceClient';
 import type { TeacherStrategy } from '../types';
 
 /** Breathing room between JUDGE narration ending and correction piano entry. */
@@ -58,6 +59,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             audioContext,
             log,
             agentic,
+            take.measuredTypes,
         ).catch((e) => {
             log(`VOCAL: stream error: ${e}`);
             return NO_STREAM;
@@ -85,16 +87,45 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         counterMpm = shape(demoRange, dimensions);
     }
 
+    // `path` plays the student's own document with the k costliest corrections in it. The edit
+    // script behind it costs half a second and up (`mpm/path.ts`, risk R4), so it runs in the
+    // evidence worker and only now — the teacher is already speaking by the time it starts.
+    let pathMpm: string | null = null;
+    if (demoMode === 'path') {
+        try {
+            const path = await runPath({
+                studentMpmText: take.studentMpmText,
+                referenceMpmText: ctx.fittedReferenceMpmText,
+                scoreMsm: ctx.scoreMsm,
+                range: demoRange,
+                types: (plan?.dimensions ?? []).map((dimension) => dimension.type),
+                ...(plan?.edits === null || plan?.edits === undefined ? {} : { edits: plan.edits }),
+            }, log);
+            for (const note of path.notes) log(`PLAY: ${note}`);
+            pathMpm = path.mpm;
+        } catch (e) {
+            // One demonstration, not the take: the monologue is already recorded and the
+            // reference below is a perfectly good thing to play under it.
+            log(`PLAY: path demonstration failed (${e})`);
+        }
+        if (pathMpm === null) log('PLAY: no corrected take to play — falling back to the reference');
+        if (isCancelled()) return;
+    }
+
     // `none` skips the render entirely; `reference` plays Grünfeld untouched.
     let demoPerf: ReturnType<typeof performTeacherPlayback> = undefined;
     if (demoMode !== 'none') {
         const performStartedAt = Date.now();
         // `reference` plays the pristine document; `exaggerated` plays the splice, which is a
-        // copy of it. A demo mode with no counter-performance behind it falls back to Grünfeld
-        // rather than to nothing.
-        const demoMpm = demoMode === 'exaggerated' && counterMpm !== null ? counterMpm : ctx.referenceMpmText;
+        // copy of it; `path` plays the student's own, corrected. A demo mode with nothing behind
+        // it falls back to Grünfeld rather than to nothing.
+        const [demoMpm, what] = demoMode === 'exaggerated' && counterMpm !== null
+            ? [counterMpm, 'correction'] as const
+            : demoMode === 'path' && pathMpm !== null
+                ? [pathMpm, 'corrected take'] as const
+                : [ctx.referenceMpmText, 'reference'] as const;
         demoPerf = performTeacherPlayback(ctx.mei, ctx.scoreNotes, demoMpm, demoRange);
-        log(`PLAY: ${demoMode === 'reference' ? 'reference' : 'correction'} perform_ms=${Date.now() - performStartedAt}`);
+        log(`PLAY: ${what} perform_ms=${Date.now() - performStartedAt}`);
         if (isCancelled() || !demoPerf) return;
 
         // Sustain tail: hold pedal 2.5s after last note, then slow release

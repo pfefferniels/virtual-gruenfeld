@@ -28,6 +28,11 @@ export const requestVocalStream = async (
     audioContext: AudioContext,
     log: (msg: string) => void,
     agentic: boolean = false,
+    /**
+     * What the take measured (DESIGN §3.4). Appended after `agentic` rather than slotted in
+     * where it reads best: the argument list is positional and the tests index into it.
+     */
+    measuredTypes: readonly string[] = [],
 ): Promise<VocalStreamResult> => {
     // Build candidates from diff events (same format as cue planning)
     const positions = new Map<string, StructuredDiffEvent[]>();
@@ -66,6 +71,10 @@ export const requestVocalStream = async (
         mode,
         structuredDiff: diffEvents,
         range,
+        // A type the take measured is a type the plan may name, even where the student got it
+        // right — which the events alone cannot say, since a dimension played correctly produces
+        // none. Omitted when there is nothing to say, so the body stays what it was.
+        ...(measuredTypes.length > 0 ? { measuredTypes } : {}),
         sessionId: getSessionId(),
         ...(agentic ? { agentic: true } : {}),
     });

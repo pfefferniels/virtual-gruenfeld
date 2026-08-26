@@ -8,22 +8,34 @@
  * to a browser nobody runs the suite in, because a fallback that has never executed is not a
  * fallback.
  *
+ * `runPath` is the second job on the same channel (S7): it is asked for after the plan has
+ * arrived, gets its own, longer clock, and answers with the corrected document. Its branches are
+ * the same ones, so what is tested here is that the two jobs stay told apart.
+ *
  * The worker itself is never run here, by design: it has no logic to test. What it calls,
- * `mpm/evidence.ts`, is tested directly.
+ * `mpm/evidence.ts` and `mpm/path.ts`, is tested directly.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Evidence, EvidenceInput } from '../mpm/evidence';
-import type { EvidenceRequest, EvidenceResponse } from './evidence.worker';
+import type { PathInput, PathResult } from '../mpm/path';
+import type { WorkerRequest, WorkerResponse } from './evidence.worker';
 
 const evidenceForTake = vi.fn(
     (input: EvidenceInput): Evidence => ({ studentMpmText: `fitted:${input.range.from}` } as Evidence),
+);
+const pathPerformance = vi.fn(
+    (input: PathInput): PathResult =>
+        ({ mpm: `corrected:${input.range.from}`, edits: [], considered: 0, notes: [], diffMs: 0 }),
 );
 
 vi.mock('../mpm/evidence', () => ({
     evidenceForTake: (input: EvidenceInput) => evidenceForTake(input),
 }));
+vi.mock('../mpm/path', () => ({
+    pathPerformance: (input: PathInput) => pathPerformance(input),
+}));
 
-const { forgetEvidenceWorker, runEvidence } = await import('./evidenceClient');
+const { forgetEvidenceWorker, runEvidence, runPath } = await import('./evidenceClient');
 
 const INPUT: EvidenceInput = {
     notes: [],
@@ -31,6 +43,13 @@ const INPUT: EvidenceInput = {
     scoreMsm: '<msm/>',
     referenceMpmText: '<mpm/>',
     fittedReferenceMpmText: '<mpm/>',
+};
+
+const PATH_INPUT: PathInput = {
+    studentMpmText: '<mpm student="1"/>',
+    referenceMpmText: '<mpm/>',
+    scoreMsm: '<msm/>',
+    range: { from: 720, to: 1440 },
 };
 
 // ── a stub for the one object this module talks to ───────────────────────────────────────
@@ -48,7 +67,7 @@ type Behaviour =
     | 'refuses-construction';
 
 let behaviour: Behaviour = 'answers';
-let posted: EvidenceRequest[] = [];
+let posted: WorkerRequest[] = [];
 
 class StubWorker {
     private readonly listeners = new Map<string, ((event: unknown) => void)[]>();
@@ -63,7 +82,7 @@ class StubWorker {
         this.listeners.set(type, [...(this.listeners.get(type) ?? []), handler]);
     }
 
-    postMessage(request: EvidenceRequest): void {
+    postMessage(request: WorkerRequest): void {
         if (behaviour === 'refuses-the-message') {
             throw new Error('DataCloneError: could not be cloned');
         }
@@ -71,8 +90,15 @@ class StubWorker {
         if (behaviour === 'wedges') return;
         queueMicrotask(() => {
             if (behaviour === 'crashes') return this.dispatch('error', { message: 'worker died' });
-            const response: EvidenceResponse = behaviour === 'answers'
-                ? { id: request.id, ok: true, evidence: { studentMpmText: 'from the worker' } as Evidence }
+            const outcome: Extract<WorkerResponse, { ok: true }>['outcome'] =
+                request.job.kind === 'evidence'
+                    ? { kind: 'evidence', evidence: { studentMpmText: 'from the worker' } as Evidence }
+                    : {
+                        kind: 'path',
+                        path: { mpm: 'from the worker', edits: [], considered: 0, notes: [], diffMs: 42 },
+                    };
+            const response: WorkerResponse = behaviour === 'answers'
+                ? { id: request.id, ok: true, outcome }
                 : { id: request.id, ok: false, error: 'Error: scaffold: [11520, 11520) is not a range' };
             this.dispatch('message', { data: response });
         });
@@ -103,6 +129,15 @@ afterEach(() => {
 // ── no worker at all ─────────────────────────────────────────────────────────────────────
 
 describe('runEvidence', () => {
+    it('runs the path demonstration on this thread too when there is no worker', async () => {
+        forgetEvidenceWorker();
+
+        const path = await runPath(PATH_INPUT, () => {});
+
+        expect(path.mpm).toBe('corrected:720');
+        expect(pathPerformance).toHaveBeenCalledWith(PATH_INPUT);
+    });
+
     it('runs the take on this thread when there is no worker to run it in', async () => {
         forgetEvidenceWorker();
         const logs: string[] = [];
@@ -144,7 +179,35 @@ describe('with a worker', () => {
         expect(logs.some((line) => line.includes('worker ready'))).toBe(true);
         // Everything on the request survives the boundary the worker is on the far side of.
         expect(() => structuredClone(posted[0])).not.toThrow();
-        expect(structuredClone(posted[0]).input).toEqual(INPUT);
+        expect(structuredClone(posted[0]).job).toEqual({ kind: 'evidence', input: INPUT });
+    });
+
+    it('runs the path demonstration as its own job on the same worker', async () => {
+        withWorker('answers');
+        const logs: string[] = [];
+
+        const path = await runPath(PATH_INPUT, (msg) => logs.push(msg));
+
+        expect(path.mpm).toBe('from the worker');
+        expect(path.diffMs).toBe(42);
+        expect(pathPerformance).not.toHaveBeenCalled();
+        expect(structuredClone(posted[0]).job).toEqual({ kind: 'path', input: PATH_INPUT });
+    });
+
+    it('gives the edit script a clock of its own, an order of magnitude wider', async () => {
+        withWorker('wedges');
+        vi.useFakeTimers();
+        const logs: string[] = [];
+
+        const pending = runPath(PATH_INPUT, (msg) => logs.push(msg));
+        // `diffMpm` was measured at 1.6 s over eight bars: the evidence's five-second clock
+        // would strangle it on a take the demonstration is meant to serve.
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(pathPerformance).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(15000);
+        await expect(pending).resolves.toMatchObject({ mpm: 'corrected:720' });
+        expect(logs.some((line) => line.includes('did not answer within 20000'))).toBe(true);
     });
 });
 

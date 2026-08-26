@@ -37,7 +37,19 @@ const storedTeacherUrl = (): string | null => {
     }
 };
 
-const TEACHER_URL = resolveTeacherUrl(import.meta.env, storedTeacherUrl());
+/**
+ * Vite's build-time environment, or nothing.
+ *
+ * `import.meta.env` exists under Vite and under vitest; it does not under plain `tsx`, and the
+ * root scripts (`generate_test.ts`, `visualize_implant.ts`) reach this module through
+ * `pipeline/teacherVocalStream`. An empty environment is the correct answer there rather than a
+ * crash at import time: no URL was baked in, and `DEV` is unset, so nothing is guessed — which
+ * is what those scripts want, since they talk to `SERVER_URL` themselves.
+ */
+const buildEnv = (): { VITE_TEACHER_URL?: string; DEV?: boolean } =>
+    (import.meta.env ?? {}) as { VITE_TEACHER_URL?: string; DEV?: boolean };
+
+const TEACHER_URL = resolveTeacherUrl(buildEnv(), storedTeacherUrl());
 
 /** Probe whether the AI teacher service is reachable (retries for slow startup). */
 export const probeTeacherService = async (): Promise<boolean> => {

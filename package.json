@@ -13,6 +13,7 @@
     "build:client": "cd client && npm run build",
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
+    "type-check:scripts": "tsc --noEmit -p client/tsconfig.scripts.json",
     "test": "cd client && vitest run",
     "knip": "knip"
   },
@@ -32,8 +33,6 @@
     "dotenv": "^16.3.1",
     "espressivo": "file:../meico-ts",
     "express": "^4.18.2",
-    "mpm-ts": "file:../mpm-ts",
-    "mpmify": "file:../mpmify",
     "openai": "^6.7.0"
   },
   "devDependencies": {

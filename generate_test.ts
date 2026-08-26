@@ -1,56 +1,69 @@
 /**
- * generate_test.ts — Full dialogic teaching pipeline test
+ * generate_test.ts — the whole dialogic lesson, headless, as three MP3s.
  *
- * Generates MP3s: student playing → teacher playing with unified vocal stream.
- * Uses the /teacher-stream endpoint for a single LLM + TTS call.
+ * One scenario is a deliberately mis-shaped MPM: it is rendered to MIDI, that MIDI is fed back
+ * in as if a student had played it, and what comes out is what the browser would produce —
+ * the same modules, in the same order, with no library in between:
+ *
+ *   render(score.mei, scenario.mpm)          the student, played by the renderer
+ *     → implantLocal(scoreNotes, midi)       matched onto the score  (client/src/matcher.ts)
+ *     → evidenceForTake(...)                 fitted into Grünfeld's own slots, then compared
+ *                                            against reference.fitted.mpm  (client/src/mpm/)
+ *     → counterPerformance(...)              Grünfeld pushed away from this student
+ *     → /teacher-stream                      one LLM + TTS call, anchored monologue
+ *     → mood chord + cue layout + ffmpeg     student first, teacher answering
+ *
+ * Until the espressivo-only rewrite this file carried a ~530-line private copy of the diff and
+ * the exaggeration, because the client's versions could not be imported outside the browser.
+ * They can now: everything below `client/src` is plain TypeScript over espressivo, so the copy
+ * is gone and this script exercises the modules the app actually ships.
  *
  * Requires:
- *   - virtual-gruenfeld server (/teacher-stream)
+ *   - virtual-gruenfeld server (/teacher-stream) on SERVER_URL
  *   - timidity or fluidsynth + SF2_PATH (MIDI → WAV)
  *   - ffmpeg (audio concat + MP3 encoding)
  *
- * Run:  npx tsx generate_test.ts
+ * Run:  npx tsx generate_test.ts          (one scenario: SCENARIO=01_robotic npx tsx …)
+ *       DRY_RUN=1 npx tsx generate_test.ts   everything up to the server call, then stop
  */
 
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import 'dotenv/config';
+import { performMsmToData } from 'espressivo';
 import { read as readMidi, write as writeMidi } from 'midifile-ts';
 import { implantLocal } from './client/src/matcher';
-import { measuredNotesFromMsm } from './client/src/score/measured';
+import { measuredNotesFromMsmText, measuredNotesFromPerformanceData, withoutUnisons } from './client/src/score/measured';
 import { fallbackImmediateJudgement, summarizeImmediateJudgement, type ImmediateJudgementPayload } from './client/src/judgement';
 import { buildTimingMap, secAtDate, cueDelay } from './client/src/teacherCues';
 import { layoutCues } from './client/src/pipeline/teacherVocalStream';
 import { appendMidiWithOffset, delayMidi, millisecondsToMidiTicks } from './client/src/pianosound/midiSequence';
-import {
-    buildJudgementMoodRenderPlan,
-} from './client/src/pipeline/judgementMood';
+import { buildJudgementMoodRenderPlan } from './client/src/pipeline/judgementMood';
 import { convert, render } from './client/src/services/mpmRenderer';
+import { evidenceForTake } from './client/src/mpm/evidence';
+import { allDimensions, counterPerformance, studentCenter } from './client/src/mpm/counter';
+import { PPQ, positionToTick } from './client/src/shared/constants';
+import type { Range, StructuredDiffEvent } from './client/src/mpm/types';
 
 /** Extra sustain-pedal hold after the correction entry point (ms). */
 const JUDGEMENT_MOOD_PEDAL_BUFFER_MS = 3000;
 
-// Import from TypeScript source directly — the compiled lib has a CJS/ESM
-// mismatch (ESM syntax without "type":"module" in package.json) that breaks
-// Node's ESM loader. Importing source lets tsx compile on the fly.
-const { MPM } = await import('../mpm-ts/src/MPM.ts');
-const { exportMPM } = await import('../mpm-ts/src/Serialization.ts');
-const { MSM, importWork } = await import('../mpmify/src/index.ts');
-
-type MPM = InstanceType<typeof MPM>;
-type MSM = InstanceType<typeof MSM>;
-
 // ── Config ──
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3002';
-const PPQ = 720;
 const BEAT = PPQ;
 const MEASURE = 4 * BEAT;
+/** The counter-performance's strength, `mpm/counter.ts`'s own default spelled out. */
 const AGGRESSIVENESS = 0.2;
 const OUT_DIR = 'test_output';
-const STRICT_LLM_CUES = process.env.ALLOW_FALLBACK_CUES !== '1';
 const CUE_PREP_MODE = 'balanced';
 const SCENARIO_FILTER = process.env.SCENARIO?.trim();
+/**
+ * Stop after the counter-performance, before anything leaves the machine. Everything up to
+ * that point is espressivo and this repo; past it are the teacher server, fluidsynth and
+ * ffmpeg. Useful for checking the pipeline without an OpenAI key or a soundfont.
+ */
+const DRY_RUN = process.env.DRY_RUN === '1';
 
 // ── Helpers ──
 
@@ -61,81 +74,6 @@ const assertOk = async (r: Response, label: string) => {
     throw new Error(`${label}: HTTP ${r.status} ${r.statusText}${text ? `: ${text}` : ''}`);
 };
 
-function parseMsmNotes(msmXml: string): any[] {
-    const notes: any[] = [];
-    const partRegex = /<part\b[^>]*number="(\d+)"[^>]*>([\s\S]*?)<\/part>/g;
-    let pm;
-    while ((pm = partRegex.exec(msmXml)) !== null) {
-        const partNum = parseInt(pm[1], 10);
-        const noteRegex = /<note\b([^>]*)\/?>/g;
-        let nm;
-        while ((nm = noteRegex.exec(pm[2])) !== null) {
-            const a = nm[1];
-            const attr = (n: string) => {
-                const re = n === 'xml:id'
-                    ? /xml:id="([^"]*)"/
-                    : new RegExp(`${n.replace('.', '\\.')}="([^"]*)"`);
-                return a.match(re)?.[1] ?? '';
-            };
-            notes.push({
-                'xml:id': attr('xml:id'),
-                date: parseFloat(attr('date') || '0'),
-                duration: parseFloat(attr('duration') || '0'),
-                pitchname: attr('pitchname'),
-                octave: parseInt(attr('octave') || '0', 10),
-                accidentals: parseFloat(attr('accidentals') || '0'),
-                'midi.pitch': parseInt(attr('midi.pitch') || '0', 10),
-                part: partNum,
-            });
-        }
-    }
-
-    // Deduplicate: same date + pitch → keep longest duration (mirrors asMSM)
-    return notes.reduce((acc: any[], curr: any) => {
-        const existing = acc.find(
-            (n: any) => n.date === curr.date && n['midi.pitch'] === curr['midi.pitch'],
-        );
-        if (existing) {
-            if (curr.duration > existing.duration) {
-                acc[acc.indexOf(existing)] = curr;
-            }
-        } else {
-            acc.push(curr);
-        }
-        return acc;
-    }, []);
-}
-
-function enrichWithPerformanceData(notes: any[], mei: string): number {
-    const recRegex = /<recording\b[^>]*source="([^"]*)"[^>]*>([\s\S]*?)<\/recording>/g;
-    let matched = 0;
-    let rm;
-    while ((rm = recRegex.exec(mei)) !== null) {
-        const wR = /<when\b([^>]*)>([\s\S]*?)<\/when>/g;
-        let wm;
-        while ((wm = wR.exec(rm[2])) !== null) {
-            const da = wm[1].match(/data="([^"]*)"/);
-            const ab = wm[1].match(/absolute="(\d+)ms"/);
-            if (!da || !ab) continue;
-            const ids = da[1].split(/\s+/).map(d => d.replace('#', ''));
-            const onset = parseInt(ab[1], 10);
-            const vel = wm[2].match(/<extData type="velocity">(\d+)<\/extData>/);
-            const dur = wm[2].match(/<extData type="duration">(\d+)ms<\/extData>/);
-            if (!vel || !dur) continue;
-            for (const id of ids) {
-                const note = notes.find((x: any) => x['xml:id'] === id);
-                if (note) {
-                    note['midi.onset'] = onset / 1000;
-                    note['midi.duration'] = parseInt(dur[1], 10) / 1000;
-                    note['midi.velocity'] = parseInt(vel[1], 10);
-                    note.source = rm[1];
-                    matched++;
-                }
-            }
-        }
-    }
-    return matched;
-}
 
 // ── Teacher Stream (unified vocal) ──
 
@@ -400,31 +338,15 @@ function mixTeacherWithCues(
     );
 }
 
-function mixNarrationOverWav(
-    narrationAudioPath: string | null,
-    backgroundWav: string,
-    outputWav: string,
-    backgroundVolume: number,
-) {
-    if (!narrationAudioPath) {
-        fs.copyFileSync(backgroundWav, outputWav);
-        return;
-    }
 
-    execSync(
-        `ffmpeg -y -i "${narrationAudioPath}" -i "${backgroundWav}" ` +
-        `-filter_complex "[0:a]volume=0.35,apad[narr];[1:a]volume=${backgroundVolume},pan=mono|c0=0.5*c0+0.5*c1[bg];[narr][bg]amerge=inputs=2,pan=mono|c0=c0+c1[out]" ` +
-        `-map "[out]" -c:a pcm_s16le "${outputWav}"`,
-        { stdio: 'pipe' },
-    );
-}
 
-/** Deep clone an MPM (the built-in clone() is shallow and shares the doc) */
-function deepCloneMpm(mpm: MPM): MPM {
-    const clone = new MPM();
-    clone.doc = structuredClone(mpm.doc);
-    return clone;
-}
+/**
+ * A `Buffer`'s own bytes as a plain `ArrayBuffer`, which is what `midifile-ts` reads.
+ * `Buffer` is a view into a pooled allocation, so the offsets matter; and its `.buffer` is
+ * typed `ArrayBuffer | SharedArrayBuffer`, which `read()` will not take.
+ */
+const bytesOf = (buffer: Buffer): ArrayBuffer =>
+    buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 
 function clearScenarioOutputs(prefix: string) {
     if (!fs.existsSync(OUT_DIR)) return;
@@ -434,542 +356,6 @@ function clearScenarioOutputs(prefix: string) {
     }
 }
 
-// ── Pipeline functions (inlined from client/src/mpm.ts to avoid CJS import chain) ──
-
-const buildMpm = (msm: MSM, infoJson: any): MPM => {
-    const mpm = new MPM();
-    const { transformers } = importWork(infoJson);
-    transformers.forEach((transformer: any) => transformer.run(msm, mpm));
-    return mpm;
-};
-
-type Range = { from: number; to: number };
-
-const inRange = (i: any, range: Range) => {
-    const date = i.date ?? i["date"];
-    return typeof date === 'number' && date >= range.from && date <= range.to;
-};
-
-const indexInstructions = (mpm: MPM) => {
-    const idx = new Map<string, any>();
-    for (const i of mpm.getInstructions()) {
-        idx.set(`${i.type}::${i["xml:id"]}`, i);
-    }
-    return idx;
-};
-
-const THRESHOLDS: Record<string, number> = {
-    volume: 4, bpm: 4, "transition.to": 4,
-    relativeDuration: 0.05, relativeVelocity: 0.05,
-    intensity: 0.1, scale: 0.1, "milliseconds.offset": 5, frameLength: 50,
-};
-
-const ATTRS_TO_COMPARE: Record<string, string[]> = {
-    dynamics: ['volume', 'transition.to'],
-    tempo: ['bpm', 'transition.to'],
-    articulation: ['relativeDuration', 'relativeVelocity'],
-    rubato: ['intensity', 'frameLength'],
-    ornament: ['scale', 'intensity'],
-    asynchrony: ['milliseconds.offset'],
-    accentuationPattern: ['scale'],
-};
-
-const PPQ_DIFF = 720;
-const TICKS_PER_MEASURE = PPQ_DIFF * 4;
-
-const tickToPos = (tick: number): string => {
-    const m = Math.floor(tick / TICKS_PER_MEASURE) + 1;
-    const b = Math.floor((tick % TICKS_PER_MEASURE) / PPQ_DIFF) + 1;
-    return `m${m}.${b}`;
-};
-
-const dynLabel = (v: number): string => {
-    if (v <= 20) return 'ppp';
-    if (v <= 35) return 'pp';
-    if (v <= 50) return 'p';
-    if (v <= 65) return 'mp';
-    if (v <= 80) return 'mf';
-    if (v <= 95) return 'f';
-    if (v <= 110) return 'ff';
-    return 'fff';
-};
-
-const SEVERITY_THRESHOLDS: Record<string, [number, number]> = {
-    bpm: [15, 40], volume: [12, 30], 'transition.to': [15, 40],
-    relativeDuration: [0.15, 0.4], relativeVelocity: [0.15, 0.4],
-    intensity: [0.3, 0.8], scale: [0.5, 2],
-    'milliseconds.offset': [15, 40], frameLength: [150, 400],
-};
-
-const severity = (attr: string, delta: number): string => {
-    const abs = Math.abs(delta);
-    const [mod, large] = SEVERITY_THRESHOLDS[attr] ?? [0, 0];
-    if (abs >= large) return 'large';
-    if (abs >= mod) return 'mod';
-    return 'slight';
-};
-
-type InstructionDiff = {
-    date: number;
-    type: string;
-    diffs: Record<string, { ref: number; student: number; delta: number }>;
-    magnitude: number;
-};
-
-type StructuredDiffEvent = {
-    id: string;
-    date: number;
-    position: string;
-    type: string;
-    severity: 'slight' | 'mod' | 'large';
-    primaryAttr: string;
-    magnitude: number;
-    cueText: string;
-    direction: 'more' | 'less';
-    refValue: number;
-    studentValue: number;
-};
-
-const collectDiffs = (mpm1: MPM, mpm2: MPM, range: Range): InstructionDiff[] => {
-    const allInstructions: any[] = mpm1.getInstructions().filter((i: any) => inRange(i, range));
-    const idx = indexInstructions(mpm2);
-    const peaks: InstructionDiff[] = [];
-    for (const instruction of allInstructions) {
-        const corresp = idx.get(`${instruction.type}::${instruction["xml:id"]}`);
-        if (!corresp) continue;
-        const attrs = ATTRS_TO_COMPARE[instruction.type];
-        if (!attrs) continue;
-        const diffs: Record<string, { ref: number; student: number; delta: number }> = {};
-        let magnitude = 0, hasSignificant = false;
-        for (const attr of attrs) {
-            const refVal = instruction[attr], studentVal = corresp[attr];
-            if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
-            const delta = studentVal - refVal;
-            if (Math.abs(delta) >= (THRESHOLDS[attr] ?? 0)) hasSignificant = true;
-            diffs[attr] = { ref: refVal, student: studentVal, delta };
-            magnitude += Math.abs(delta);
-        }
-        if (!hasSignificant || Object.keys(diffs).length === 0) continue;
-        peaks.push({ date: instruction.date, type: instruction.type, diffs, magnitude });
-    }
-    return peaks;
-};
-
-const formatTable = (headers: string[], rows: string[][]): string => {
-    const widths = headers.map((h, i) =>
-        Math.max(h.length, ...rows.map(r => (r[i] || '').length))
-    );
-    const fmtRow = (row: string[]) =>
-        '  ' + row.map((cell, i) => (cell || '').padEnd(widths[i])).join(' | ');
-    return [fmtRow(headers), ...rows.map(fmtRow)].join('\n');
-};
-
-const tempoRow = (p: InstructionDiff): string[] => {
-    const bpm = p.diffs['bpm'];
-    const trans = p.diffs['transition.to'];
-    const sev = severity('bpm', bpm.delta);
-    let transition = '';
-    if (trans && Math.abs(trans.delta) >= THRESHOLDS['transition.to']) {
-        const refDir = trans.ref > bpm.ref ? 'accel' : trans.ref < bpm.ref ? 'rit' : 'const';
-        const stuDir = trans.student > bpm.student ? 'accel' : trans.student < bpm.student ? 'rit' : 'const';
-        if (refDir === stuDir) {
-            transition = `both ${refDir} (ref ${Math.round(trans.ref)}, stu ${Math.round(trans.student)})`;
-        } else {
-            transition = `ref ${refDir} ${Math.round(trans.ref)}, stu ${stuDir} ${Math.round(trans.student)}`;
-        }
-    }
-    return [tickToPos(p.date), sev, `${Math.round(bpm.ref)} bpm`, `${Math.round(bpm.student)} bpm`, transition];
-};
-
-const dynamicsRow = (p: InstructionDiff): string[] => {
-    const vol = p.diffs['volume'];
-    const trans = p.diffs['transition.to'];
-    const sev = severity('volume', vol.delta);
-    let transition = '';
-    if (trans && Math.abs(trans.delta) >= THRESHOLDS['transition.to']) {
-        const refDir = trans.ref > vol.ref ? 'cresc' : trans.ref < vol.ref ? 'decresc' : 'const';
-        const stuDir = trans.student > vol.student ? 'cresc' : trans.student < vol.student ? 'decresc' : 'const';
-        if (refDir === stuDir) {
-            transition = `both ${refDir} (ref ${dynLabel(trans.ref)}(${Math.round(trans.ref)}), stu ${dynLabel(trans.student)}(${Math.round(trans.student)}))`;
-        } else {
-            transition = `ref ${refDir} ${dynLabel(trans.ref)}(${Math.round(trans.ref)}), stu ${stuDir} ${dynLabel(trans.student)}(${Math.round(trans.student)})`;
-        }
-    }
-    return [tickToPos(p.date), sev, `${dynLabel(vol.ref)}(${Math.round(vol.ref)})`, `${dynLabel(vol.student)}(${Math.round(vol.student)})`, transition];
-};
-
-const genericRow = (p: InstructionDiff): string[] => {
-    const entries = Object.entries(p.diffs)
-        .filter(([, { delta }]) => Math.abs(delta) >= (THRESHOLDS['intensity'] ?? 0));
-    const maxSev = entries.reduce((s, [attr, { delta }]) => {
-        const sv = severity(attr, delta);
-        return sv === 'large' ? 'large' : sv === 'mod' && s !== 'large' ? 'mod' : s;
-    }, 'slight' as string);
-    const refParts = entries.map(([attr, { ref }]) =>
-        `${attr}: ${ref.toFixed(1)}`);
-    const stuParts = entries.map(([attr, { student }]) =>
-        `${attr}: ${student.toFixed(1)}`);
-    return [tickToPos(p.date), maxSev, refParts.join(', '), stuParts.join(', ')];
-};
-
-const TYPE_ORDER = ['tempo', 'dynamics', 'articulation', 'rubato', 'ornament', 'accentuationPattern', 'asynchrony'];
-const TYPE_LABELS: Record<string, string> = {
-    tempo: 'TEMPO', dynamics: 'DYNAMICS', articulation: 'ARTICULATION',
-    rubato: 'RUBATO', ornament: 'ORNAMENTS (arpeggio)',
-    accentuationPattern: 'METRIC ACCENTS', asynchrony: 'VOICE ASYNCHRONY',
-};
-
-const severityRank = (value: string): number =>
-    value === 'large' ? 3 : value === 'mod' ? 2 : 1;
-
-const primaryDiffEntry = (p: InstructionDiff): [string, { ref: number; student: number; delta: number }] => {
-    const entries = Object.entries(p.diffs)
-        .filter(([attr, { delta }]) => Math.abs(delta) >= (THRESHOLDS[attr] ?? 0));
-    if (entries.length === 0) {
-        return Object.entries(p.diffs)[0];
-    }
-
-    entries.sort((a, b) => {
-        const sevDelta = severityRank(severity(b[0], b[1].delta)) - severityRank(severity(a[0], a[1].delta));
-        if (sevDelta !== 0) return sevDelta;
-        return Math.abs(b[1].delta) - Math.abs(a[1].delta);
-    });
-    return entries[0];
-};
-
-const cueTextForDiff = (
-    type: string,
-    attr: string,
-    delta: number,
-): { cueText: string; direction: 'more' | 'less' } => {
-    if (type === 'dynamics' && attr === 'volume') {
-        return delta > 0 ? { cueText: 'leiser', direction: 'less' } : { cueText: 'lauter', direction: 'more' };
-    }
-    if (type === 'dynamics' && attr === 'transition.to') {
-        return delta > 0 ? { cueText: 'weniger Crescendo', direction: 'less' } : { cueText: 'mehr Crescendo', direction: 'more' };
-    }
-    if (type === 'tempo' && (attr === 'bpm' || attr === 'transition.to')) {
-        return delta > 0 ? { cueText: 'ruhiger', direction: 'less' } : { cueText: 'bewegter', direction: 'more' };
-    }
-    if (type === 'articulation' && attr === 'relativeDuration') {
-        return delta < 0 ? { cueText: 'mehr Legato', direction: 'more' } : { cueText: 'kuerzer', direction: 'less' };
-    }
-    if (type === 'articulation' && attr === 'relativeVelocity') {
-        return delta > 0 ? { cueText: 'weniger Akzent', direction: 'less' } : { cueText: 'mehr Akzent', direction: 'more' };
-    }
-    if (type === 'rubato' && attr === 'intensity') {
-        return delta > 0 ? { cueText: 'ruhiger im Puls', direction: 'less' } : { cueText: 'mehr atmen', direction: 'more' };
-    }
-    if (type === 'accentuationPattern' && attr === 'scale') {
-        return delta > 0 ? { cueText: 'weniger betonen', direction: 'less' } : { cueText: 'mehr betonen', direction: 'more' };
-    }
-    if (type === 'ornament' && (attr === 'intensity' || attr === 'frameLength')) {
-        return delta > 0 ? { cueText: 'naeher zusammen', direction: 'less' } : { cueText: 'etwas breiter', direction: 'more' };
-    }
-    if (type === 'ornament' && attr === 'scale') {
-        return delta > 0 ? { cueText: 'gleichmaessiger', direction: 'less' } : { cueText: 'oben mehr zeigen', direction: 'more' };
-    }
-    if (type === 'asynchrony' && attr === 'milliseconds.offset') {
-        return { cueText: 'mehr zusammen', direction: 'less' };
-    }
-    return delta > 0 ? { cueText: 'weniger', direction: 'less' } : { cueText: 'mehr', direction: 'more' };
-};
-
-const UNCLEAR_CUE_PATTERNS = [
-    /\bstaffel/i,
-    /\barpeggi/i,
-    /\bagog/i,
-    /\bphrasierungskurve/i,
-];
-const TOO_VAGUE_CUES = new Set(['mehr', 'weniger']);
-const ALLOWED_V3_TAGS = new Set([
-    'warmly',
-    'encouragingly',
-    'softly',
-    'whispers',
-    'slowly',
-    'urgent',
-    'curious',
-    'excited',
-    'sad',
-    'gently',
-]);
-const V3_TAG_ALIASES: Record<string, string> = {
-    inviting: 'warmly',
-    leading: 'encouragingly',
-    resolving: 'softly',
-    releasing: 'softly',
-    neutral: 'slowly',
-    guiding: 'encouragingly',
-    supportive: 'warmly',
-    tenderly: 'gently',
-};
-
-const normalizeV3Tag = (rawTag: string): string | null => {
-    const normalized = rawTag.trim().toLowerCase();
-    if (!normalized) return null;
-    if (ALLOWED_V3_TAGS.has(normalized)) return normalized;
-    return V3_TAG_ALIASES[normalized] ?? null;
-};
-
-const normalizeCueText = (text: string, fallback: string): string => {
-    const normalized = text
-        .replace(/\s+/g, ' ')
-        .replace(/[.!?]+$/g, '')
-        .trim();
-    if (!normalized) return fallback;
-
-    const leadingTagMatch = normalized.match(/^\[([a-zA-Z][a-zA-Z ]{0,23})\]\s*/);
-    const normalizedTag = leadingTagMatch ? normalizeV3Tag(leadingTagMatch[1]) : null;
-    const body = normalized
-        .slice(leadingTagMatch?.[0].length ?? 0)
-        .replace(/\[[^\]]*\]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    const words = body.split(' ').filter(Boolean);
-    const shortened = words.length > 5 ? words.slice(0, 5).join(' ') : body;
-    if (!shortened) return fallback;
-    if (TOO_VAGUE_CUES.has(shortened.toLowerCase())) return fallback;
-    if (UNCLEAR_CUE_PATTERNS.some((pattern) => pattern.test(shortened))) return fallback;
-    return normalizedTag ? `[${normalizedTag}] ${shortened}` : shortened;
-};
-
-const topDiffsByType = (peaks: InstructionDiff[], perTypeN: number): InstructionDiff[] => {
-    const byType = new Map<string, InstructionDiff[]>();
-    for (const p of peaks) {
-        const group = byType.get(p.type) ?? [];
-        group.push(p);
-        byType.set(p.type, group);
-    }
-
-    const selected: InstructionDiff[] = [];
-    for (const [, items] of byType) {
-        items.sort((a, b) => b.magnitude - a.magnitude);
-        selected.push(...items.slice(0, perTypeN));
-    }
-    return selected;
-};
-
-const diffStructured = (
-    mpm1: MPM,
-    mpm2: MPM,
-    range: Range,
-    perTypeN: number = 3,
-): StructuredDiffEvent[] => {
-    const peaks = collectDiffs(mpm1, mpm2, range);
-    if (peaks.length === 0) return [];
-
-    return topDiffsByType(peaks, perTypeN)
-        .sort((a, b) => a.date - b.date || b.magnitude - a.magnitude)
-        .map((p, index) => {
-            const [primaryAttr, primary] = primaryDiffEntry(p);
-            const sev = severity(primaryAttr, primary.delta) as StructuredDiffEvent['severity'];
-            const cue = cueTextForDiff(p.type, primaryAttr, primary.delta);
-            return {
-                id: `${p.type}_${p.date}_${index}`,
-                date: p.date,
-                position: tickToPos(p.date),
-                type: p.type,
-                severity: sev,
-                primaryAttr,
-                magnitude: p.magnitude,
-                cueText: cue.cueText,
-                direction: cue.direction,
-                refValue: primary.ref,
-                studentValue: primary.student,
-            };
-        });
-};
-
-const PPQ_POS = 720;
-const BEATS_PER_MEASURE_POS = 4;
-
-const compareEvents = (a: StructuredDiffEvent, b: StructuredDiffEvent): number => {
-    const sevA = severityRank(a.severity);
-    const sevB = severityRank(b.severity);
-    if (sevB !== sevA) return sevB - sevA;
-    return b.magnitude - a.magnitude;
-};
-
-const positionToTick = (position: string): number | null => {
-    const match = /^m(\d+)\.(\d+)$/.exec(position.trim());
-    if (!match) return null;
-
-    const measure = Number(match[1]);
-    const beat = Number(match[2]);
-    if (!Number.isFinite(measure) || !Number.isFinite(beat) || measure < 1 || beat < 1 || beat > BEATS_PER_MEASURE_POS) {
-        return null;
-    }
-
-    return ((measure - 1) * BEATS_PER_MEASURE_POS + (beat - 1)) * PPQ_POS;
-};
-
-const resolveTeacherCuePlan = (
-    diffEvents: StructuredDiffEvent[],
-    timingMap: Array<{ date: number; sec: number }>,
-    drafts: Array<{ position: string; text: string }>,
-): TeacherCue[] => {
-    if (drafts.length === 0) return planTeacherCues(diffEvents, timingMap);
-
-    const byPosition = new Map<string, StructuredDiffEvent[]>();
-    for (const event of diffEvents) {
-        const group = byPosition.get(event.position) ?? [];
-        group.push(event);
-        byPosition.set(event.position, group);
-    }
-    const accepted: TeacherCue[] = [];
-    const used = new Set<string>();
-
-    for (const draft of drafts) {
-        const events = byPosition.get(draft.position);
-        if (!events || used.has(draft.position)) continue;
-
-        const [event] = events.slice().sort(compareEvents);
-        const anchorDate = positionToTick(draft.position) ?? event.date;
-        const atSec = Math.max(0, secAtDate(timingMap, anchorDate) - 0.08);
-        const tooClose = accepted.some((cue) => Math.abs(cue.atSec - atSec) < 1.2);
-        if (tooClose) continue;
-
-        accepted.push({
-            id: `cue_${accepted.length + 1}_${draft.position.replace(/[^\w]+/g, '_')}`,
-            atSec,
-            text: normalizeCueText(draft.text, event.cueText),
-            anchorDate,
-            severity: event.severity,
-            type: event.type,
-            priority: severityRank(event.severity) * 1000 + event.magnitude,
-        });
-        used.add(draft.position);
-        if (accepted.length >= 4) break;
-    }
-
-    return accepted.length > 0 ? accepted.sort((a, b) => a.atSec - b.atSec) : planTeacherCues(diffEvents, timingMap);
-};
-
-const diff = (mpm1: MPM, mpm2: MPM, range: Range, topN: number = 10): string => {
-    const peaks = collectDiffs(mpm1, mpm2, range);
-    if (peaks.length === 0) return "No significant differences found.";
-
-    peaks.sort((a, b) => b.magnitude - a.magnitude);
-    const top = peaks.slice(0, topN);
-
-    const grouped = new Map<string, InstructionDiff[]>();
-    for (const p of top) {
-        const group = grouped.get(p.type) ?? [];
-        group.push(p);
-        grouped.set(p.type, group);
-    }
-
-    const rangeStr = `${tickToPos(range.from)}–${tickToPos(range.to)}`;
-    const sections: string[] = [`${top.length} deviations in ${rangeStr}:`];
-
-    for (const type of TYPE_ORDER) {
-        const items = grouped.get(type);
-        if (!items) continue;
-        items.sort((a, b) => a.date - b.date);
-
-        const label = TYPE_LABELS[type] ?? type;
-        let headers: string[];
-        let rows: string[][];
-
-        if (type === 'tempo') {
-            headers = ['pos', 'sev', 'ref', 'student', 'transition'];
-            rows = items.map(p => tempoRow(p));
-        } else if (type === 'dynamics') {
-            headers = ['pos', 'sev', 'ref', 'student', 'transition'];
-            rows = items.map(p => dynamicsRow(p));
-        } else {
-            headers = ['pos', 'sev', 'ref', 'student'];
-            rows = items.map(p => genericRow(p));
-        }
-
-        sections.push(`\n${label} (${items.length}):\n${formatTable(headers, rows)}`);
-    }
-
-    return sections.join('\n');
-};
-
-const logExaggerate = (ref: number, student: number, aggressiveness: number, min: number, max: number): number => {
-    if (student <= 0 || ref <= 0) return ref;
-    return Math.max(min, Math.min(max, ref * Math.pow(ref / student, aggressiveness)));
-};
-
-const EXAGGERATION_TUNING: Record<string, Record<string, { strength: number; maxAbsDelta: number }>> = {
-    dynamics: {
-        volume: { strength: 0.45, maxAbsDelta: 12 },
-        'transition.to': { strength: 0.45, maxAbsDelta: 12 },
-    },
-    tempo: {
-        bpm: { strength: 0.35, maxAbsDelta: 10 },
-        'transition.to': { strength: 0.35, maxAbsDelta: 10 },
-    },
-    articulation: {
-        relativeDuration: { strength: 0.5, maxAbsDelta: 0.2 },
-        relativeVelocity: { strength: 0.45, maxAbsDelta: 0.2 },
-    },
-    rubato: {
-        intensity: { strength: 0.25, maxAbsDelta: 0.15 },
-    },
-    ornament: {
-        scale: { strength: 0.4, maxAbsDelta: 0.8 },
-        intensity: { strength: 0.35, maxAbsDelta: 0.25 },
-    },
-    asynchrony: {
-        'milliseconds.offset': { strength: 0.35, maxAbsDelta: 40 },
-    },
-    accentuationPattern: {
-        scale: { strength: 0.4, maxAbsDelta: 0.6 },
-    },
-};
-
-const applyExaggerationCap = (
-    refVal: number,
-    exaggeratedVal: number,
-    maxAbsDelta: number,
-    min: number,
-    max: number,
-): number => {
-    const lower = Math.max(min, refVal - maxAbsDelta);
-    const upper = Math.min(max, refVal + maxAbsDelta);
-    return Math.max(lower, Math.min(upper, exaggeratedVal));
-};
-
-const EXAGGERATION_SPEC: Record<string, Array<{ attr: string; min: number; max: number }>> = {
-    dynamics: [{ attr: 'volume', min: 1, max: 127 }, { attr: 'transition.to', min: 1, max: 127 }],
-    tempo: [{ attr: 'bpm', min: 10, max: 300 }, { attr: 'transition.to', min: 10, max: 300 }],
-    articulation: [{ attr: 'relativeDuration', min: 0.1, max: 5 }, { attr: 'relativeVelocity', min: 0.1, max: 5 }],
-    rubato: [{ attr: 'intensity', min: 0.01, max: 10 }],
-    ornament: [{ attr: 'scale', min: 0.1, max: 20 }],
-    asynchrony: [{ attr: 'milliseconds.offset', min: -500, max: 500 }],
-    accentuationPattern: [{ attr: 'scale', min: 0, max: 10 }],
-};
-
-const exaggerate = (mpm1: MPM, mpm2: MPM, range: Range, aggressiveness: number = 1) => {
-    const allInstructions: any[] = mpm1.getInstructions().filter((i: any) => inRange(i, range));
-    const idx = indexInstructions(mpm2);
-    for (const instruction of allInstructions) {
-        const corresp = idx.get(`${instruction.type}::${instruction["xml:id"]}`);
-        if (!corresp) continue;
-        const specs = EXAGGERATION_SPEC[instruction.type];
-        if (!specs) continue;
-        for (const { attr, min, max } of specs) {
-            const refVal = instruction[attr], studentVal = corresp[attr];
-            if (typeof refVal !== 'number' || typeof studentVal !== 'number') continue;
-            const tuning = EXAGGERATION_TUNING[instruction.type]?.[attr] ?? { strength: 1, maxAbsDelta: max };
-            const effectiveAggressiveness = aggressiveness * tuning.strength;
-            if (instruction.type === 'asynchrony') {
-                const exaggerated = refVal - (studentVal - refVal) * effectiveAggressiveness;
-                instruction[attr] = applyExaggerationCap(refVal, exaggerated, tuning.maxAbsDelta, min, max);
-            } else {
-                const exaggerated = logExaggerate(refVal, studentVal, effectiveAggressiveness, min, max);
-                instruction[attr] = applyExaggerationCap(refVal, exaggerated, tuning.maxAbsDelta, min, max);
-            }
-        }
-    }
-};
-
-// ── Large-scale deviation detection ──
 
 // ── Student MPM builder ──
 
@@ -1090,36 +476,34 @@ const scenarios: Scenario[] = [
 
 // ── Main ──
 
+/**
+ * Boot, from disk instead of over `fetch` — otherwise exactly `client/src/pipeline/boot.ts`:
+ * the score as MSM, Grünfeld's two documents (the editorial one every `xml:id` is read from,
+ * the fitted one the comparison is made against), and one render of the editorial document
+ * over the score for the matcher's reference side.
+ */
 console.log('Loading resources...');
 const mei = fs.readFileSync('client/public/score.mei', 'utf8');
-const infoJson = fs.readFileSync('client/public/info.json', 'utf8');
+const referenceMpmText = fs.readFileSync('client/public/performance.mpm', 'utf8');
+const fittedReferenceMpmText = fs.readFileSync('client/public/reference.fitted.mpm', 'utf8');
 
 console.log('Converting MEI → MSM...');
-const msmXml = convert(mei);
+const scoreMsm = convert(mei);
 
-const msmNotes = parseMsmNotes(msmXml);
-const matched = enrichWithPerformanceData(msmNotes, mei);
-const enrichedNotes = msmNotes.filter((n: any) => typeof n['midi.onset'] === 'number');
-console.log(`  ${enrichedNotes.length} notes with performance data (${matched} enriched)`);
+console.log('Rendering the reference for the matcher...');
+const performed = measuredNotesFromPerformanceData(
+    performMsmToData({ msm: scoreMsm, mpm: referenceMpmText }, { expandOrnaments: false }),
+);
+const scoreNotes = withoutUnisons(performed);
+console.log(`  ${scoreNotes.length} notes (${performed.length - scoreNotes.length} unisons folded)`);
 
-console.log('Building reference MPM...');
-const origLog = console.log;
-console.log = () => {};
-const baseMsm = new MSM(enrichedNotes, { numerator: 4, denominator: 4 });
-const referenceMpm = buildMpm(baseMsm, infoJson);
-console.log = origLog;
-console.log(`  Reference: ${referenceMpm.getInstructions().length} instructions`);
-
-// Load harmonic reduction (optional — enables two-pass mode)
+// Load harmonic reduction (optional — the mood chord needs it)
 let reductionMei: string | undefined;
-let reductionMsmNotes: any[] | undefined;
+let reductionNotes: ReturnType<typeof withoutUnisons> | undefined;
 try {
     reductionMei = fs.readFileSync('client/public/harmonic_reduction.mei', 'utf8');
-    console.log(`  Reduction MEI: ${reductionMei.length} bytes`);
-
-    reductionMsmNotes = parseMsmNotes(convert(reductionMei));
-    // No performance enrichment — reduction has no <when> elements
-    console.log(`  Reduction MSM: ${reductionMsmNotes.length} notes`);
+    reductionNotes = withoutUnisons(measuredNotesFromMsmText(convert(reductionMei)));
+    console.log(`  Reduction: ${reductionNotes.length} notes`);
 } catch (e: any) {
     console.log(`  Harmonic reduction not available: ${e.message}`);
 }
@@ -1135,39 +519,66 @@ for (const scenario of scenarios) {
     console.log('═'.repeat(60));
 
     // 1. Render student MIDI
-    console.log('  [1/7] Rendering student MIDI...');
+    console.log('  [1/8] Rendering student MIDI...');
     const studentMidiBytes = render(mei, scenario.mpm, { from: scenario.startDate, to: scenario.endDate });
     if (!studentMidiBytes) throw new Error(`${scenario.name}: student render produced nothing`);
     const studentMidPath = `${OUT_DIR}/${scenario.name}_student.mid`;
     fs.writeFileSync(studentMidPath, studentMidiBytes);
 
-    // 2. Match + implant (local matcher — same as frontend)
-    console.log('  [2/7] Matching & implanting...');
+    // 2. Match + implant (the same matcher the browser runs)
+    console.log('  [2/8] Matching & implanting...');
     const midiFile = readMidi(studentMidiBytes);
     const dateHint = (scenario.startDate + scenario.endDate) / 2;
-    const { studentMsm, range } = implantLocal(baseMsm, midiFile, dateHint);
+    const { notes, range } = implantLocal(scoreNotes, midiFile, dateHint);
     console.log(`    Implant range: [${range.from}, ${range.to}]`);
 
-    // 3. Build student MPM via mpmify
-    console.log('  [3/7] Building student MPM...');
-    console.log = () => {};
-    const studentMpm = buildMpm(studentMsm, infoJson);
-    console.log = origLog;
+    // 3. Fit the take into Grünfeld's slots and price it against him. In the app this runs in
+    //    a Web Worker (`workers/evidenceClient.ts`); here it is the same pure call, direct.
+    console.log('  [3/8] Fitting the take + comparing against Grünfeld...');
+    const evidence = evidenceForTake({
+        notes,
+        range,
+        scoreMsm,
+        referenceMpmText,
+        fittedReferenceMpmText,
+    });
+    console.log(
+        `    fit_ms=${Math.round(evidence.timings.fitMs)} compare_ms=${Math.round(evidence.timings.evidenceMs)}`
+        + ` aggregate=${evidence.aggregateJnd.toFixed(2)} JND`
+        + ` (${Math.round(evidence.subThresholdFraction * 100)}% sub-threshold)`,
+    );
+    console.log(`    fitted=[${evidence.filled.join(', ')}] measured=[${evidence.measuredTypes.join(', ')}]`);
+    for (const { type, reason } of evidence.suppressed) console.log(`    gate closed ${type} — ${reason}`);
 
-    // 4. Diff
-    console.log('  [4/8] Diffing reference vs student...');
-    const diffResult = diff(referenceMpm, studentMpm, range);
-    console.log(`    ${diffResult.split('\n')[0]}`);
-    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_diff.txt`, diffResult);
+    const { diffSummary, structuredDiff } = evidence;
+    console.log(`    ${diffSummary.split('\n')[0]}`);
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_diff.txt`, diffSummary);
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_student.mpm`, evidence.studentMpmText);
 
-    const structuredDiffs = diffStructured(referenceMpm, studentMpm, range);
-    const judgementSummary = summarizeImmediateJudgement(structuredDiffs, range);
+    const judgementSummary = summarizeImmediateJudgement(structuredDiff, range, {
+        distanceJnd: evidence.aggregateJnd,
+        subThresholdFraction: evidence.subThresholdFraction,
+    });
 
-    // 5. Exaggerate
-    console.log('  [5/8] Exaggerating reference MPM...');
-    const teacherMpm = deepCloneMpm(referenceMpm);
-    exaggerate(teacherMpm, studentMpm, range, AGGRESSIVENESS);
-    const teacherMpmXml = exportMPM(teacherMpm);
+    // 4. The counter-performance: Grünfeld's own document, pushed away from this student's
+    //    levels inside the take's range and capped, with every dimension the take did not
+    //    measure left alone (`mpm/counter.ts`).
+    console.log('  [4/8] Shaping the counter-performance...');
+    const teacherMpmXml = counterPerformance({
+        referenceMpmText,
+        range,
+        dimensions: allDimensions(AGGRESSIVENESS),
+        center: studentCenter(evidence.levels),
+        events: structuredDiff,
+        measured: evidence.measuredTypes,
+        log: (msg) => console.log(`    ${msg}`),
+    });
+    fs.writeFileSync(`${OUT_DIR}/${scenario.name}_teacher.mpm`, teacherMpmXml);
+
+    if (DRY_RUN) {
+        console.log('  [5/8] DRY_RUN=1 — stopping before the teacher server.');
+        continue;
+    }
 
     // Helper: render a MIDI performance
     const renderMidi = async (
@@ -1183,12 +594,12 @@ for (const scenario of scenarios) {
         return midiBytes;
     };
 
-    // 6. Render teacher correction MIDI + request unified vocal stream in parallel
-    console.log('  [6/8] Rendering teacher MIDI + requesting vocal stream...');
+    // 5. Render teacher correction MIDI + request unified vocal stream in parallel
+    console.log('  [5/8] Rendering teacher MIDI + requesting vocal stream...');
 
     // Build candidates for teacher-stream
     const positions = new Map<string, StructuredDiffEvent[]>();
-    for (const event of structuredDiffs) {
+    for (const event of structuredDiff) {
         const group = positions.get(event.position) ?? [];
         group.push(event);
         positions.set(event.position, group);
@@ -1207,7 +618,7 @@ for (const scenario of scenarios) {
 
     const [correctionBytes, teacherStreamResp] = await Promise.all([
         renderMidi('teacher', mei, range),
-        requestTeacherStream(judgementSummary, diffResult, candidates, CUE_PREP_MODE),
+        requestTeacherStream(judgementSummary, diffSummary, candidates, CUE_PREP_MODE),
     ]);
 
     // Save vocal stream info
@@ -1236,10 +647,8 @@ for (const scenario of scenarios) {
     }
 
     // Build timing map from correction MIDI
-    const correctionMidi = readMidi(
-        correctionBytes.buffer.slice(correctionBytes.byteOffset, correctionBytes.byteOffset + correctionBytes.byteLength),
-    );
-    const timingMap = buildTimingMap(measuredNotesFromMsm(baseMsm), correctionMidi, range);
+    const correctionMidi = readMidi(bytesOf(correctionBytes));
+    const timingMap = buildTimingMap(scoreNotes, correctionMidi, range);
 
     // Map vocal chunks to playback times
     const judgeChunk = vocalChunks.find(c => c.marker === 'JUDGE');
@@ -1247,26 +656,21 @@ for (const scenario of scenarios) {
     const JUDGE_TO_CORRECTION_BUFFER_SEC = 0.2;
     const correctionEntrySec = judgeDurationSec + JUDGE_TO_CORRECTION_BUFFER_SEC;
 
-    // Build mood chord from harmonic reduction (if available)
+    // 6. Build mood chord from harmonic reduction (if available)
+    console.log('  [6/8] Mood chord + cue layout...');
     let moodPlan: ReturnType<typeof buildJudgementMoodRenderPlan> = null;
     let moodBytes: Buffer | null = null;
-    if (reductionMei && reductionMsmNotes) {
-        const reductionBaseMsm = new MSM(reductionMsmNotes, { numerator: 4, denominator: 4 });
+    if (reductionMei && reductionNotes) {
         moodPlan = buildJudgementMoodRenderPlan(
-            measuredNotesFromMsm(reductionBaseMsm),
-            measuredNotesFromMsm(baseMsm),
-            teacherMpm,
+            reductionNotes,
+            scoreNotes,
+            referenceMpmText,
             range.from,
             { minimumPedalHoldMs: correctionEntrySec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },
         );
         if (moodPlan) {
             console.log(`    Mood chord at ${moodPlan.chordDate} (notes=${moodPlan.noteCount})...`);
-            moodBytes = await renderMidi(
-                'reduction',
-                reductionMei,
-                moodPlan.range,
-                { mpmXml: exportMPM(moodPlan.mpm as MPM) },
-            );
+            moodBytes = await renderMidi('reduction', reductionMei, moodPlan.range, { mpmXml: moodPlan.mpm });
         }
     }
 
@@ -1333,12 +737,10 @@ for (const scenario of scenarios) {
         const teacherMixedWav = `${OUT_DIR}/${scenario.name}_teacher_with_vocal.wav`;
 
         let finalMidPath: string;
-        let finalScheduledChunks = scheduledChunks;
+        const finalScheduledChunks = scheduledChunks;
 
         if (moodBytes && moodPlan) {
-            const moodMidi = readMidi(
-                moodBytes.buffer.slice(moodBytes.byteOffset, moodBytes.byteOffset + moodBytes.byteLength),
-            );
+            const moodMidi = readMidi(bytesOf(moodBytes));
             const connectedMidi = appendMidiWithOffset(
                 moodMidi,
                 correctionMidi,
@@ -1356,12 +758,7 @@ for (const scenario of scenarios) {
 
         // Export visualization data for render_teacher_pianoroll.py
         const teacherVizBytes = fs.readFileSync(finalMidPath);
-        const teacherVizMidi = readMidi(
-            teacherVizBytes.buffer.slice(
-                teacherVizBytes.byteOffset,
-                teacherVizBytes.byteOffset + teacherVizBytes.byteLength,
-            ),
-        );
+        const teacherVizMidi = readMidi(bytesOf(teacherVizBytes));
         const teacherNotes = extractMidiNoteEvents(teacherVizMidi);
         const pedalEvents = extractPedalEvents(teacherVizMidi);
         const vizData = {

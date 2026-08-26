@@ -30,7 +30,7 @@ import {
 } from 'espressivo';
 import type { Range } from '../mpm/types';
 
-/** The tick grid every date in this project speaks — mpmify, the diff and the matcher all assume it. */
+/** The tick grid every date in this project speaks — the fit, the diff and the matcher all assume it. */
 const PPQ = 720;
 
 const conversions = new Map<string, Msm>();

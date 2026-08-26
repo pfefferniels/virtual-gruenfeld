@@ -1,4 +1,4 @@
-import { allDimensions, exaggerate } from '../../mpm';
+import { allDimensions, counterPerformance, studentCenter, type ExaggerationDimension } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
 import { isAgenticTeacher } from '../../featureFlags';
 import { fallbackImmediateJudgement } from '../../judgement';
@@ -27,13 +27,25 @@ const NO_STREAM: VocalStreamResult = { chunks: [], plan: null };
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
     const { log, isCancelled, play, playAudioBuffer, audioContext, mode, takeStartedAt, onJudgement, aiAvailable } = controls;
 
+    // The counter-performance is built from the reference **text** every time, so the two
+    // branches below cannot come to share a document and `mode: 'reference'` always plays
+    // Grünfeld untouched (semantics 30).
+    const shape = (range: typeof take.range, dimensions: readonly ExaggerationDimension[]): string =>
+        counterPerformance({
+            referenceMpmText: ctx.referenceMpmText,
+            range,
+            dimensions,
+            center: studentCenter(take.levels),
+            events: take.structuredDiff,
+            measured: take.measuredTypes,
+            log,
+        });
+
     // With fixed pedagogy the demo is known before the teacher speaks, so it is
     // shaped here and renders while the model is still thinking. Agentic takes
     // cannot: the plan arrives with the monologue, so the two steps serialize.
     const agentic = aiAvailable && isAgenticTeacher();
-    if (!agentic) {
-        exaggerate(take.referenceMpmClone, take.studentMpm, take.range, allDimensions(), log);
-    }
+    let counterMpm: string | null = agentic ? null : shape(take.range, allDimensions());
 
     const vocalStreamPromise = aiAvailable
         ? requestVocalStream(
@@ -70,19 +82,18 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     if (agentic && demoMode === 'exaggerated') {
         const dimensions = plan && plan.dimensions.length > 0 ? plan.dimensions : allDimensions();
-        exaggerate(take.referenceMpmClone, take.studentMpm, demoRange, dimensions, log);
+        counterMpm = shape(demoRange, dimensions);
     }
 
     // `none` skips the render entirely; `reference` plays Grünfeld untouched.
     let demoPerf: ReturnType<typeof performTeacherPlayback> = undefined;
     if (demoMode !== 'none') {
         const performStartedAt = Date.now();
-        demoPerf = performTeacherPlayback(
-            ctx.mei,
-            ctx.scoreNotes,
-            demoMode === 'reference' ? ctx.referenceMpm : take.referenceMpmClone,
-            demoRange,
-        );
+        // `reference` plays the pristine document; `exaggerated` plays the splice, which is a
+        // copy of it. A demo mode with no counter-performance behind it falls back to Grünfeld
+        // rather than to nothing.
+        const demoMpm = demoMode === 'exaggerated' && counterMpm !== null ? counterMpm : ctx.referenceMpmText;
+        demoPerf = performTeacherPlayback(ctx.mei, ctx.scoreNotes, demoMpm, demoRange);
         log(`PLAY: ${demoMode === 'reference' ? 'reference' : 'correction'} perform_ms=${Date.now() - performStartedAt}`);
         if (isCancelled() || !demoPerf) return;
 
@@ -126,7 +137,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
         ? buildJudgementMoodRenderPlan(
             ctx.reductionNotes,
             ctx.scoreNotes,
-            take.referenceMpmClone,
+            ctx.referenceMpmText,
             demoRange.from,
             { minimumPedalHoldMs: narrationMs },
         )

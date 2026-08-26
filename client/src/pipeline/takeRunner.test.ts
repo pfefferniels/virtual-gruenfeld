@@ -10,16 +10,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import type { Evidence } from '../mpm/evidence';
 import { PPQ } from '../shared/constants';
-import type { PipelineContext, TakeRunnerControls } from './types';
+import type { PipelineContext, TakeRunnerControls, TakeSnapshot } from './types';
 
 const runEvidence = vi.fn();
 
 vi.mock('../workers/evidenceClient', () => ({
     runEvidence: (...args: unknown[]) => runEvidence(...args),
-}));
-vi.mock('../mpm', () => ({
-    counterPerformanceBase: (text: string) => ({ id: `base(${text})` }),
-    studentInstructionsFrom: (text: string) => ({ id: `student(${text})` }),
 }));
 
 const { runTake } = await import('./takeRunner');
@@ -138,8 +134,13 @@ describe('a take superseded while it was being evidenced', () => {
         expect(diffs).toEqual(['nothing to report']);
         expect(judgements).toEqual(['']);
         expect(strategy).toHaveBeenCalledTimes(1);
-        const [, take] = strategy.mock.calls[0] as unknown as [unknown, { studentMpm: unknown }];
-        expect(take.studentMpm).toEqual({ id: 'student(<student/>)' });
+        // The snapshot the strategy receives is the evidence's own: the student's levels (the
+        // counter-performance's fixed point), what was measured, and the diff — no MPM object.
+        const [, take] = strategy.mock.calls[0] as unknown as [unknown, TakeSnapshot];
+        expect(take.range).toEqual({ from: 720, to: 13680 });
+        expect(take.diffSummary).toBe('nothing to report');
+        expect(take.measuredTypes).toEqual(['tempo']);
+        expect(take.levels).toEqual(EVIDENCE.levels);
     });
 });
 

@@ -6,11 +6,20 @@ import type { PipelineContext, ScheduledCue, StrategyControls, TakeSnapshot } fr
 import type { VocalChunk } from '../chunker';
 
 // ── Seams ──
-// Everything below the strategy is faked: the Java renderer, the teacher service,
-// the MIDI assembly. What is under test is only which of them gets called, with
-// which range, and in which order.
+// Everything below the strategy is faked: the renderer, the teacher service, the MIDI
+// assembly. What is under test is only which of them gets called, with which range, and in
+// which order.
+//
+// **The counter-performance's contract changed with S6** and these assertions changed with it,
+// deliberately: `exaggerate(ref, student, range, dimensions, log)` mutated an `mpm-ts` document
+// in place and returned nothing, so the test asserted the four positional arguments. Its
+// replacement, `counterPerformance({...})`, takes one named bag — the reference as **text**,
+// the range, the dimensions, the student's own levels as the pivot, the take's findings and
+// the types it measured — and *returns* the demonstration as text. So the four positional
+// checks became four named ones, and "which document was performed" became a string identity
+// rather than an object identity.
 
-const exaggerate = vi.fn();
+const counterPerformance = vi.fn();
 const performTeacherPlayback = vi.fn();
 const requestVocalStream = vi.fn();
 const scheduleVocalStream = vi.fn();
@@ -19,7 +28,7 @@ const isAgenticTeacher = vi.fn(() => false);
 
 vi.mock('../../mpm', async (importOriginal) => ({
     ...(await importOriginal<typeof import('../../mpm')>()),
-    exaggerate: (...args: unknown[]) => exaggerate(...args),
+    counterPerformance: (...args: unknown[]) => counterPerformance(...args),
 }));
 vi.mock('../../api', () => ({
     performTeacherPlayback: (...args: unknown[]) => performTeacherPlayback(...args),
@@ -44,7 +53,7 @@ vi.mock('../../pianosound/midiSequence', () => ({
 }));
 
 const { exaggeratedStrategy } = await import('./exaggerated');
-const { allDimensions } = await import('../../mpm');
+const { allDimensions, studentCenter } = await import('../../mpm');
 
 // ── Fixtures ──
 
@@ -70,22 +79,26 @@ const chunk = (marker: string, duration: number): VocalChunk => ({
 
 const CHUNKS = [chunk('JUDGE', 2), chunk('m3.1', 1)];
 
-const REFERENCE_MPM = { id: 'reference' };
-const EXAGGERATED_MPM = { id: 'exaggerated-clone' };
+/** `ctx.referenceMpmText` — what `mode: 'reference'` performs untouched. */
+const REFERENCE_MPM = '<mpm id="reference"/>';
+/** What the mocked `counterPerformance` hands back. */
+const COUNTER_MPM = '<mpm id="counter"/>';
+const MOOD_MPM = '<mpm id="mood"/>';
 
 const makeCtx = (withReduction: boolean): PipelineContext => ({
     mei: '<mei/>',
     scoreMsm: '<msm/>',
     scoreNotes: [],
-    referenceMpmText: '<mpm/>',
-    fittedReferenceMpmText: '<mpm/>',
-    referenceMpm: REFERENCE_MPM,
+    referenceMpmText: REFERENCE_MPM,
+    fittedReferenceMpmText: '<mpm fitted="1"/>',
     ...(withReduction ? { reductionMei: '<reduction/>', reductionNotes: [] } : {}),
 } as unknown as PipelineContext);
 
+const LEVELS = { student: { bpm: [58, 62, 66], volume: [40, 44] } };
+
 const TAKE = {
-    studentMpm: { id: 'student' },
-    referenceMpmClone: EXAGGERATED_MPM,
+    levels: LEVELS,
+    measuredTypes: ['tempo', 'dynamics'],
     diffSummary: '4 deviations',
     structuredDiff: [],
     judgementSummary: JUDGEMENT,
@@ -128,6 +141,7 @@ const renderedAs = (id: string) => ({ midi: { id }, timingMap: [] });
 const demoCall = () => performTeacherPlayback.mock.calls.find((call) => call[0] === '<mei/>');
 
 beforeEach(() => {
+    counterPerformance.mockReturnValue(COUNTER_MPM);
     performTeacherPlayback.mockImplementation((mei: string) =>
         renderedAs(mei === '<mei/>' ? 'demo' : 'mood'));
     requestVocalStream.mockResolvedValue({ chunks: CHUNKS, plan: null });
@@ -146,15 +160,18 @@ describe('fixed pedagogy (flag off)', () => {
         const { controls } = makeControls();
         await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-        expect(exaggerate).toHaveBeenCalledTimes(1);
-        const [ref, student, range, dimensions] = exaggerate.mock.calls[0];
-        expect(ref).toBe(EXAGGERATED_MPM);
-        expect(student).toBe(TAKE.studentMpm);
-        expect(range).toBe(TAKE_RANGE);
-        expect(dimensions).toEqual(allDimensions());
+        expect(counterPerformance).toHaveBeenCalledTimes(1);
+        const [call] = counterPerformance.mock.calls[0];
+        expect(call.referenceMpmText).toBe(REFERENCE_MPM);
+        expect(call.range).toBe(TAKE_RANGE);
+        expect(call.dimensions).toEqual(allDimensions());
+        // The pivot is the student's own playing, and the gate is what the take measured.
+        expect(call.center).toEqual(studentCenter(LEVELS));
+        expect(call.measured).toBe(TAKE.measuredTypes);
+        expect(call.events).toBe(TAKE.structuredDiff);
 
         // The demo is shaped before the model is asked, so the render overlaps the call.
-        expect(exaggerate.mock.invocationCallOrder[0])
+        expect(counterPerformance.mock.invocationCallOrder[0])
             .toBeLessThan(requestVocalStream.mock.invocationCallOrder[0]);
     });
 
@@ -169,7 +186,7 @@ describe('fixed pedagogy (flag off)', () => {
         const { controls, played } = makeControls();
         await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-        expect(demoCall()?.slice(2)).toEqual([EXAGGERATED_MPM, TAKE_RANGE]);
+        expect(demoCall()?.slice(2)).toEqual([COUNTER_MPM, TAKE_RANGE]);
         expect(played).toHaveLength(1);
         expect(played[0].midi.id).toBe('delayed(demo)');
         expect(scheduleVocalStream).toHaveBeenCalledTimes(1);
@@ -197,7 +214,7 @@ describe('agentic pedagogy (flag on)', () => {
         await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
         expect(requestVocalStream.mock.calls[0][8]).toBe(true);
-        expect(exaggerate.mock.invocationCallOrder[0])
+        expect(counterPerformance.mock.invocationCallOrder[0])
             .toBeGreaterThan(requestVocalStream.mock.invocationCallOrder[0]);
     });
 
@@ -207,11 +224,11 @@ describe('agentic pedagogy (flag on)', () => {
             const { controls } = makeControls();
             await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-            expect(exaggerate).toHaveBeenCalledTimes(1);
-            const [, , range, dimensions] = exaggerate.mock.calls[0];
+            expect(counterPerformance).toHaveBeenCalledTimes(1);
+            const [{ range, dimensions }] = counterPerformance.mock.calls[0];
             expect(range).toBe(PLAN_RANGE);
             expect(dimensions).toEqual([{ type: 'tempo', strength: 0.35 }]);
-            expect(demoCall()?.slice(2)).toEqual([EXAGGERATED_MPM, PLAN_RANGE]);
+            expect(demoCall()?.slice(2)).toEqual([COUNTER_MPM, PLAN_RANGE]);
         });
 
         it('falls back to every dimension when the plan named none', async () => {
@@ -219,8 +236,8 @@ describe('agentic pedagogy (flag on)', () => {
             const { controls } = makeControls();
             await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-            expect(exaggerate.mock.calls[0][3]).toEqual(allDimensions());
-            expect(exaggerate.mock.calls[0][2]).toBe(TAKE_RANGE);
+            expect(counterPerformance.mock.calls[0][0].dimensions).toEqual(allDimensions());
+            expect(counterPerformance.mock.calls[0][0].range).toBe(TAKE_RANGE);
         });
 
         it('demonstrates as before when the server sent no plan at all', async () => {
@@ -228,7 +245,7 @@ describe('agentic pedagogy (flag on)', () => {
             const { controls, played, logs } = makeControls();
             await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-            expect(exaggerate.mock.calls[0][3]).toEqual(allDimensions());
+            expect(counterPerformance.mock.calls[0][0].dimensions).toEqual(allDimensions());
             expect(played[0].midi.id).toBe('delayed(demo)');
             expect(logs.some((line) => line.includes('PLAN: none returned'))).toBe(true);
         });
@@ -240,7 +257,7 @@ describe('agentic pedagogy (flag on)', () => {
             const { controls, played } = makeControls();
             await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-            expect(exaggerate).not.toHaveBeenCalled();
+            expect(counterPerformance).not.toHaveBeenCalled();
             expect(demoCall()?.slice(2)).toEqual([REFERENCE_MPM, PLAN_RANGE]);
             expect(played[0].midi.id).toBe('delayed(demo)');
         });
@@ -261,7 +278,7 @@ describe('agentic pedagogy (flag on)', () => {
             const { controls } = makeControls();
             await exaggeratedStrategy(makeCtx(false), TAKE, controls);
 
-            expect(exaggerate).not.toHaveBeenCalled();
+            expect(counterPerformance).not.toHaveBeenCalled();
             expect(demoCall()).toBeUndefined();
             expect(scheduleVocalStream).not.toHaveBeenCalled();
         });
@@ -269,7 +286,7 @@ describe('agentic pedagogy (flag on)', () => {
         it('speaks the monologue over the mood chord when there is one', async () => {
             withPlan(plan({ mode: 'none' }));
             buildJudgementMoodRenderPlan.mockReturnValue({
-                mpm: { id: 'mood-mpm' }, range: TAKE_RANGE, chordDate: 720, noteCount: 4,
+                mpm: MOOD_MPM, range: TAKE_RANGE, chordDate: 720, noteCount: 4,
                 renderFrom: 720, renderTo: 1440,
             });
             const { controls, played } = makeControls();
@@ -284,7 +301,7 @@ describe('agentic pedagogy (flag on)', () => {
         it('holds the chord for the whole monologue, not just the judgement', async () => {
             withPlan(plan({ mode: 'none' }));
             buildJudgementMoodRenderPlan.mockReturnValue({
-                mpm: { id: 'mood-mpm' }, range: TAKE_RANGE, chordDate: 720, noteCount: 4,
+                mpm: MOOD_MPM, range: TAKE_RANGE, chordDate: 720, noteCount: 4,
                 renderFrom: 720, renderTo: 1440,
             });
             const { controls } = makeControls();
@@ -317,7 +334,7 @@ describe('agentic pedagogy (flag on)', () => {
     it('anchors the mood chord on the planned passage, not the whole take', async () => {
         withPlan(plan({ range: PLAN_RANGE }));
         buildJudgementMoodRenderPlan.mockReturnValue({
-            mpm: { id: 'mood-mpm' }, range: PLAN_RANGE, chordDate: 2880, noteCount: 3,
+            mpm: MOOD_MPM, range: PLAN_RANGE, chordDate: 2880, noteCount: 3,
             renderFrom: 2880, renderTo: 3600,
         });
         const { controls, played } = makeControls();

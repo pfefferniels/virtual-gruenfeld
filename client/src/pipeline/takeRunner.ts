@@ -12,7 +12,6 @@
  * parsing and rendering that would otherwise land on the main thread in the second after the
  * student lifts their hands.
  */
-import { counterPerformanceBase, studentInstructionsFrom } from '../mpm';
 import type { Range } from '../mpm';
 import { summarizeImmediateJudgement } from '../judgement';
 import type { MeasuredNote } from '../score/measured';
@@ -61,12 +60,6 @@ export const runTake = async (
     const { diffSummary, structuredDiff } = evidence;
     const judgementSummary = summarizeImmediateJudgement(structuredDiff, range);
 
-    // Text in, a fresh document out: nothing the demonstration mutates can reach anyone else
-    // (semantics 30), and `ctx.referenceMpm` stays the pristine Grünfeld `mode: 'reference'`
-    // plays.
-    const referenceMpmClone = counterPerformanceBase(ctx.referenceMpmText);
-    const studentMpm = studentInstructionsFrom(evidence.studentMpmText);
-
     controls.onDiff(diffSummary);
     controls.onJudgement('');
 
@@ -76,8 +69,10 @@ export const runTake = async (
 
     try {
         await strategy(ctx, {
-            studentMpm,
-            referenceMpmClone,
+            levels: evidence.levels,
+            // DESIGN §3.4's stronger reading of `measuredTypes`: past the gate *and* written by
+            // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
+            measuredTypes: evidence.measuredTypes.filter((type) => evidence.filled.includes(type)),
             diffSummary,
             structuredDiff,
             judgementSummary,

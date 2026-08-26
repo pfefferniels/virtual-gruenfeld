@@ -24,7 +24,6 @@
  * tests measured. ~40 ms.
  */
 import { performMsmToData } from 'espressivo';
-import { counterPerformanceBase } from '../mpm';
 import { loadFittedReferenceMpm, loadReferenceMpm, parseReferenceMpm } from '../mpm/reference';
 import { measuredNotesFromMsmText, measuredNotesFromPerformanceData, withoutUnisons } from '../score/measured';
 import { assertOk } from '../services/api';
@@ -65,8 +64,7 @@ export const boot = async (
     startedAt = Date.now();
     parseReferenceMpm(referenceMpmText);
     parseReferenceMpm(fittedReferenceMpmText);
-    const referenceMpm = counterPerformanceBase(referenceMpmText);
-    log(`MPM: reference ready (instructions=${referenceMpm.getInstructions().length}, ms=${Date.now() - startedAt})`);
+    log(`MPM: reference validated (ms=${Date.now() - startedAt})`);
 
     log('SCORE: rendering the reference for the matcher…');
     startedAt = Date.now();
@@ -97,7 +95,6 @@ export const boot = async (
         scoreNotes,
         referenceMpmText,
         fittedReferenceMpmText,
-        referenceMpm,
         reductionMei,
         reductionNotes,
     };

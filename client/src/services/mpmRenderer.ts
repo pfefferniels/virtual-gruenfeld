@@ -4,9 +4,8 @@
  * These used to be two HTTP calls to the Java meico server (`/convert` and `/perform`,
  * port 8080). espressivo is a TypeScript port of meico, verified byte for byte against
  * it, so the same pipeline now runs wherever this module is imported: in the browser,
- * and in the Node scripts (`generate_test.ts`, `visualize_implant.ts`, `test_pipeline.ts`),
- * which is why nothing here depends on `mpm-ts` — its compiled lib does not load under
- * plain Node, so the MPM crosses this boundary as text.
+ * and in the Node scripts (`generate_test.ts`, `visualize_implant.ts`, `test_pipeline.ts`).
+ * The MPM crosses this boundary as text, as it crosses every boundary in the client.
  *
  * `render` reproduces, step for step, what `PerformService.perform` in mpm-renderer did
  * for this client's requests (`mei`, `mpm`, `from`, `to` and nothing else):
@@ -57,7 +56,7 @@ const toMsm = (mei: string): Msm => {
     return msm;
 };
 
-/** MEI → MSM as XML text, for `asMSM` to read the score's notes from. */
+/** MEI → MSM as XML text: the comparison's metric, and what `score/measured.ts` reads notes from. */
 export const convert = (mei: string): string => toMsm(mei).toXML();
 
 const numberAttribute = (name: string, el: Element): number | null => {
@@ -121,7 +120,8 @@ const startAtFirstNote = (msm: Msm): void => {
 
 /**
  * Render the passage [from, to) of `mei` as performed by the first performance in `mpm`
- * (XML text, e.g. from mpm-ts's `exportMPM`), to Standard MIDI File bytes. The first note
+ * (XML text: the reference as fetched, or what `mpm/counter.ts` and `pipeline/judgementMood.ts`
+ * wrote), to Standard MIDI File bytes. The first note
  * starts at 0 ms and everything plays on channel 0.
  */
 export const render = (mei: string, mpm: string, range: Range): Uint8Array | undefined => {

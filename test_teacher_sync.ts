@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import type { MidiFile } from 'midifile-ts';
+import { measuredNotesFromMsm } from './client/src/score/measured.ts';
 import { buildTimingMap, planTeacherCues, secAtDate } from './client/src/teacherCues.ts';
 
 const require = createRequire(import.meta.url);
@@ -35,7 +36,7 @@ console.log('=== Teacher sync tests ===');
         { 'xml:id': 'n3', part: 1, date: 1440, duration: 240, pitchname: 'e', accidentals: 0, octave: 4, 'midi.pitch': 64, 'midi.onset': 2, 'midi.duration': 0.5, 'midi.velocity': 80 },
     ]);
 
-    const timingMap = buildTimingMap(referenceMsm, makeMidi(), { from: 0, to: 1440 });
+    const timingMap = buildTimingMap(measuredNotesFromMsm(referenceMsm), makeMidi(), { from: 0, to: 1440 });
     assert.equal(timingMap.length, 3, 'timing map should track three anchor dates');
     assert.equal(timingMap[0].sec, 0);
     assert(Math.abs(secAtDate(timingMap, 1080) - 1.0) < 1e-6, 'interpolated midpoint should be 1.0s');

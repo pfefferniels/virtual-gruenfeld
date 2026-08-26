@@ -4,6 +4,7 @@ import { isAgenticTeacher } from '../../featureFlags';
 import { fallbackImmediateJudgement } from '../../judgement';
 import { describePlan, type LessonPlan } from '../../lessonPlan';
 import { appendMidiWithOffset, appendSustainTail, delayMidi, millisecondsToMidiTicks, prepareMoodChordMidi } from '../../pianosound/midiSequence';
+import { measuredNotesFromMsm } from '../../score/measured';
 import { buildJudgementMoodRenderPlan } from '../judgementMood';
 import {
     requestVocalStream,
@@ -124,8 +125,8 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
     // Build mood chord from harmonic reduction (if available)
     const moodPlan = ctx.reductionMei && ctx.reductionMsm
         ? buildJudgementMoodRenderPlan(
-            ctx.reductionMsm,
-            ctx.baseMsm,
+            measuredNotesFromMsm(ctx.reductionMsm),
+            measuredNotesFromMsm(ctx.baseMsm),
             take.referenceMpmClone,
             demoRange.from,
             { minimumPedalHoldMs: narrationMs },

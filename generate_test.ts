@@ -18,6 +18,7 @@ import { execSync } from 'child_process';
 import 'dotenv/config';
 import { read as readMidi, write as writeMidi } from 'midifile-ts';
 import { implantLocal } from './client/src/matcher';
+import { measuredNotesFromMsm } from './client/src/score/measured';
 import { fallbackImmediateJudgement, summarizeImmediateJudgement, type ImmediateJudgementPayload } from './client/src/judgement';
 import { buildTimingMap, secAtDate, cueDelay } from './client/src/teacherCues';
 import { layoutCues } from './client/src/pipeline/teacherVocalStream';
@@ -1294,7 +1295,7 @@ for (const scenario of scenarios) {
     const correctionMidi = readMidi(
         correctionBytes.buffer.slice(correctionBytes.byteOffset, correctionBytes.byteOffset + correctionBytes.byteLength),
     );
-    const timingMap = buildTimingMap(baseMsm, correctionMidi, range);
+    const timingMap = buildTimingMap(measuredNotesFromMsm(baseMsm), correctionMidi, range);
 
     // Map vocal chunks to playback times
     const judgeChunk = vocalChunks.find(c => c.marker === 'JUDGE');
@@ -1308,8 +1309,8 @@ for (const scenario of scenarios) {
     if (reductionMei && reductionMsmNotes) {
         const reductionBaseMsm = new MSM(reductionMsmNotes, { numerator: 4, denominator: 4 });
         moodPlan = buildJudgementMoodRenderPlan(
-            reductionBaseMsm,
-            baseMsm,
+            measuredNotesFromMsm(reductionBaseMsm),
+            measuredNotesFromMsm(baseMsm),
             teacherMpm,
             range.from,
             { minimumPedalHoldMs: correctionEntrySec * 1000 + JUDGEMENT_MOOD_PEDAL_BUFFER_MS },

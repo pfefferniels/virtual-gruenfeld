@@ -1,11 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import type { MidiFile } from 'midifile-ts';
-import { MSM } from 'mpmify';
 import type { StructuredDiffEvent } from './mpm';
+import type { MeasuredNote } from './score/measured';
 import { buildTimingMap, pickCueCandidates, planTeacherCues, resolveTeacherCuePlan, secAtDate } from './teacherCues';
 
-const makeMsm = (notes: Array<Record<string, unknown>>) =>
-    new MSM(notes as any[], { numerator: 4, denominator: 4 });
+/** A measured note: score date/duration in ticks, onset and end in milliseconds. */
+const note = (
+    id: string,
+    date: number,
+    pitch: number,
+    onsetSec: number,
+    durationSec: number,
+): MeasuredNote => ({
+    'xml:id': id,
+    part: 1,
+    date,
+    duration: 240,
+    'midi.pitch': pitch,
+    'milliseconds.date': onsetSec * 1000,
+    'milliseconds.date.end': (onsetSec + durationSec) * 1000,
+    velocity: 80,
+});
 
 const makeMidi = (): MidiFile => ({
     header: {
@@ -26,13 +41,13 @@ const makeMidi = (): MidiFile => ({
 
 describe('buildTimingMap', () => {
     it('maps rendered teacher note onsets back onto score dates', () => {
-        const referenceMsm = makeMsm([
-            { 'xml:id': 'n1', part: 1, date: 0, duration: 240, pitchname: 'c', accidentals: 0, octave: 4, 'midi.pitch': 60, 'midi.onset': 0, 'midi.duration': 0.5, 'midi.velocity': 80 },
-            { 'xml:id': 'n2', part: 1, date: 720, duration: 240, pitchname: 'd', accidentals: 0, octave: 4, 'midi.pitch': 62, 'midi.onset': 1, 'midi.duration': 0.5, 'midi.velocity': 80 },
-            { 'xml:id': 'n3', part: 1, date: 1440, duration: 240, pitchname: 'e', accidentals: 0, octave: 4, 'midi.pitch': 64, 'midi.onset': 2, 'midi.duration': 0.5, 'midi.velocity': 80 },
-        ]);
+        const referenceNotes = [
+            note('n1', 0, 60, 0, 0.5),
+            note('n2', 720, 62, 1, 0.5),
+            note('n3', 1440, 64, 2, 0.5),
+        ];
 
-        const timingMap = buildTimingMap(referenceMsm, makeMidi(), { from: 0, to: 1440 });
+        const timingMap = buildTimingMap(referenceNotes, makeMidi(), { from: 0, to: 1440 });
 
         expect(timingMap).toHaveLength(3);
         expect(timingMap[0]).toEqual({ date: 0, sec: 0 });

@@ -1,25 +1,39 @@
 import { describe, expect, it } from 'vitest';
 import { MPM, type Dynamics, type Ornament, type Tempo, type Movement, type OrnamentDef } from 'mpm-ts';
-import { MSM } from 'mpmify';
+import type { MeasuredNote } from '../score/measured';
 import { buildJudgementMoodRenderPlan } from './judgementMood';
 
-const makeMsm = (notes: Array<Record<string, unknown>>) =>
-    new MSM(notes as any[], { numerator: 4, denominator: 4 });
+/** A measured note: score date/duration in ticks, onset and end in milliseconds. */
+const note = (
+    id: string,
+    date: number,
+    duration: number,
+    pitch: number,
+): MeasuredNote => ({
+    'xml:id': id,
+    part: 1,
+    date,
+    duration,
+    'midi.pitch': pitch,
+    'milliseconds.date': 0,
+    'milliseconds.date.end': 0,
+    velocity: 64,
+});
 
 describe('buildJudgementMoodRenderPlan', () => {
     it('builds a single-chord render plan with fixed tempo, mapped ornament order, and pedal envelope', () => {
-        const reductionMsm = makeMsm([
-            { 'xml:id': 'r1', part: 1, date: 720, duration: 1440, pitchname: 'c', accidentals: 0, octave: 3, 'midi.pitch': 48, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-            { 'xml:id': 'r2', part: 1, date: 720, duration: 1440, pitchname: 'g', accidentals: 0, octave: 3, 'midi.pitch': 55, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-            { 'xml:id': 'r3', part: 1, date: 720, duration: 1440, pitchname: 'c', accidentals: 0, octave: 4, 'midi.pitch': 60, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-            { 'xml:id': 'r4', part: 1, date: 2160, duration: 1440, pitchname: 'f', accidentals: 0, octave: 3, 'midi.pitch': 53, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-        ]);
-        const baseMsm = makeMsm([
-            { 'xml:id': 'f_low', part: 1, date: 720, duration: 720, pitchname: 'c', accidentals: 0, octave: 3, 'midi.pitch': 48, 'midi.onset': 0, 'midi.duration': 0.5, 'midi.velocity': 70 },
-            { 'xml:id': 'f_mid', part: 1, date: 720, duration: 720, pitchname: 'e', accidentals: 0, octave: 4, 'midi.pitch': 64, 'midi.onset': 0, 'midi.duration': 0.5, 'midi.velocity': 70 },
-            { 'xml:id': 'f_top', part: 1, date: 720, duration: 720, pitchname: 'g', accidentals: 0, octave: 4, 'midi.pitch': 67, 'midi.onset': 0, 'midi.duration': 0.5, 'midi.velocity': 70 },
-            { 'xml:id': 'f_inner', part: 1, date: 720, duration: 720, pitchname: 'f', accidentals: 0, octave: 4, 'midi.pitch': 65, 'midi.onset': 0, 'midi.duration': 0.5, 'midi.velocity': 70 },
-        ]);
+        const reductionNotes = [
+            note('r1', 720, 1440, 48),
+            note('r2', 720, 1440, 55),
+            note('r3', 720, 1440, 60),
+            note('r4', 2160, 1440, 53),
+        ];
+        const scoreNotes = [
+            note('f_low', 720, 720, 48),
+            note('f_mid', 720, 720, 64),
+            note('f_top', 720, 720, 67),
+            note('f_inner', 720, 720, 65),
+        ];
 
         const referenceMpm = new MPM();
         referenceMpm.insertDefinition({
@@ -54,7 +68,7 @@ describe('buildJudgementMoodRenderPlan', () => {
             scale: 2,
         } as Ornament, 'global');
 
-        const plan = buildJudgementMoodRenderPlan(reductionMsm, baseMsm, referenceMpm, 750);
+        const plan = buildJudgementMoodRenderPlan(reductionNotes, scoreNotes, referenceMpm, 750);
 
         expect(plan).not.toBeNull();
         expect(plan?.chordDate).toBe(720);
@@ -97,14 +111,13 @@ describe('buildJudgementMoodRenderPlan', () => {
     });
 
     it('falls back to a default arpeggio when there is no nearby ornament', () => {
-        const reductionMsm = makeMsm([
-            { 'xml:id': 'r1', part: 1, date: 1440, duration: 1440, pitchname: 'd', accidentals: 0, octave: 3, 'midi.pitch': 50, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-            { 'xml:id': 'r2', part: 1, date: 1440, duration: 1440, pitchname: 'a', accidentals: 0, octave: 3, 'midi.pitch': 57, 'midi.onset': 0, 'midi.duration': 0, 'midi.velocity': 64 },
-        ]);
-        const baseMsm = makeMsm([]);
+        const reductionNotes = [
+            note('r1', 1440, 1440, 50),
+            note('r2', 1440, 1440, 57),
+        ];
         const referenceMpm = new MPM();
 
-        const plan = buildJudgementMoodRenderPlan(reductionMsm, baseMsm, referenceMpm, 1440);
+        const plan = buildJudgementMoodRenderPlan(reductionNotes, [], referenceMpm, 1440);
 
         expect(plan).not.toBeNull();
         const [ornamentDef] = plan!.mpm.getDefinitions<OrnamentDef>('ornamentDef', 'global');

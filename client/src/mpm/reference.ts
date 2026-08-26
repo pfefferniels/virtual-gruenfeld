@@ -23,16 +23,37 @@ import { PPQ } from '../shared/constants';
 /** Where the browser fetches it from — `client/public/performance.mpm`, served at the app root. */
 export const REFERENCE_MPM_URL = 'performance.mpm';
 
-let pending: Promise<string> | null = null;
+/**
+ * The *comparison* side: Grünfeld's own playing, written by the student's own fitter.
+ *
+ * `performance.mpm` is a bake — sixty `<tempo>` elements drawn by hand in an editor — while a
+ * student's are solved from onsets, and the difference between those two ways of writing one
+ * performance measured 22 bpm and 9.2 JND on a take where the playing was *identical*. Both
+ * sides therefore go through the one procedure: `scripts/fit-reference.ts` generates this file
+ * and `mpm/fittedReference.test.ts` pins its bytes. `performance.mpm` stays the scaffold every
+ * `xml:id` is read from, the counter-performance's base, and the server's document.
+ */
+export const FITTED_REFERENCE_MPM_URL = 'reference.fitted.mpm';
 
-const fetchReferenceMpm = async (): Promise<string> => {
-    const response = await fetch(REFERENCE_MPM_URL);
-    if (!response.ok) {
-        throw new Error(`FETCH ${REFERENCE_MPM_URL}: HTTP ${response.status} ${response.statusText}`);
-    }
+const pending = new Map<string, Promise<string>>();
+
+const fetchMpm = async (url: string): Promise<string> => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`FETCH ${url}: HTTP ${response.status} ${response.statusText}`);
     const text = await response.text();
-    if (text.trim().length === 0) throw new Error(`FETCH ${REFERENCE_MPM_URL}: empty document`);
+    if (text.trim().length === 0) throw new Error(`FETCH ${url}: empty document`);
     return text;
+};
+
+const load = (url: string): Promise<string> => {
+    const existing = pending.get(url);
+    if (existing) return existing;
+    const started = fetchMpm(url).catch((error: unknown) => {
+        pending.delete(url);
+        throw error;
+    });
+    pending.set(url, started);
+    return started;
 };
 
 /**
@@ -41,17 +62,14 @@ const fetchReferenceMpm = async (): Promise<string> => {
  * Memoized like `mpmRenderer`'s MEI→MSM conversion: 150 kB that never changes. A failed
  * fetch is *not* memoized, so a boot that lost the network can simply ask again.
  */
-export const loadReferenceMpm = (): Promise<string> => {
-    pending ??= fetchReferenceMpm().catch((error: unknown) => {
-        pending = null;
-        throw error;
-    });
-    return pending;
-};
+export const loadReferenceMpm = (): Promise<string> => load(REFERENCE_MPM_URL);
 
-/** Drop the memoized document. For tests, and for a re-boot that must re-fetch. */
+/** The fitted reference, on the same terms. */
+export const loadFittedReferenceMpm = (): Promise<string> => load(FITTED_REFERENCE_MPM_URL);
+
+/** Drop both memoized documents. For tests, and for a re-boot that must re-fetch. */
 export const forgetReferenceMpm = (): void => {
-    pending = null;
+    pending.clear();
 };
 
 /**

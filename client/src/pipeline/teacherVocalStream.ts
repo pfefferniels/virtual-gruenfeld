@@ -28,6 +28,11 @@ export const requestVocalStream = async (
     audioContext: AudioContext,
     log: (msg: string) => void,
     agentic: boolean = false,
+    /**
+     * What the take measured (DESIGN §3.4). Appended after `agentic` rather than slotted in
+     * where it reads best: the argument list is positional and the tests index into it.
+     */
+    measuredTypes: readonly string[] = [],
 ): Promise<VocalStreamResult> => {
     // Build candidates from diff events (same format as cue planning)
     const positions = new Map<string, StructuredDiffEvent[]>();
@@ -66,6 +71,15 @@ export const requestVocalStream = async (
         mode,
         structuredDiff: diffEvents,
         range,
+        // A type the take measured is a type the plan may name, even where the student got it
+        // right — which the events alone cannot say, since a dimension played correctly produces
+        // none. Sent **unconditionally**, `[]` included: an empty list is the one case this field
+        // exists to describe. Omitting it makes the server fall back to the events' own types
+        // (`src/routes/teacherStream.ts`), and a take that measured nothing has no events either —
+        // so the plan gate would open on all seven types instead of closing on all seven, and the
+        // session record would read `(earlier take, fewer dimensions measured)` for a take from
+        // this very session (final-contracts, finding 1).
+        measuredTypes,
         sessionId: getSessionId(),
         ...(agentic ? { agentic: true } : {}),
     });

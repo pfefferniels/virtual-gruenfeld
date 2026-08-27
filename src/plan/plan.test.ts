@@ -2,25 +2,27 @@ import { describe, expect, it } from 'vitest';
 
 import { LESSON_PLAN_SCHEMA } from './schema';
 import { describePlan, parseAgenticResponse, validatePlan } from './validate';
-import { DEFAULT_PLAN, STRENGTH_MAX, STRENGTH_MIN } from './types';
+import { DEFAULT_PLAN, EDITS_MAX, EDITS_MIN, STRENGTH_MAX, STRENGTH_MIN } from './types';
 
 /** m1.2–m5.4 — the range the committed diff fixtures cover. */
 const TAKE = { from: 720, to: 13680 };
-const DIFF_TYPES = ['tempo', 'dynamics', 'rubato'];
+/** What the take measured — the list the client sends since S7, not the events' own types. */
+const MEASURED = ['tempo', 'dynamics', 'rubato'];
 
-const validate = (demo: unknown, context = { takeRange: TAKE, diffTypes: DIFF_TYPES }) =>
+const validate = (demo: unknown, context = { takeRange: TAKE, measuredTypes: MEASURED }) =>
     validatePlan(demo, context);
 
 const demo = (overrides: Record<string, unknown> = {}) => ({
     mode: 'exaggerated',
     range: null,
     dimensions: [],
+    edits: null,
     ...overrides,
 });
 
 describe('plan mode', () => {
-    it('keeps each of the three modes', () => {
-        for (const mode of ['exaggerated', 'reference', 'none'] as const) {
+    it('keeps each of the four modes', () => {
+        for (const mode of ['exaggerated', 'path', 'reference', 'none'] as const) {
             const { plan, warnings } = validate(demo({ mode }));
             expect(plan.mode).toBe(mode);
             expect(warnings).toEqual([]);
@@ -45,6 +47,64 @@ describe('plan mode', () => {
         for (const mode of ['reference', 'none'] as const) {
             const { plan } = validate(demo({ mode, dimensions: [{ type: 'tempo', strength: 0.3 }] }));
             expect(plan.dimensions).toEqual([]);
+        }
+    });
+
+    it('keeps the dimensions for path, which filters the edit script by them', () => {
+        const { plan } = validate(demo({ mode: 'path', dimensions: [{ type: 'tempo', strength: 0.3 }] }));
+        expect(plan.dimensions).toEqual([{ type: 'tempo', strength: 0.3 }]);
+    });
+
+    it('drops a dimension path cannot write, and says why', () => {
+        // `ornament` and `articulation` numbers live on shared `<...Def>` elements; the edit
+        // script writes instructions only (`client/src/mpm/path.ts`, `PATH_TYPES`). Before this
+        // the plan was accepted and the demonstration silently corrected something else — a take
+        // whose ornament spacing was doubled was answered with three tempo edits.
+        const { plan, warnings } = validate(
+            demo({
+                mode: 'path',
+                dimensions: [{ type: 'ornament', strength: 0.3 }, { type: 'tempo', strength: 0.3 }],
+            }),
+            { takeRange: TAKE, measuredTypes: [...MEASURED, 'ornament'] },
+        );
+
+        expect(plan.dimensions).toEqual([{ type: 'tempo', strength: 0.3 }]);
+        expect(warnings[0]).toContain('dropped ornament');
+        expect(warnings[0]).toContain('shared def');
+    });
+
+    it('keeps the same dimension for exaggerated, which can shape it', () => {
+        const { plan, warnings } = validate(
+            demo({ mode: 'exaggerated', dimensions: [{ type: 'ornament', strength: 0.3 }] }),
+            { takeRange: TAKE, measuredTypes: [...MEASURED, 'ornament'] },
+        );
+
+        expect(plan.dimensions).toEqual([{ type: 'ornament', strength: 0.3 }]);
+        expect(warnings).toEqual([]);
+    });
+});
+
+describe('plan edits', () => {
+    it('carries an edit count for path and clamps it into the band', () => {
+        expect(validate(demo({ mode: 'path', edits: 2 })).plan.edits).toBe(2);
+        expect(validate(demo({ mode: 'path', edits: 40 })).plan.edits).toBe(EDITS_MAX);
+        expect(validate(demo({ mode: 'path', edits: 0 })).plan.edits).toBe(EDITS_MIN);
+        expect(validate(demo({ mode: 'path', edits: 2.4 })).plan.edits).toBe(2);
+        expect(validate(demo({ mode: 'path', edits: 40 })).warnings[0]).toContain('clamped to 5');
+    });
+
+    it('reads an unusable count as the client’s own default', () => {
+        for (const edits of [null, undefined, 'three', Number.NaN]) {
+            expect(validate(demo({ mode: 'path', edits })).plan.edits).toBeNull();
+        }
+        expect(validate(demo({ mode: 'path', edits: 'three' })).warnings[0]).toContain('is not a number');
+    });
+
+    it('drops the count for every mode that has nothing to count', () => {
+        for (const mode of ['exaggerated', 'reference', 'none'] as const) {
+            const { plan, warnings } = validate(demo({ mode, edits: 3 }));
+            expect(plan.edits).toBeNull();
+            expect(warnings).toEqual([]);
         }
     });
 });
@@ -128,12 +188,23 @@ describe('plan dimensions', () => {
         expect(warnings[1]).toContain('clamped to 0.05');
     });
 
-    it('drops a type the diff never measured', () => {
+    it('drops a type the take never measured', () => {
         const { plan, warnings } = validate(demo({
             dimensions: [{ type: 'tempo', strength: 0.2 }, { type: 'ornament', strength: 0.4 }],
         }));
         expect(plan.dimensions).toEqual([{ type: 'tempo', strength: 0.2 }]);
         expect(warnings[0]).toContain('the diff measured no such deviation');
+    });
+
+    it('allows a measured type the student got right, which produced no event at all', () => {
+        // The stronger reading of semantics 26: `measuredTypes` is what the take could hear, not
+        // what it complained about, so the teacher may demonstrate a dimension that went well.
+        const { plan, warnings } = validatePlan(demo({ dimensions: [{ type: 'rubato', strength: 0.2 }] }), {
+            takeRange: TAKE,
+            measuredTypes: ['rubato'],
+        });
+        expect(plan.dimensions).toEqual([{ type: 'rubato', strength: 0.2 }]);
+        expect(warnings).toEqual([]);
     });
 
     it('drops a type that is not an MPM instruction type', () => {
@@ -163,7 +234,7 @@ describe('plan dimensions', () => {
         }
     });
 
-    it('filters nothing when the request carried no structured diff', () => {
+    it('filters nothing when the request said nothing about what was measured', () => {
         const { plan } = validatePlan(demo({ dimensions: [{ type: 'ornament', strength: 0.3 }] }), {
             takeRange: TAKE,
         });
@@ -202,7 +273,15 @@ describe('plan description', () => {
             mode: 'exaggerated',
             range: { from: 2880, to: 8640 },
             dimensions: [{ type: 'tempo', strength: 0.3 }],
+            edits: null,
         })).toBe('exaggerated | m2.1–m4.1 | tempo@0.3');
+    });
+
+    it('names the edit count where there is one', () => {
+        expect(describePlan({ mode: 'path', range: null, dimensions: [], edits: 1 }))
+            .toBe('path | full take | all@default | 1 edit');
+        expect(describePlan({ mode: 'path', range: null, dimensions: [], edits: 3 }))
+            .toBe('path | full take | all@default | 3 edits');
     });
 
     it('says so when nothing was narrowed', () => {
@@ -232,9 +311,10 @@ describe('structured-output schema', () => {
         assertStrict(LESSON_PLAN_SCHEMA as unknown as Record<string, unknown>, 'lesson_plan');
     });
 
-    it('offers exactly the three demo modes and the seven instruction types', () => {
+    it('offers exactly the four demo modes and the seven instruction types', () => {
         const demoProps = LESSON_PLAN_SCHEMA.properties.demo.properties;
-        expect(demoProps.mode.enum).toEqual(['exaggerated', 'reference', 'none']);
+        expect(demoProps.mode.enum).toEqual(['exaggerated', 'path', 'reference', 'none']);
+        // The seven names are the contract (semantics 26) and are not what this slice touches.
         expect(demoProps.dimensions.items.properties.type.enum).toEqual([
             'tempo', 'dynamics', 'articulation', 'rubato', 'ornament', 'accentuationPattern', 'asynchrony',
         ]);
@@ -244,5 +324,12 @@ describe('structured-output schema', () => {
         const demoProps = LESSON_PLAN_SCHEMA.properties.demo.properties;
         expect(demoProps.range.type).toContain('null');
         expect(demoProps.dimensions.type).toContain('null');
+        expect(demoProps.edits.type).toContain('null');
+    });
+
+    it('tells the model what path and its edit count mean, where it fills them in', () => {
+        const demoProps = LESSON_PLAN_SCHEMA.properties.demo.properties;
+        expect(demoProps.mode.description).toContain('path = the student\'s own playing');
+        expect(demoProps.edits.description).toContain('1–5');
     });
 });

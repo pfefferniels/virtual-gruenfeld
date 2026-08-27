@@ -2,7 +2,28 @@ import type { Range, StructuredDiffEvent } from './mpm';
 import { PPQ } from './shared/constants';
 import { severityRank } from './shared/severity';
 
-export type ImmediateJudgementPayload = {
+/**
+ * What the comparison knows about the take that the counted events cannot say.
+ *
+ * Two numbers off `compareMpm`'s report (`mpm/evidence.ts`), and both are *optional*: the score,
+ * the verdict and the `√(rangeBeats/4)` normalisation above are unchanged and answer without
+ * them (semantics 24), and a session record written before this existed stays readable.
+ */
+export type JudgementDistance = {
+    /**
+     * `report.aggregate.mean` — the whole window's difference in just-noticeable differences.
+     * Under 1 is a difference nobody hears; the event counts have no such scale.
+     */
+    distanceJnd?: number;
+    /**
+     * `report.equivalence.subThresholdMassFraction` — the share of that difference sitting below
+     * the threshold of audibility. 0.9 means almost none of it can be heard, however many events
+     * cleared the raw floor.
+     */
+    subThresholdFraction?: number;
+};
+
+export type ImmediateJudgementPayload = JudgementDistance & {
     score: number;
     verdict: 'excellent' | 'good' | 'mixed' | 'needs_work';
     rangeBeats: number;
@@ -37,9 +58,15 @@ const typeLabel = (type: string): string => {
     }
 };
 
+/** Three decimals, and never `-0` or `NaN` on the wire. */
+const round3 = (value: number): number =>
+    Number.isFinite(value) ? Math.round(value * 1000) / 1000 + 0 : 0;
+
 export const summarizeImmediateJudgement = (
     diffEvents: StructuredDiffEvent[],
     range: Range,
+    /** The comparison's two numbers, where the take has them. Omitted, the payload is Phase 2's. */
+    distance: JudgementDistance = {},
 ): ImmediateJudgementPayload => {
     const rangeBeats = Math.max(1, (range.to - range.from) / PPQ);
     const byType = new Map<string, {
@@ -100,6 +127,14 @@ export const summarizeImmediateJudgement = (
         eventCount: diffEvents.length,
         dominantTypes,
         topIssues,
+        // Spread last and only where they exist: a take with no comparison behind it produces
+        // exactly the payload it always did, key for key. Rounded to 3 dp because the wire
+        // carried the raw double (`"distanceJnd":8.094988085871684`) and the model is told to
+        // read both as magnitudes, not as measurements (final-contracts, finding 7).
+        ...(distance.distanceJnd === undefined ? {} : { distanceJnd: round3(distance.distanceJnd) }),
+        ...(distance.subThresholdFraction === undefined
+            ? {}
+            : { subThresholdFraction: round3(distance.subThresholdFraction) }),
     };
 };
 

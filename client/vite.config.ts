@@ -22,16 +22,6 @@ export default defineConfig({
         path.resolve(__dirname, '../../react-pianosound'),
       ],
     },
-    proxy: {
-      '/convert': {
-        target: 'http://localhost:8080',
-        changeOrigin: true
-      },
-      '/perform': {
-        target: 'http://localhost:8080',
-        changeOrigin: true
-      }
-    }
   },
   build: {
     outDir: 'build'

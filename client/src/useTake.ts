@@ -69,14 +69,14 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                 const ctx = await boot(log);
                 if (cancelled) return;
 
-                const res = await waitForPlayingSafe(ctx.baseMsm, async (studentMsm, range) => {
+                const res = await waitForPlayingSafe(ctx.scoreNotes, async (notes, range) => {
                     if (cancelled) return;
                     lastMatchRef.current = range;
 
                     const takeId = ++takeSeqRef.current;
                     log(`TAKE #${takeId} (session ${getSessionId().slice(0, 8)})`);
 
-                    await runTake(ctx, studentMsm, range, exaggeratedStrategy, {
+                    await runTake(ctx, notes, range, exaggeratedStrategy, {
                         log,
                         stop: () => { stopRef.current(); clearTimeout(teacherEndTimer.current); setTeacherPlaying(false); },
                         play: ((...args: Parameters<PlayFn>) => {
@@ -123,6 +123,12 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
             log('APP: unmount -> disposing MIDI');
             if (disposeMidi) disposeMidi();
         };
+        // `piano.playAudioBuffer` is captured from the closure and deliberately left out of this
+        // list. The effect's job is to open the MIDI input and hold it for the session; adding a
+        // dependency re-runs it, which tears the input down and re-opens it — in the middle of a
+        // take, at worst. `piano.audioContext` is listed because a new context really is a new
+        // session, and it is the one part of `piano` whose identity has to be respected here.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [log, started, piano.audioContext, inputId]);
 
     const clearDebugLines = useMemo(() => () => setDebugLines([]), []);

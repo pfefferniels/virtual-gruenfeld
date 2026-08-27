@@ -76,6 +76,8 @@ export const buildTakeRecord = (input: {
     judgement: Record<string, unknown>;
     structuredDiff?: Array<Record<string, unknown>>;
     range?: { from: number; to: number };
+    /** What the take measured. Stamped so a later reading knows what was listened for (R7). */
+    measured?: string[];
     anchors: StreamAnchor[];
     at?: Date;
 }): TakeRecord => ({
@@ -85,4 +87,7 @@ export const buildTakeRecord = (input: {
     judgement: buildJudgement(input.judgement),
     diffDigest: buildDiffDigest(input.structuredDiff),
     teacherSaid: buildTeacherSaid(input.anchors),
+    // Written only when the client said something. An empty list is a take that measured
+    // nothing and is a different statement from a take that predates the field.
+    ...(input.measured ? { measured: [...input.measured] } : {}),
 });

@@ -1,5 +1,49 @@
-import type { MSM } from 'mpmify';
-import { MPM, type Dynamics, type Movement, type Ornament, type Tempo, type Style, type OrnamentDef, type Scope, type AnyInstruction } from 'mpm-ts';
+/**
+ * The mood chord: a slow arpeggio under the spoken judgement, so the teacher is not talking
+ * into silence.
+ *
+ * Five things are derived, and all five come from Grünfeld (semantics 32):
+ *
+ * | what | from | rule |
+ * |---|---|---|
+ * | the chord | `harmonic_reduction.mei` | the latest chord at or before the passage's start |
+ * | the roll | the reference's nearest `<ornament>` | exact date first, then ±720 ticks, largest `@scale` on a tie; its def is copied and **slowed** to `clamp((n−1)·300 ms, 700, 1800)` |
+ * | the level | the reference's prevailing `<dynamics>` | `@transition.to` before `@volume`, default 72, × 0.35 |
+ * | the pulse | nothing | a fixed 30 bpm at `@beatLength` 0.25 — the mood chord does not borrow the passage's tempo |
+ * | the pedal | the narration | down at `renderFrom`, up no earlier than the arpeggio's end + 1400 ms **or** the length of what the teacher is saying |
+ *
+ * Nothing is taken from the student. The port to espressivo's writing surface changed the
+ * document in one way and the sound in none: four attributes the old builder copied onto the
+ * `<ornament>` element — `@intensity`, `@transition.from`, `@transition.to`, `@noteoff.shift` —
+ * are gone, because the renderer reads none of them off an instruction
+ * (`OrnamentationMap.readOrnament` answers `scale`, `name.ref`, `note.order`, `noteid` and
+ * nothing else). Each already had its rendering twin on the `<ornamentDef>`, which is copied as
+ * it always was.
+ */
+import {
+    DYNAMICS_MAP,
+    DynamicsMap,
+    FrameDomain,
+    MovementMap,
+    Mpm,
+    NoteOffShift,
+    ORNAMENTATION_MAP,
+    ORNAMENTATION_STYLE,
+    OrnamentDef,
+    OrnamentationMap,
+    Performance,
+    Style,
+    TempoMap,
+    allChildElements,
+    isOk,
+    type AnyResult,
+    type AnyStyle,
+    type Element,
+    type Normalized,
+    type OkOf,
+} from 'espressivo';
+import type { MeasuredNote } from '../score/measured';
+import { PPQ } from '../shared/constants';
 
 const FIXED_JUDGEMENT_BPM = 30;
 const FIXED_BEAT_LENGTH = 0.25;
@@ -9,17 +53,12 @@ const ARPEGGIO_STEP_MS = 300;
 const MIN_ARPEGGIO_SPAN_MS = 700;
 const MAX_ARPEGGIO_SPAN_MS = 1800;
 const POST_ARPEGGIO_HOLD_MS = 1400;
-
-type MsmNoteLike = {
-    'xml:id': string;
-    date: number;
-    duration: number;
-    'midi.pitch': number;
-};
+const MOOD_STYLE_NAME = 'performance_style';
+const DEFAULT_MOOD_ORNAMENT = 'judgement_mood_default_ornament';
 
 type JudgementMoodChord = {
     date: number;
-    notes: MsmNoteLike[];
+    notes: MeasuredNote[];
     nextDate: number | null;
 };
 
@@ -28,8 +67,29 @@ type SpreadWindow = {
     end: number;
 };
 
+/** The reference's ornament, as this module needs to see it: raw attributes, nothing defaulted. */
+type MoodOrnament = {
+    readonly date: number;
+    readonly scale: number | null;
+    readonly nameRef: string | null;
+    readonly noteOrder: string | null;
+    readonly frameStart: number | null;
+    readonly frameLength: number | null;
+};
+
+/** The `<temporalSpread>`/`<dynamicsGradient>` of the def that ornament names. */
+type MoodOrnamentDef = {
+    readonly name: string;
+    readonly frameStart: number | null;
+    readonly frameLength: number | null;
+    readonly timeUnit: string | null;
+    readonly noteOffShift: string | null;
+    readonly gradient: { readonly from: number; readonly to: number } | null;
+};
+
 type JudgementMoodRenderPlan = {
-    mpm: MPM;
+    /** The mood chord as MPM text — what `performTeacherPlayback` renders. */
+    mpm: string;
     range: { from: number; to: number };
     chordDate: number;
     renderFrom: number;
@@ -42,43 +102,32 @@ type JudgementMoodOptions = {
     minimumPedalHoldMs?: number;
 };
 
-const clonePlain = <T,>(value: T): T =>
-    JSON.parse(JSON.stringify(value)) as T;
-
 const clampMidi = (value: number, fallback: number): number => {
     if (!Number.isFinite(value)) return fallback;
     return Math.max(1, Math.min(127, Math.round(value)));
 };
 
 const judgementMoodMillisecondsToTicks = (ms: number): number =>
-    Math.round((ms / 1000) * (FIXED_JUDGEMENT_BPM / 60) * (FIXED_BEAT_LENGTH * 4) * 720);
+    Math.round((ms / 1000) * (FIXED_JUDGEMENT_BPM / 60) * (FIXED_BEAT_LENGTH * 4) * PPQ);
 
-const numericValue = (value: unknown): number | null => {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed)) return parsed;
-    }
-    return null;
+const numberAttribute = (element: Element, name: string): number | null => {
+    const raw = element.getAttributeValue(name);
+    if (raw === null || raw.trim() === '') return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
 };
 
-const byDateThenPitch = (a: MsmNoteLike, b: MsmNoteLike): number =>
+const byDateThenPitch = (a: MeasuredNote, b: MeasuredNote): number =>
     a.date - b.date || a['midi.pitch'] - b['midi.pitch'];
 
 const pickReductionChord = (
-    reductionMsm: MSM,
+    reductionNotes: readonly MeasuredNote[],
     targetDate: number,
 ): JudgementMoodChord | null => {
-    const grouped = new Map<number, MsmNoteLike[]>();
+    const grouped = new Map<number, MeasuredNote[]>();
 
-    for (const raw of reductionMsm.allNotes as unknown as MsmNoteLike[]) {
-        if (typeof raw.date !== 'number' || typeof raw['midi.pitch'] !== 'number') continue;
-        const note: MsmNoteLike = {
-            'xml:id': raw['xml:id'],
-            date: raw.date,
-            duration: raw.duration,
-            'midi.pitch': raw['midi.pitch'],
-        };
+    for (const note of reductionNotes) {
+        if (typeof note.date !== 'number' || typeof note['midi.pitch'] !== 'number') continue;
         const group = grouped.get(note.date) ?? [];
         group.push(note);
         grouped.set(note.date, group);
@@ -99,14 +148,37 @@ const pickReductionChord = (
     return notes.length > 0 ? { date: chosenDate, notes, nextDate } : null;
 };
 
+/** Every element of one of the reference's maps, in document order. */
+const mapElements = (mpm: Mpm, mapName: string, elementName: string): Element[] => {
+    const map = mpm.getPerformance(0)?.getGlobal()?.getDated()?.getMap(mapName) ?? null;
+    if (!map) return [];
+    const elements: Element[] = [];
+    for (let index = 0; index < map.size(); index++) {
+        const element = map.getElement(index);
+        if (element && element.getLocalName() === elementName) elements.push(element);
+    }
+    return elements;
+};
+
+const readOrnaments = (mpm: Mpm): MoodOrnament[] =>
+    mapElements(mpm, ORNAMENTATION_MAP, 'ornament')
+        .map((element) => ({
+            date: numberAttribute(element, 'date'),
+            scale: numberAttribute(element, 'scale'),
+            nameRef: element.getAttributeValue('name.ref'),
+            noteOrder: element.getAttributeValue('note.order'),
+            frameStart: numberAttribute(element, 'frame.start'),
+            frameLength: numberAttribute(element, 'frameLength'),
+        }))
+        .filter((ornament): ornament is MoodOrnament => ornament.date !== null);
+
 const pickMoodOrnament = (
-    referenceMpm: MPM,
+    ornaments: readonly MoodOrnament[],
     targetDate: number,
-): Ornament | null => {
-    const ornaments = referenceMpm.getInstructions<Ornament>('ornament');
+): MoodOrnament | null => {
     const exact = ornaments
         .filter((ornament) => ornament.date === targetDate)
-        .sort((a, b) => (numericValue(b.scale) ?? 1) - (numericValue(a.scale) ?? 1));
+        .sort((a, b) => (b.scale ?? 1) - (a.scale ?? 1));
     if (exact.length > 0) return exact[0];
 
     const upcoming = ornaments
@@ -120,40 +192,60 @@ const pickMoodOrnament = (
     return previous[0] ?? null;
 };
 
-const findEffectiveInstruction = <T extends AnyInstruction>(
-    items: T[],
-    targetDate: number,
-): T | null =>
-    items
-        .filter((item) => item.date <= targetDate)
-        .sort((a, b) => b.date - a.date)[0] ?? null;
+/** The `<ornamentDef>` of that name, wherever in the reference's ornamentation styles it sits. */
+const readOrnamentDef = (mpm: Mpm, name: string | null): MoodOrnamentDef | null => {
+    if (name === null) return null;
+    const header = mpm.getPerformance(0)?.getGlobal()?.getHeader() ?? null;
+    for (const style of header?.getAllStyleDefs(ORNAMENTATION_STYLE)?.values() ?? []) {
+        const def = style.getDef(name)?.getXmlOrNull() ?? null;
+        if (!def) continue;
+        const spread = allChildElements(def, 'temporalSpread')[0] ?? null;
+        const gradient = allChildElements(def, 'dynamicsGradient')[0] ?? null;
+        return {
+            name,
+            frameStart: spread ? numberAttribute(spread, 'frame.start') : null,
+            frameLength: spread ? numberAttribute(spread, 'frameLength') : null,
+            timeUnit: spread?.getAttributeValue('time.unit') ?? null,
+            noteOffShift: spread?.getAttributeValue('noteoff.shift') ?? null,
+            gradient: gradient
+                ? {
+                    from: numberAttribute(gradient, 'transition.from') ?? 0,
+                    to: numberAttribute(gradient, 'transition.to') ?? 0,
+                }
+                : null,
+        };
+    }
+    return null;
+};
 
 const MOOD_DYNAMICS_SCALE = 0.35;
 
-const resolveMoodDynamics = (
-    referenceMpm: MPM,
-    targetDate: number,
-): number => {
-    const effective = findEffectiveInstruction(referenceMpm.getInstructions<Dynamics>('dynamics'), targetDate);
-    const base = effective
-        ? (numericValue(effective['transition.to']) ?? numericValue(effective.volume) ?? 72)
-        : 72;
+const resolveMoodDynamics = (mpm: Mpm, targetDate: number): number => {
+    const effective = mapElements(mpm, DYNAMICS_MAP, 'dynamics')
+        .map((element) => ({
+            date: numberAttribute(element, 'date') ?? 0,
+            transitionTo: numberAttribute(element, 'transition.to'),
+            volume: numberAttribute(element, 'volume'),
+        }))
+        .filter((dynamics) => dynamics.date <= targetDate)
+        .sort((a, b) => b.date - a.date)[0] ?? null;
+    const base = effective ? (effective.transitionTo ?? effective.volume ?? 72) : 72;
     return clampMidi(Math.round(base * MOOD_DYNAMICS_SCALE), 25);
 };
 
-const buildPitchById = (msm: MSM): Map<string, number> => {
+const buildPitchById = (notes: readonly MeasuredNote[]): Map<string, number> => {
     const byId = new Map<string, number>();
-    for (const raw of msm.allNotes as Array<Record<string, unknown>>) {
-        const id = typeof raw['xml:id'] === 'string' ? raw['xml:id'] : null;
-        const pitch = typeof raw['midi.pitch'] === 'number' ? raw['midi.pitch'] : null;
+    for (const note of notes) {
+        const id = typeof note['xml:id'] === 'string' ? note['xml:id'] : null;
+        const pitch = typeof note['midi.pitch'] === 'number' ? note['midi.pitch'] : null;
         if (id && pitch != null) byId.set(id, pitch);
     }
     return byId;
 };
 
 const buildReductionOrder = (
-    chordNotes: MsmNoteLike[],
-    orderText: string | undefined,
+    chordNotes: MeasuredNote[],
+    orderText: string | null,
     fullScorePitchById: Map<string, number>,
 ): string => {
     const ascending = chordNotes
@@ -211,42 +303,23 @@ const arpeggioSpanMs = (noteCount: number): number =>
         Math.min(MAX_ARPEGGIO_SPAN_MS, Math.max(1, noteCount - 1) * ARPEGGIO_STEP_MS),
     );
 
-const buildSlowMoodOrnamentDef = (
-    sourceDef: OrnamentDef | null,
-    noteCount: number,
-): OrnamentDef => ({
-    type: 'ornamentDef',
-    name: sourceDef?.name ?? 'judgement_mood_default_ornament',
-    temporalSpread: {
-        type: 'temporalSpread',
-        'frame.start': 0,
-        frameLength: arpeggioSpanMs(noteCount),
-        'time.unit': 'milliseconds',
-        'noteoff.shift': sourceDef?.temporalSpread?.['noteoff.shift'] ?? false,
-    },
-    dynamicsGradient: sourceDef?.dynamicsGradient
-        ? {
-            type: 'dynamicsGradient',
-            'transition.from': sourceDef.dynamicsGradient['transition.from'],
-            'transition.to': sourceDef.dynamicsGradient['transition.to'],
-        }
-        : {
-            type: 'dynamicsGradient',
-            'transition.from': 0,
-            'transition.to': 0,
-        },
+/** The source def slowed to the mood chord's own pace, in milliseconds, starting on the beat. */
+const slowMoodDef = (source: MoodOrnamentDef | null, noteCount: number): MoodOrnamentDef => ({
+    name: source?.name ?? DEFAULT_MOOD_ORNAMENT,
+    frameStart: 0,
+    frameLength: arpeggioSpanMs(noteCount),
+    timeUnit: 'milliseconds',
+    noteOffShift: source?.noteOffShift ?? 'false',
+    gradient: source?.gradient ?? { from: 0, to: 0 },
 });
 
 const estimateSpreadWindow = (
-    ornamentDef: OrnamentDef,
-    ornament: Ornament | null,
+    def: MoodOrnamentDef,
+    ornament: MoodOrnament | null,
 ): SpreadWindow => {
-    const spread = ornamentDef.temporalSpread;
-    if (!spread) return { start: 0, end: 0 };
-
-    const sourceStart = numericValue(ornament?.['frame.start']) ?? spread['frame.start'] ?? 0;
-    const sourceLength = numericValue(ornament?.frameLength) ?? spread.frameLength ?? 0;
-    if (spread['time.unit'] === 'milliseconds') {
+    const sourceStart = ornament?.frameStart ?? def.frameStart ?? 0;
+    const sourceLength = ornament?.frameLength ?? def.frameLength ?? 0;
+    if (def.timeUnit === 'milliseconds') {
         const startTicks = judgementMoodMillisecondsToTicks(sourceStart);
         const lengthTicks = judgementMoodMillisecondsToTicks(sourceLength);
         return {
@@ -255,7 +328,7 @@ const estimateSpreadWindow = (
         };
     }
 
-    const instructionScale = Math.max(1, numericValue(ornament?.scale) ?? 1);
+    const instructionScale = Math.max(1, ornament?.scale ?? 1);
     const start = sourceStart * instructionScale;
     const length = Math.max(0, sourceLength * instructionScale);
     return {
@@ -264,61 +337,120 @@ const estimateSpreadWindow = (
     };
 };
 
-const insertPedalEnvelope = (
-    mpm: MPM,
-    scope: Scope,
-    downDate: number,
-    upDate: number,
-) => {
-    const pedalDown: Movement = {
-        type: 'movement',
-        'xml:id': 'judgement_mood_pedal_down',
-        date: downDate,
-        position: 0,
-        'transition.to': 1,
-        controller: 'sustain',
-    };
-    const pedalReached: Movement = {
-        type: 'movement',
-        'xml:id': 'judgement_mood_pedal_down_done',
-        date: downDate + PEDAL_RAMP_TICKS,
-        position: 1,
-        controller: 'sustain',
-    };
-    const pedalUp: Movement = {
-        type: 'movement',
-        'xml:id': 'judgement_mood_pedal_up',
-        date: upDate,
-        position: 1,
-        'transition.to': 0,
-        controller: 'sustain',
-    };
-    const pedalReleased: Movement = {
-        type: 'movement',
-        'xml:id': 'judgement_mood_pedal_up_done',
-        date: upDate + PEDAL_RAMP_TICKS,
-        position: 0,
-        controller: 'sustain',
-    };
-    mpm.insertInstructions([pedalDown, pedalReached, pedalUp, pedalReleased], scope);
+const noteOffShiftOf = (value: string | null): NoteOffShift => {
+    switch (value) {
+        case 'true': return NoteOffShift.True;
+        case 'monophonic': return NoteOffShift.Monophonic;
+        default: return NoteOffShift.False;
+    }
+};
+
+const unwrap = <R extends AnyResult>(result: R, what: string): OkOf<R> => {
+    if (!isOk(result)) throw new Error(`judgement mood: ${what} could not be created`);
+    return result.value as OkOf<R>;
+};
+
+/**
+ * The mood chord's own MPM: one tempo, one dynamics, one ornament over one def, and a
+ * four-`<movement>` pedal envelope.
+ */
+const writeMoodMpm = (
+    def: MoodOrnamentDef,
+    dynamicsVolume: number,
+    chordDate: number,
+    renderFrom: number,
+    noteOrder: string,
+    pedalDownDate: number,
+    pedalUpDate: number,
+): string => {
+    const mpm = Mpm.createMpm();
+    const performance = unwrap(Performance.fromName('judgement_mood', PPQ), 'the performance');
+    mpm.addPerformance(performance);
+
+    const global = performance.getGlobal();
+    const dated = global?.getDated() ?? null;
+    const header = global?.getHeader() ?? null;
+    if (!dated || !header) throw new Error('judgement mood: the performance has no <dated>/<header>');
+
+    const style = Style.create('ornamentation', MOOD_STYLE_NAME, 'judgement_mood_ornament_styledef');
+    const ornamentDef = unwrap(OrnamentDef.createOrnamentDef(def.name), `ornamentDef ${def.name}`);
+    ornamentDef.setTemporalSpreadValues(
+        def.frameStart ?? 0,
+        def.frameLength ?? 0,
+        FrameDomain.Milliseconds,
+        1.0,
+        noteOffShiftOf(def.noteOffShift),
+    );
+    if (def.gradient) ornamentDef.setDynamicsGradientValues(def.gradient.from, def.gradient.to);
+    style.addDef(ornamentDef);
+    header.addStyleDef(ORNAMENTATION_STYLE, style as unknown as AnyStyle);
+
+    const tempoMap = TempoMap.createTempoMap();
+    tempoMap.addTempo({
+        date: renderFrom,
+        bpm: FIXED_JUDGEMENT_BPM,
+        beatLength: FIXED_BEAT_LENGTH,
+        id: 'judgement_mood_tempo',
+    });
+
+    const dynamicsMap = DynamicsMap.createDynamicsMap();
+    dynamicsMap.addDynamics({
+        date: renderFrom,
+        volume: dynamicsVolume,
+        id: 'judgement_mood_dynamics',
+    });
+
+    const ornamentMap = OrnamentationMap.createOrnamentationMap();
+    ornamentMap.addStyleSwitch(renderFrom, MOOD_STYLE_NAME, 'judgement_mood_ornament_style');
+    ornamentMap.addOrnamentV3({
+        date: chordDate,
+        nameRef: def.name,
+        scale: 1,
+        noteOrder,
+        id: 'judgement_mood_ornament',
+    });
+
+    // Down, held, released, up — the four positions `prepareMoodChordMidi` then ramps.
+    const movementMap = MovementMap.createMovementMap();
+    for (const movement of [
+        { date: pedalDownDate, position: 0, transitionTo: 1, id: 'judgement_mood_pedal_down' },
+        { date: pedalDownDate + PEDAL_RAMP_TICKS, position: 1, id: 'judgement_mood_pedal_down_done' },
+        { date: pedalUpDate, position: 1, transitionTo: 0, id: 'judgement_mood_pedal_up' },
+        { date: pedalUpDate + PEDAL_RAMP_TICKS, position: 0, id: 'judgement_mood_pedal_up_done' },
+    ]) {
+        movementMap.addMovement({
+            date: movement.date,
+            // `Normalized` is a branded number the library mints at its own parse boundaries;
+            // these four are literals from the spec's 0..1 domain, so the brand is asserted here.
+            position: movement.position as Normalized,
+            ...(movement.transitionTo === undefined ? {} : { transitionTo: movement.transitionTo as Normalized }),
+            controller: 'sustain',
+            id: movement.id,
+        });
+    }
+
+    for (const map of [tempoMap, dynamicsMap, ornamentMap, movementMap]) dated.addMap(map);
+
+    const text = mpm.writeMpm();
+    if (text === null) throw new Error('judgement mood: the document could not be written');
+    return text;
 };
 
 export const buildJudgementMoodRenderPlan = (
-    reductionMsm: MSM,
-    baseMsm: MSM,
-    referenceMpm: MPM,
+    reductionNotes: readonly MeasuredNote[],
+    scoreNotes: readonly MeasuredNote[],
+    referenceMpmText: string,
     targetDate: number,
     options: JudgementMoodOptions = {},
 ): JudgementMoodRenderPlan | null => {
-    const chord = pickReductionChord(reductionMsm, targetDate);
+    const chord = pickReductionChord(reductionNotes, targetDate);
     if (!chord) return null;
 
-    const ornament = pickMoodOrnament(referenceMpm, targetDate);
-    const ornamentDef = ornament?.['name.ref']
-        ? clonePlain(referenceMpm.getDefinition('ornamentDef', ornament['name.ref']) as OrnamentDef | null)
-        : null;
-    const effectiveDef = buildSlowMoodOrnamentDef(ornamentDef, chord.notes.length);
-    const reductionOrder = buildReductionOrder(chord.notes, ornament?.['note.order'], buildPitchById(baseMsm));
+    const reference = new Mpm(referenceMpmText);
+    const ornament = reference.isEmpty() ? null : pickMoodOrnament(readOrnaments(reference), targetDate);
+    const sourceDef = reference.isEmpty() ? null : readOrnamentDef(reference, ornament?.nameRef ?? null);
+    const effectiveDef = slowMoodDef(sourceDef, chord.notes.length);
+    const reductionOrder = buildReductionOrder(chord.notes, ornament?.noteOrder ?? null, buildPitchById(scoreNotes));
     const spread = estimateSpreadWindow(effectiveDef, ornament);
 
     const renderFrom = Math.max(0, chord.date - PEDAL_RAMP_TICKS);
@@ -342,51 +474,15 @@ export const buildJudgementMoodRenderPlan = (
     );
     const renderTo = pedalReleaseDate + PEDAL_RAMP_TICKS + 1;
 
-    const mpm = new MPM();
-    mpm.setPerformanceName('judgement_mood');
-    mpm.insertDefinition(effectiveDef, 'global');
-
-    const tempo: Tempo = {
-        type: 'tempo',
-        'xml:id': 'judgement_mood_tempo',
-        date: renderFrom,
-        bpm: FIXED_JUDGEMENT_BPM,
-        beatLength: FIXED_BEAT_LENGTH,
-    };
-    const ornamentStyle: Style = {
-        type: 'style',
-        'xml:id': 'judgement_mood_ornament_style',
-        date: renderFrom,
-        'name.ref': 'performance_style',
-    };
-    const dynamics: Dynamics = {
-        type: 'dynamics',
-        'xml:id': 'judgement_mood_dynamics',
-        date: renderFrom,
-        volume: resolveMoodDynamics(referenceMpm, targetDate),
-    };
-    const moodOrnament: Ornament = {
-        type: 'ornament',
-        'xml:id': 'judgement_mood_ornament',
-        date: chord.date,
-        'name.ref': effectiveDef.name,
-        'note.order': reductionOrder,
-        scale: 1,
-    };
-
-    if (ornament) {
-        const intensity = numericValue(ornament.intensity);
-        const transitionFrom = numericValue(ornament['transition.from']);
-        const transitionTo = numericValue(ornament['transition.to']);
-        if (intensity != null) moodOrnament.intensity = intensity;
-        if (transitionFrom != null) moodOrnament['transition.from'] = transitionFrom;
-        if (transitionTo != null) moodOrnament['transition.to'] = transitionTo;
-        if (ornament['noteoff.shift'] != null) moodOrnament['noteoff.shift'] = ornament['noteoff.shift'];
-    }
-
-    mpm.insertStyle(ornamentStyle, 'ornament', 'global');
-    mpm.insertInstructions([tempo, dynamics, moodOrnament], 'global');
-    insertPedalEnvelope(mpm, 'global', earliestPedalDown, pedalReleaseDate);
+    const mpm = writeMoodMpm(
+        effectiveDef,
+        reference.isEmpty() ? clampMidi(Math.round(72 * MOOD_DYNAMICS_SCALE), 25) : resolveMoodDynamics(reference, targetDate),
+        chord.date,
+        renderFrom,
+        reductionOrder,
+        earliestPedalDown,
+        pedalReleaseDate,
+    );
 
     return {
         mpm,

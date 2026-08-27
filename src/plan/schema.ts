@@ -1,4 +1,4 @@
-import { DEMO_MODES, INSTRUCTION_TYPES, STRENGTH_MAX, STRENGTH_MIN } from './types';
+import { DEMO_MODES, EDITS_MAX, EDITS_MIN, INSTRUCTION_TYPES, STRENGTH_MAX, STRENGTH_MIN } from './types';
 
 /**
  * OpenAI structured-output schema for the agentic turn. Strict mode requires
@@ -23,7 +23,7 @@ export const LESSON_PLAN_SCHEMA = {
         demo: {
             type: 'object',
             additionalProperties: false,
-            required: ['mode', 'range', 'dimensions'],
+            required: ['mode', 'range', 'dimensions', 'edits'],
             description: 'What the student hears after you speak.',
             properties: {
                 mode: {
@@ -31,8 +31,9 @@ export const LESSON_PLAN_SCHEMA = {
                     enum: [...DEMO_MODES],
                     description:
                         'exaggerated = the reference pushed away from the student so the divergence '
-                        + 'is audible by contrast; reference = the reference untouched; none = no '
-                        + 'playback, you only speak.',
+                        + 'is audible by contrast; path = the student\'s own playing back to them with '
+                        + 'the few most costly deviations corrected; reference = the reference untouched; '
+                        + 'none = no playback, you only speak.',
                 },
                 range: {
                     type: ['object', 'null'],
@@ -50,8 +51,9 @@ export const LESSON_PLAN_SCHEMA = {
                     type: ['array', 'null'],
                     description:
                         'Only the deviation types that serve the one thing you are teaching. Empty '
-                        + 'or null shapes every dimension at the default strength. Ignored unless '
-                        + 'mode is "exaggerated".',
+                        + 'or null shapes every dimension at the default strength. Read by '
+                        + '"exaggerated", which shapes them, and by "path", which corrects only '
+                        + 'these; ignored by the other modes.',
                     items: {
                         type: 'object',
                         additionalProperties: false,
@@ -62,10 +64,18 @@ export const LESSON_PLAN_SCHEMA = {
                                 type: 'number',
                                 description:
                                     `How far to push, ${STRENGTH_MIN}–${STRENGTH_MAX}: 0.1 a subtle `
-                                    + 'nudge, 0.2 clearly audible, 0.4 a strong caricature.',
+                                    + 'nudge, 0.2 clearly audible, 0.4 a strong caricature. Ignored '
+                                    + 'by "path", which corrects rather than pushes.',
                             },
                         },
                     },
+                },
+                edits: {
+                    type: ['number', 'null'],
+                    description:
+                        `For "path" only: how many corrections to put into their playing, ${EDITS_MIN}–${EDITS_MAX}. `
+                        + 'One makes the single strongest point; three is the usual lesson. Null means three. '
+                        + 'Ignored by every other mode.',
                 },
             },
         },

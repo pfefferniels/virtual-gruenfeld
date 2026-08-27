@@ -4,14 +4,30 @@ You play Schumann's *Träumerei*, and Alfred Grünfeld's 1905 Welte-Mignon recor
 
 ## How it works
 
-1. The app loads the score (MEI) and a reference performance reconstructed from piano rolls
+1. The app loads the score (MEI) and Grünfeld's performance as the MPM document it already is —
+   `performance.mpm`, the reconstruction from the piano roll, which is also what you hear when the
+   teacher plays
 2. You play on a MIDI keyboard
 3. Your playing is matched against the score using a subsequence alignment algorithm
-4. The system compares your performance parameters (tempo, dynamics, articulation, rubato, ornamentation) against the reference
-5. An LLM generates a short spoken critique in German, calibrated to the severity of deviations
-6. The reference performance is exaggerated *away* from your playing and rendered as MIDI — so you hear the contrast
+4. The notes you played are fitted into Grünfeld's own instruction slots — the same `<tempo>`,
+   `<dynamics>`, `<rubato>`, `<ornament>` elements he has, at the same dates and under the same
+   `xml:id`s — which turns a take into an MPM document of its own
+5. Grünfeld goes through that same procedure, for this take: his performance is rendered over the
+   passage you played, matched back against the score and fitted the same way. He is compared fit
+   against fit rather than fit against a hand-drawn bake, and over your own window rather than the
+   whole piece — so playing the roll back perfectly is answered with nothing at all
+6. The two documents are compared twice over: `compareMpm` prices the whole window in
+   just-noticeable differences and closes the door on anything inaudible, and the paired
+   instructions say what changed where, in bpm, velocity and milliseconds
+7. An LLM generates a short spoken critique in German, calibrated to the severity of deviations
+8. You hear an answer. Normally that is a *counter-performance*: Grünfeld's own document, pushed
+   away from your playing instruction by instruction and capped, so the contrast is audible without
+   becoming a caricature. The teacher may instead play the reference untouched, say nothing at all,
+   or — in `path` mode — play **your** take back with the few costliest corrections applied
 
-The whole loop runs in the browser, except for MEI↔MSM conversion and MIDI rendering (Java, port 8080) and the LLM + TTS call (Node server).
+The whole loop runs in the browser, on [espressivo](https://github.com/pfefferniels/espressivo)
+alone: the MEI→MSM conversion, the fit, the comparison, the counter-performance and the MIDI
+rendering. Only the LLM + TTS call leaves it (Node server).
 
 ## What the teacher knows
 
@@ -70,27 +86,51 @@ src/
 client/src/
   Dialog.tsx               Main UI — the teaching loop
   matcher.ts               Subsequence matcher (Smith-Waterman + Hungarian)
-  mpm/                     Diff and exaggerate, severity formatting
-  pipeline/                Turn choreography: cues, playback, strategies
+  score/measured.ts        The one note shape everything speaks, in milliseconds
+  student/                 A take fitted into Grünfeld's slots: scaffold, fit, residual, ornament
+  mpm/                     Reference, range cut, compare, pair, evidence, counter, path, diff
+  workers/                 The evidence worker — fit + comparison off the main thread
+  pipeline/                Turn choreography: boot, take, cues, playback, strategies
   teacherCues.ts           Scheduling spoken cues against the music
   useVoiceQuestion.ts      Push-to-talk
-  asMSM.ts                 MEI → MSM via meico
+  services/mpmRenderer.ts  MEI → MSM and MPM → MIDI, in-process via espressivo
 client/public/
   score.mei                Schumann Träumerei Op. 15 No. 7
-  info.json                CIDOC-CRM metadata with mpmify transformer chain
+  performance.mpm          Grünfeld's performance — what he plays, the slots a take is fitted
+                           into, and what the comparison side is fitted from, per take
+  info.json                CIDOC-CRM metadata: the editorial argumentations the teacher cites
 generate_test.ts           End-to-end test: renders student → explanation → teacher MP3s
+visualize_implant.ts       Piano roll of what the matcher did with a take (needs matplotlib)
 scripts/smoke-teacher.ts   Live smoke tests against the real APIs
 ```
 
 ## Dependencies
 
-- [mpm-ts](https://github.com/pfefferniels/mpm-ts) and [mpmify](https://github.com/pfefferniels/mpmify) — local packages for Music Performance Markup
-- [meico](https://github.com/cemfi/meico) — MEI converter/renderer, runs as a Java server on port 8080
+- [espressivo](https://github.com/pfefferniels/espressivo) — everything expressive: the MEI→MSM
+  converter, the MPM object model and renderer (a TypeScript port of
+  [meico](https://github.com/cemfi/meico)), the fitting primitives the student's fit is built on,
+  and the comparison module the evidence comes from. Local package at `../meico-ts`
 - OpenAI for the teacher, transcription and the student profile
 - ElevenLabs for German TTS
 - For the test script: fluidsynth + a soundfont, ffmpeg
 
 ## Setup
+
+Three checkouts, side by side — this one, espressivo, and react-pianosound. espressivo is a
+`file:../meico-ts` dependency and has to be built first; react-pianosound is not a dependency at
+all but the client imports `@tonejs/piano` and `tone` straight out of its `node_modules`
+(`client/src/pianosound/`, allowed explicitly by `client/vite.config.ts`), so its install has to
+have run. `.github/workflows/deploy.yml` checks out the same three.
+
+```bash
+git clone https://github.com/pfefferniels/espressivo.git meico-ts
+git clone https://github.com/pfefferniels/react-pianosound.git
+git clone https://github.com/pfefferniels/virtual-gruenfeld.git
+
+(cd meico-ts && npm ci && npm run build)
+(cd react-pianosound && npm ci)          # for @tonejs/piano and tone
+cd virtual-gruenfeld
+```
 
 ```bash
 npm install
@@ -98,7 +138,7 @@ cd client && npm install
 cp .env.example .env   # add OPENAI_API_KEY, ELEVENLABS_API_KEY
 ```
 
-Start the meico server on port 8080, then:
+Then:
 
 ```bash
 npm run dev
@@ -118,13 +158,22 @@ Type-checking and dead-code analysis:
 ```bash
 npm run type-check              # server
 cd client && npx tsc --noEmit   # client
+npm run type-check:scripts      # the root scripts, which import client/src and run under tsx
+cd client && npm run lint       # eslint, --max-warnings 0
 npm run knip                    # unused files, exports and dependencies
 ```
 
-End-to-end pipeline test (generates MP3s with student → spoken explanation → teacher):
+The first four are what CI runs before the build (`.github/workflows/deploy.yml`).
+
+End-to-end pipeline test (generates MP3s with student → spoken explanation → teacher). It runs
+the modules the app ships, so it needs no browser — but it does need the teacher server, a
+soundfont and ffmpeg. `DRY_RUN=1` stops after the counter-performance, which is everything that
+happens on this machine:
 
 ```bash
 SF2_PATH=/path/to/soundfont.sf2 npx tsx generate_test.ts
+DRY_RUN=1 npx tsx generate_test.ts            # fit, comparison and counter-performance only
+SCENARIO=02_rushing_loud npx tsx generate_test.ts   # one scenario
 ```
 
 Live smoke tests against the real OpenAI and ElevenLabs APIs (needs keys in `.env`):

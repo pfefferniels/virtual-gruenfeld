@@ -24,9 +24,9 @@ does not survive contact with the code. The teacher service:
 Porting that to a Worker means bundling the corpus as an asset, moving sessions to KV or D1,
 and giving up the process-lifetime caches. That is a project, not a deployment step.
 
-Meanwhile you already run a host that serves the Java MPM renderer at `api.welte225.org`.
-It has a disk and a process supervisor. **Put the teacher there.** The rest of this document
-assumes that host.
+Meanwhile you already run a host at `api.welte225.org` — it served the Java MPM renderer
+until the client took that job in-process (espressivo). It has a disk and a process
+supervisor. **Put the teacher there.** The rest of this document assumes that host.
 
 ---
 
@@ -59,20 +59,29 @@ Never commit any of these. `.env` is gitignored; `.env.example` lists the shape.
 
 ## 2. Build and run the service
 
-The teacher process never imports `mpm-ts` or `mpmify` — but they are `file:../` dependencies
-of the root `package.json` (the *client* build needs them), so `npm ci` wants them on disk.
-Clone all three side by side, exactly as `.github/workflows/deploy.yml` does:
+The teacher process imports nothing from espressivo — it parses `info.json` and
+`performance.mpm` with its own code (`src/corpus/parse.ts`). But espressivo is a `file:../`
+dependency of the root `package.json`, because the *client* build is built from the same
+checkout, so `npm ci` wants it on disk. react-pianosound is there for the same reason: the client
+imports `@tonejs/piano` and `tone` out of its `node_modules` (`client/src/pianosound/`), so a
+checkout that only builds the server still needs it present for the client build beside it.
+Clone the three side by side, exactly as `.github/workflows/deploy.yml` does:
 
 ```bash
 cd /srv
-git clone https://github.com/pfefferniels/mpm-ts.git
-git clone https://github.com/pfefferniels/mpmify.git
+git clone https://github.com/pfefferniels/espressivo.git meico-ts
+git clone https://github.com/pfefferniels/react-pianosound.git
 git clone https://github.com/pfefferniels/virtual-gruenfeld.git
+
+cd /srv/meico-ts && npm ci && npm run build
+cd /srv/react-pianosound && npm ci
 
 cd /srv/virtual-gruenfeld
 npm ci
 npm run build:server        # tsc -> dist/
 ```
+
+Node 22 or later, which is what espressivo requires.
 
 The checkout must stay in place: the corpus is loaded from `client/public/info.json` and
 `assets/all/performance.mpm` relative to it (`findRepoRoot()` walks up from `dist/corpus/`).
@@ -199,15 +208,14 @@ Then `VITE_TEACHER_URL=https://teacher.welte225.org`.
 ### Option B — a path under the existing api host
 
 No new DNS record or certificate, but the prefix must be **stripped** before it reaches Node,
-which serves `/teacher-stream` and `/teacher-ask` at its root:
+which serves `/teacher-stream` and `/teacher-ask` at its root. (Nothing else needs to live
+on this host any more — the Java renderer it used to proxy on port 8080 is retired; the
+client renders in-process.)
 
 ```caddyfile
 api.welte225.org {
     handle_path /teacher/* {          # handle_path strips the prefix; `handle` would not
         reverse_proxy 127.0.0.1:3002
-    }
-    handle {
-        reverse_proxy 127.0.0.1:8080  # the existing Java renderer
     }
 }
 ```

@@ -16,35 +16,28 @@ jobs:
         with:
           path: virtual-gruenfeld
 
-      - name: Checkout mpm-ts
-        uses: actions/checkout@v4
-        with:
-          repository: pfefferniels/mpm-ts
-          path: mpm-ts
-
-      - name: Checkout mpmify
-        uses: actions/checkout@v4
-        with:
-          repository: pfefferniels/mpmify
-          path: mpmify
-
       - name: Checkout react-pianosound
         uses: actions/checkout@v4
         with:
           repository: pfefferniels/react-pianosound
           path: react-pianosound
 
+      # Everything expressive runs in the browser on espressivo: MEI→MSM, the fit
+      # of the student's take, the comparison against Grünfeld and the MPM→MIDI
+      # render (the repo is linked as ../meico-ts, see package.json).
+      - name: Checkout espressivo
+        uses: actions/checkout@v4
+        with:
+          repository: pfefferniels/espressivo
+          path: meico-ts
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # espressivo needs >= 22
 
-      - name: Build mpm-ts
-        working-directory: mpm-ts
-        run: npm ci && npm run build
-
-      - name: Build mpmify
-        working-directory: mpmify
+      - name: Build espressivo
+        working-directory: meico-ts
         run: npm ci && npm run build
 
       - name: Install react-pianosound deps
@@ -76,11 +69,25 @@ jobs:
           if [ -n "$TEACHER_AGENTIC" ]; then echo "VITE_TEACHER_AGENTIC=$TEACHER_AGENTIC" >> "$GITHUB_ENV"; fi
           if [ -n "$TEACHER_VOICE" ]; then echo "VITE_TEACHER_VOICE=$TEACHER_VOICE" >> "$GITHUB_ENV"; fi
 
-      - name: Install and build client
+      - name: Install client dependencies
         working-directory: virtual-gruenfeld/client
-        env:
-          VITE_API_URL: https://api.welte225.org
-        run: npm ci && npm run build
+        run: npm ci
+
+      # Nothing here ran until now — which is how `generate_test.ts` reached the branch broken
+      # for a whole merge: `client`'s tsconfig excludes the root scripts, the root one builds the
+      # server, and `type-check:scripts` is the only check that sees them. One vitest run covers
+      # both halves (the client suites and `../src`), so these four are the whole gate.
+      - name: Tests, types and lint
+        working-directory: virtual-gruenfeld
+        run: |
+          npm test
+          npm run type-check
+          npm run type-check:scripts
+          cd client && npm run lint
+
+      - name: Build client
+        working-directory: virtual-gruenfeld/client
+        run: npm run build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

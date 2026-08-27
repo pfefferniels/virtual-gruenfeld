@@ -1,16 +1,16 @@
 import { read } from "midifile-ts";
-import { MSM } from "mpmify";
 import { buildSmfFromMessages, isRealtimeStatus, MidiMessageEvent } from "./smf";
 import { implant } from "./api";
 import type { Range } from "./mpm";
+import type { MeasuredNote } from "./score/measured";
 
 type MidiStartResult =
     | { ok: true; dispose: () => void }
     | { ok: false; error: string };
 
 export const waitForPlayingSafe = async (
-    msm: MSM,
-    callback: (msm: MSM, range: Range) => void,
+    scoreNotes: readonly MeasuredNote[],
+    callback: (notes: MeasuredNote[], range: Range) => void,
     log: (msg: string) => void,
     getDateHint?: () => number | undefined,
     inputId?: string | null,
@@ -87,11 +87,11 @@ export const waitForPlayingSafe = async (
             log(`MIDI: parsed SMF -> tracks=${midiFile.tracks.length}, tpq=${midiFile.header.ticksPerBeat}`);
 
             const dateHint = getDateHint?.();
-            log(`IMPLANT: sending to /implant (notes=${msm.allNotes?.length ?? 'unknown'}, dateHint=${dateHint ?? 'none'})…`);
-            const { studentMsm, range } = await implant(msm, midiFile, log, dateHint);
-            log(`IMPLANT: done -> range=[${range.from}, ${range.to}], notesNow=${studentMsm.allNotes?.length ?? 'unknown'}`);
+            log(`IMPLANT: matching the take (score notes=${scoreNotes.length}, dateHint=${dateHint ?? 'none'})…`);
+            const { notes, range } = await implant(scoreNotes, midiFile, log, dateHint);
+            log(`IMPLANT: done -> range=[${range.from}, ${range.to}], notesNow=${notes.length}`);
 
-            if (!disposed) callback(studentMsm, range);
+            if (!disposed) callback(notes, range);
         } catch (e) {
             log(`ERROR: onFinish failed -> ${String(e)}`);
             throw e;

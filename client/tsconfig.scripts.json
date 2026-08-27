@@ -1,0 +1,17 @@
+{
+  "//": "The root scripts (../generate_test.ts, ../visualize_implant.ts) import client/src and run under tsx, so they need both Node's types and Vite's. Neither tsconfig here covers them: the root one builds the server, client/tsconfig.json includes only src. `npm run type-check:scripts`.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node", "vite/client"]
+  },
+  "include": ["../generate_test.ts", "../visualize_implant.ts"]
+}

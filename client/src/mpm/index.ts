@@ -1,5 +1,3 @@
-export type { Range, StructuredDiffEvent } from './types';
-export { mpmify } from './build';
-export { diff, diffStructured } from './diff';
-export { allDimensions, exaggerate } from './exaggerate';
-export type { ExaggerationDimension } from './exaggerate';
+export type { InstructionDiff, Range, StructuredDiffEvent } from './types';
+export { allDimensions, counterPerformance } from './counter';
+export type { ExaggerationDimension, StudentLevels } from './counter';

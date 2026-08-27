@@ -1,7 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": ["mpm-ts", "mpmify"],
-  "ignoreBinaries": ["java"],
+  "ignoreDependencies": ["espressivo"],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.ts", "*.ts"],

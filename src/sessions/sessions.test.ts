@@ -107,6 +107,14 @@ describe('take records', () => {
     it('caps the judgement at its three worst issues', () => {
         expect(takeRecord().judgement.topIssues).toHaveLength(3);
     });
+
+    it('stamps what the take was able to measure, and stays silent when it was not told', () => {
+        expect(takeRecord({ measured: ['tempo', 'rubato'] }).measured).toEqual(['tempo', 'rubato']);
+        // Absent, not empty: "nothing was listening" and "nothing was measurable" are different
+        // statements about a take, and the history renders them differently (risk R7).
+        expect(takeRecord().measured).toBeUndefined();
+        expect(takeRecord({ measured: [] }).measured).toEqual([]);
+    });
 });
 
 describe('session store', () => {
@@ -213,6 +221,38 @@ describe('history formatter', () => {
         expect(lines[2]).toContain('worst m2.2 tempo large 43->172');
         expect(lines[3]).toBe('  you said: "Sehr hastig, aber engagiert." -> m2.2 "ruhiger... atmen"; m4.1 "[softly] zum c hin"');
         expect(lines).toHaveLength(4);
+    });
+
+    it('says which dimensions a take could even hear, and flags one that predates the question', () => {
+        recordTake(SESSION, takeRecord({ measured: ['tempo', 'dynamics', 'rubato'] }));
+        expect(formatSessionHistory(readSession(SESSION))).toContain('measured tempo dynamics rubato');
+
+        __resetSessionStore();
+        recordTake(SESSION, takeRecord());
+        // Six of seven dimensions became measurable in this rewrite. A record from before that
+        // never mentions tempo because nothing was listening for it — which is not the same
+        // thing as the student's tempo having been fine, and the teacher is told so.
+        expect(formatSessionHistory(readSession(SESSION)))
+            .toContain('(earlier take, fewer dimensions measured)');
+    });
+
+    it('reads a take stored before the field existed without losing anything else', () => {
+        const stored = takeRecord() as Record<string, unknown>;
+        delete stored.measured;
+        writeFileSync(join(dir, `${SESSION}.json`), JSON.stringify({
+            id: SESSION,
+            createdAt: '2026-08-08T09:00:00.000Z',
+            updatedAt: '2026-08-08T10:00:00.000Z',
+            takes: [stored],
+            qa: [],
+            profile: null,
+        }));
+        __resetSessionStore();
+
+        const text = formatSessionHistory(readSession(SESSION));
+        expect(text).toContain('[take 1] | m1.2–m5.4 | 61 mixed');
+        expect(text).toContain('worst m2.2 tempo large 43->172');
+        expect(text).toContain('(earlier take, fewer dimensions measured)');
     });
 
     it(`shows at most the last ${HISTORY_MAX_TAKES} takes, still numbered absolutely`, () => {

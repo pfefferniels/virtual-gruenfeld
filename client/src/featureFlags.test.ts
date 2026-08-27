@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-    isAgenticTeacher, isVoiceTeacher, setFlagOverride, TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
+    isAgenticTeacher, isVoiceTeacher, setFlagOverride,
+    TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
 } from './featureFlags';
 
 /** A localStorage that only knows the keys a test puts in it. */

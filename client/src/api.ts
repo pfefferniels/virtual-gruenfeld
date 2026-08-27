@@ -2,33 +2,27 @@
 // Consumers (Dialog.tsx, midi.ts) can import from here without changes.
 
 import { MidiFile } from "midifile-ts";
-import { MPM } from "mpm-ts";
-import { MSM } from "mpmify";
 import type { Range } from "./mpm";
 import { implantLocal } from "./matcher";
+import { isImplanted, type MeasuredNote } from "./score/measured";
 import { buildTimingMap, type TimingMapPoint } from "./teacherCues";
-import { perform, warmPerformEndpoint } from "./services/mpmRenderer";
-import { assertOk } from "./services/api";
-
-// Re-exports from services/
-export { assertOk, warmPerformEndpoint };
+import { perform } from "./services/mpmRenderer";
 
 export const implant = (
-    msm: MSM,
+    scoreNotes: readonly MeasuredNote[],
     midi: MidiFile,
     log: (msg: string) => void,
     dateHint?: number,
-): Promise<{ studentMsm: MSM; range: Range }> => {
+): Promise<{ notes: MeasuredNote[]; range: Range }> => {
     if (dateHint != null) {
         log(`IMPLANT: using date_hint=${dateHint}`);
     }
-    log(`IMPLANT: matching ${msm.allNotes?.length ?? 0} ref notes against student MIDI…`);
+    log(`IMPLANT: matching ${scoreNotes.length} ref notes against student MIDI…`);
 
-    const { studentMsm, range } = implantLocal(msm, midi, dateHint);
+    const { notes, range } = implantLocal(scoreNotes, midi, dateHint);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    log(`IMPLANT: range=[${range.from}, ${range.to}], notes: ${studentMsm.allNotes.length}, implanted: ${studentMsm.allNotes.filter((n: any) => n.source === 'implanted').length}`);
-    return Promise.resolve({ studentMsm, range });
+    log(`IMPLANT: range=[${range.from}, ${range.to}], notes: ${notes.length}, implanted: ${notes.filter(isImplanted).length}`);
+    return Promise.resolve({ notes, range });
 };
 
 type RenderedTeacherPerformance = {
@@ -36,18 +30,26 @@ type RenderedTeacherPerformance = {
     timingMap: TimingMapPoint[];
 };
 
-export const performTeacherPlayback = async (
+/**
+ * Render `mpm` over `range` and align it to the reference, for the cues. Renders in
+ * process (espressivo), so this blocks for the render — ~50 ms for a couple of bars.
+ *
+ * `mpm` is MPM **text**: the reference as it was fetched, the counter-performance as
+ * `mpm/counter.ts` spliced it, the mood chord as `pipeline/judgementMood.ts` wrote it. Every
+ * document in this pipeline crosses every boundary as XML, which is what makes the
+ * clone-and-keep-pristine discipline structural rather than a rule to remember (semantics 30).
+ */
+export const performTeacherPlayback = (
     mei: string,
-    referenceMsm: MSM,
-    mpm: MPM,
+    referenceNotes: readonly MeasuredNote[],
+    mpm: string,
     range: Range,
-    opts?: { sketchiness?: number },
-): Promise<RenderedTeacherPerformance | undefined> => {
-    const midi = await perform(mei, mpm, range, opts);
+): RenderedTeacherPerformance | undefined => {
+    const midi = perform(mei, mpm, range);
     if (!midi) return undefined;
 
     return {
         midi,
-        timingMap: buildTimingMap(referenceMsm, midi, range),
+        timingMap: buildTimingMap(referenceNotes, midi, range),
     };
 };

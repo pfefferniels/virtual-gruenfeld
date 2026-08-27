@@ -73,9 +73,10 @@ worth more than the porting effort.
 
 ## 3. Pianist Transformer vs. mpmify's `ml/` tree
 
-`../mpmify/ml/` is an abandoned attempt at the same idea current expressive-rendering
-transformers (Pianist Transformer and relatives) pursue: learn to produce a performance
-model rather than hand-fit one. It did not fail on the idea. Reading `ml/LOG.md`, it failed
+mpmify is no longer part of this project — the pipeline runs on espressivo alone — but its
+repository is still on disk, and `../mpmify/ml/` is an abandoned attempt at the same idea
+current expressive-rendering transformers (Pianist Transformer and relatives) pursue: learn to
+produce a performance model rather than hand-fit one. It did not fail on the idea. Reading `ml/LOG.md`, it failed
 on an 8 GB M1 — MPS training hangs outright in torch 2.11, and the v0 recipe swap-thrashed
 at ~100× slowdown. The synthetic-data generator, the lossless tempo DSL, and the exact port
 of meico's tempo math (validated to 0.000000000 ms) all survive and are the expensive parts.
@@ -98,9 +99,10 @@ feeding score MEI to a general model as text.
 
 ## 4. Smaller items carried forward
 
-- **Serialized render in agentic mode** (Phase 3): the `/perform` render waits for the
-  lesson plan, where the legacy path overlapped them. Speculative render, or split the LLM
-  call in two, would win back roughly one render of wall-clock time.
+- **Serialized render in agentic mode** (Phase 3): the render waits for the lesson plan,
+  where the legacy path overlapped them. Now that it runs in-process via espressivo
+  (~50–300 ms for a passage) there is little left to win; a speculative render would close
+  the rest.
 - **`normalizeCueText` / `normalizeV3Tag`** are tested but not wired into the live vocal
   path (Phase 1 caveat). Wire them in or delete them.
 - **Session pruning runs once per process start** — fine for a long-lived Node server,

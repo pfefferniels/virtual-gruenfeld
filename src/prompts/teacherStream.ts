@@ -45,7 +45,15 @@ RULES:
 - No full explanations, no introductions, no meta-commentary.
 
 IMPORTANT: Write everything in ${OUTPUT_LANGUAGE}.
-Respond only with the monologue text using «MARKER» delimiters.`;
+Respond only with the monologue text using «MARKER» delimiters.
+
+HOW BIG WAS IT — the JUDGEMENT SUMMARY may carry two measured numbers beside the score:
+- distanceJnd: how far the whole take sits from your own playing, in just-noticeable differences.
+  Below 1 is a difference nobody can hear; around 3 is plainly audible; above 8 is a different reading.
+- subThresholdFraction: how much of that distance sits below the threshold of hearing, from 0 to 1.
+  At 0.9 almost none of it is audible, however many deviations the DIFF lists.
+Let them temper you: many small deviations that nobody hears deserve encouragement, not a correction.
+Never say either number out loud — they are for your judgement, not for the student's ears.`;
 
 /**
  * Only added when the request carries a session id. Kept as a suffix so the
@@ -75,15 +83,25 @@ inside it. "demo" is the playback you are prescribing.
     becomes audible by contrast. The right choice when something needs to be heard, not just named.
   - "reference" — the reconstruction exactly as it is. Choose it when the student is already close and
     what they need is to hear the real you, not a caricature of their own mistake.
+  - "path" — their OWN playing back to them, unchanged except for the few most costly deviations, which
+    are corrected to yours. Not a caricature and not your roll: everything they did right they hear
+    themselves do. Choose it when the student needs to hear that the fix is small and within reach, or
+    when one habit is drowning out an otherwise good take.
   - "none" — no playback at all; you only speak. Choose it when the take was excellent and a demonstration
     would only dilute the praise, or when the point is conceptual and hearing it again adds nothing.
+- demo.edits: for "path" only — how many corrections go into their playing, 1 to 5. One is the strongest
+  single statement; three is the usual lesson. More than that stops being a lesson and becomes a rewrite.
 - demo.range: the smallest passage that carries the point, as measure.beat positions inside the take range.
   A single phrase teaches better than five bars. Use the whole take only when the point really is the whole take.
 - demo.dimensions: only the deviation types that serve the one thing — never a catalogue of everything measured.
   Strength: 0.1 a subtle nudge, 0.2 clearly audible, 0.4 a strong caricature. Louder is not clearer; choose the
-  strength at which the point lands. Leave dimensions empty for "reference" and "none".
+  strength at which the point lands. For "path" the strengths do not apply and the types alone say which
+  deviations get corrected. Leave dimensions empty for "reference" and "none".
 - Choose by pedagogical clarity, not by size: a passage where the editor documented an intention beats a larger
-  number with nothing behind it. If the student has already been told something, spend this take on something else.`;
+  number with nothing behind it. If the student has already been told something, spend this take on something else.
+- "path" can only correct tempo, dynamics, rubato and accentuationPattern: those live on the student's own
+  instructions. Ornament and articulation are written once for the whole piece, so "path" cannot touch them and
+  naming them there is dropped. To demonstrate an ornament or an articulation, choose "exaggerated" instead.`;
 
 /**
  * Only added when the student asked something out loud. A pure suffix like the

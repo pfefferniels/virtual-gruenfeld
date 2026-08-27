@@ -37,7 +37,19 @@ const storedTeacherUrl = (): string | null => {
     }
 };
 
-const TEACHER_URL = resolveTeacherUrl(import.meta.env, storedTeacherUrl());
+/**
+ * Vite's build-time environment, or nothing.
+ *
+ * `import.meta.env` exists under Vite and under vitest; it does not under plain `tsx`, and the
+ * root scripts (`generate_test.ts`, `visualize_implant.ts`) reach this module through
+ * `pipeline/teacherVocalStream`. An empty environment is the correct answer there rather than a
+ * crash at import time: no URL was baked in, and `DEV` is unset, so nothing is guessed — which
+ * is what those scripts want, since they talk to `SERVER_URL` themselves.
+ */
+const buildEnv = (): { VITE_TEACHER_URL?: string; DEV?: boolean } =>
+    (import.meta.env ?? {}) as { VITE_TEACHER_URL?: string; DEV?: boolean };
+
+const TEACHER_URL = resolveTeacherUrl(buildEnv(), storedTeacherUrl());
 
 /** Probe whether the AI teacher service is reachable (retries for slow startup). */
 export const probeTeacherService = async (): Promise<boolean> => {
@@ -94,6 +106,11 @@ type TeacherStreamRequestPayload = {
     structuredDiff?: StructuredDiffEvent[];
     /** Take range in ticks, so the server can attach the passage's scholarly record. */
     range?: Range;
+    /**
+     * What this take measured (DESIGN §3.4): what a plan may name, and what the take record is
+     * stamped with so later takes know which dimensions were even listened for (risk R7).
+     */
+    measuredTypes?: readonly string[];
     /** Ties this take to the earlier ones of the same sitting (see `session.ts`). */
     sessionId?: string;
     /** Ask the teacher to plan the demonstration instead of always exaggerating the whole take. */

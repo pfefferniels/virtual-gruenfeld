@@ -37,6 +37,13 @@ export type TeacherStreamRequest = {
     structuredDiff?: Array<Record<string, unknown>>;
     /** Take range in ticks; unlocks the passage's scholarly record. */
     range?: { from: number; to: number };
+    /**
+     * What this take actually measured: the audibility gate's list intersected with what the
+     * fitter wrote (DESIGN §3.4). What a plan may name, and what the take record is stamped with
+     * so a later reading knows which dimensions were even listened to (risk R7). Absent from a
+     * legacy client, which then constrains nothing and is rendered as an earlier take.
+     */
+    measuredTypes?: string[];
     mode: CuePrepMode;
     /**
      * Ties this take to the student's earlier ones. Absent (a legacy client, or
@@ -134,10 +141,16 @@ export const buildUserInput = (
 };
 
 /**
- * The deviation types the diff actually reported. The plan may only shape these;
- * a legacy request without a structured diff constrains nothing.
+ * The deviation types the plan may shape (semantics 26).
+ *
+ * `measuredTypes` when the client sends it — the take's own list of what was measured, which
+ * includes a dimension the student got *right*, and is therefore a fair thing for a
+ * demonstration to name. A client that predates the field falls back to the types that produced
+ * an event, which is what this rule has always meant in practice; a request with neither
+ * constrains nothing.
  */
-const diffTypesOf = (body: TeacherStreamRequest): string[] | undefined => {
+const measuredTypesOf = (body: TeacherStreamRequest): string[] | undefined => {
+    if (body.measuredTypes) return body.measuredTypes;
     if (!body.structuredDiff) return undefined;
     return body.structuredDiff
         .map((event) => event.type)
@@ -181,7 +194,7 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
             rawText = parsed.monologue;
             const validated = validatePlan(parsed.demo, {
                 takeRange: body.range,
-                diffTypes: diffTypesOf(body),
+                measuredTypes: measuredTypesOf(body),
             });
             plan = validated.plan;
             if (validated.warnings.length > 0) {
@@ -257,6 +270,7 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
             judgement: body.judgement,
             structuredDiff: body.structuredDiff,
             range: body.range,
+            measured: body.measuredTypes,
             anchors,
         }));
         console.log('teacher-stream session', { session: sessionId, take: takeNumber });
@@ -286,11 +300,15 @@ export const runTeacherStream = async (body: TeacherStreamRequest): Promise<Teac
  */
 export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | null => {
     const body = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
-    const { judgement, candidates, diff, structuredDiff, range, mode, sessionId, agentic } = body;
+    const { judgement, candidates, diff, structuredDiff, range, measuredTypes, mode, sessionId, agentic } = body;
 
     const hasStructuredDiff = Array.isArray(structuredDiff) && structuredDiff.length > 0;
     if (typeof judgement !== 'object' || judgement === null) return null;
     if (typeof diff !== 'string' && !hasStructuredDiff) return null;
+
+    const measured = Array.isArray(measuredTypes)
+        ? measuredTypes.filter((type): type is string => typeof type === 'string')
+        : undefined;
 
     return {
         judgement: judgement as Record<string, unknown>,
@@ -298,6 +316,7 @@ export const parseTeacherStreamBody = (raw: unknown): TeacherStreamRequest | nul
         diff: typeof diff === 'string' ? diff : undefined,
         structuredDiff: hasStructuredDiff ? (structuredDiff as Array<Record<string, unknown>>) : undefined,
         range: isRange(range) ? range : undefined,
+        ...(measured ? { measuredTypes: measured } : {}),
         mode: parseCuePrepMode(mode),
         sessionId: isValidSessionId(sessionId) ? sessionId : undefined,
         ...(agentic === true ? { agentic: true } : {}),

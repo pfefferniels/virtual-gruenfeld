@@ -1,4 +1,4 @@
-import { allDimensions, exaggerate } from '../../mpm';
+import { allDimensions, counterPerformance, type ExaggerationDimension } from '../../mpm';
 import { performTeacherPlayback } from '../../api';
 import { isAgenticTeacher } from '../../featureFlags';
 import { fallbackImmediateJudgement } from '../../judgement';
@@ -12,6 +12,7 @@ import {
     talkOnlyDurationSec,
     type VocalStreamResult,
 } from '../teacherVocalStream';
+import { runPath } from '../../workers/evidenceClient';
 import type { TeacherStrategy } from '../types';
 
 /** Breathing room between JUDGE narration ending and correction piano entry. */
@@ -27,13 +28,24 @@ const NO_STREAM: VocalStreamResult = { chunks: [], plan: null };
 export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) => {
     const { log, isCancelled, play, playAudioBuffer, audioContext, mode, takeStartedAt, onJudgement, aiAvailable } = controls;
 
+    // The counter-performance is built from the reference **text** every time, so the two
+    // branches below cannot come to share a document and `mode: 'reference'` always plays
+    // Grünfeld untouched (semantics 30).
+    const shape = (range: typeof take.range, dimensions: readonly ExaggerationDimension[]): string =>
+        counterPerformance({
+            referenceMpmText: ctx.referenceMpmText,
+            range,
+            dimensions,
+            peaks: take.peaks,
+            measured: take.measuredTypes,
+            log,
+        });
+
     // With fixed pedagogy the demo is known before the teacher speaks, so it is
     // shaped here and renders while the model is still thinking. Agentic takes
     // cannot: the plan arrives with the monologue, so the two steps serialize.
     const agentic = aiAvailable && isAgenticTeacher();
-    if (!agentic) {
-        exaggerate(take.referenceMpmClone, take.studentMpm, take.range, allDimensions(), log);
-    }
+    let counterMpm: string | null = agentic ? null : shape(take.range, allDimensions());
 
     const vocalStreamPromise = aiAvailable
         ? requestVocalStream(
@@ -46,6 +58,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
             audioContext,
             log,
             agentic,
+            take.measuredTypes,
         ).catch((e) => {
             log(`VOCAL: stream error: ${e}`);
             return NO_STREAM;
@@ -70,20 +83,55 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     if (agentic && demoMode === 'exaggerated') {
         const dimensions = plan && plan.dimensions.length > 0 ? plan.dimensions : allDimensions();
-        exaggerate(take.referenceMpmClone, take.studentMpm, demoRange, dimensions, log);
+        counterMpm = shape(demoRange, dimensions);
+    }
+
+    // `path` plays the student's own document with the k costliest corrections in it. The edit
+    // script behind it costs half a second and up (`mpm/path.ts`, risk R4), so it runs in the
+    // evidence worker and only now — the teacher is already speaking by the time it starts.
+    let pathMpm: string | null = null;
+    if (demoMode === 'path') {
+        try {
+            const path = await runPath({
+                studentMpmText: take.studentMpmText,
+                referenceMpmText: take.referenceFitText,
+                // The editorial document, for its pedal alone: neither fitted document has a
+                // `<movement>` map, so without this the corrected take is the one demonstration
+                // that plays dry (`mpm/path.ts`, `splicePedal`).
+                editorialReferenceMpmText: ctx.referenceMpmText,
+                scoreMsm: ctx.scoreMsm,
+                range: demoRange,
+                // The audibility gate reaches the demonstration, not just the monologue: what
+                // the student hears corrected is a subset of what the take measured.
+                measured: take.measuredTypes,
+                types: (plan?.dimensions ?? []).map((dimension) => dimension.type),
+                ...(plan?.edits === null || plan?.edits === undefined ? {} : { edits: plan.edits }),
+            }, log);
+            for (const note of path.notes) log(`PLAY: ${note}`);
+            pathMpm = path.mpm;
+        } catch (e) {
+            // One demonstration, not the take: the monologue is already recorded and the
+            // reference below is a perfectly good thing to play under it.
+            log(`PLAY: path demonstration failed (${e})`);
+        }
+        if (pathMpm === null) log('PLAY: no corrected take to play — falling back to the reference');
+        if (isCancelled()) return;
     }
 
     // `none` skips the render entirely; `reference` plays Grünfeld untouched.
-    let demoPerf: Awaited<ReturnType<typeof performTeacherPlayback>> = undefined;
+    let demoPerf: ReturnType<typeof performTeacherPlayback> = undefined;
     if (demoMode !== 'none') {
         const performStartedAt = Date.now();
-        demoPerf = await performTeacherPlayback(
-            ctx.mei,
-            ctx.baseMsm,
-            demoMode === 'reference' ? ctx.referenceMpm : take.referenceMpmClone,
-            demoRange,
-        );
-        log(`PLAY: ${demoMode === 'reference' ? 'reference' : 'correction'} perform_ms=${Date.now() - performStartedAt}`);
+        // `reference` plays the pristine document; `exaggerated` plays the splice, which is a
+        // copy of it; `path` plays the student's own, corrected. A demo mode with nothing behind
+        // it falls back to Grünfeld rather than to nothing.
+        const [demoMpm, what] = demoMode === 'exaggerated' && counterMpm !== null
+            ? [counterMpm, 'correction'] as const
+            : demoMode === 'path' && pathMpm !== null
+                ? [pathMpm, 'corrected take'] as const
+                : [ctx.referenceMpmText, 'reference'] as const;
+        demoPerf = performTeacherPlayback(ctx.mei, ctx.scoreNotes, demoMpm, demoRange);
+        log(`PLAY: ${what} perform_ms=${Date.now() - performStartedAt}`);
         if (isCancelled() || !demoPerf) return;
 
         // Sustain tail: hold pedal 2.5s after last note, then slow release
@@ -122,11 +170,11 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
     const correctionEntrySec = narrationMs / 1000;
 
     // Build mood chord from harmonic reduction (if available)
-    const moodPlan = ctx.reductionMei && ctx.reductionMsm
+    const moodPlan = ctx.reductionMei && ctx.reductionNotes
         ? buildJudgementMoodRenderPlan(
-            ctx.reductionMsm,
-            ctx.baseMsm,
-            take.referenceMpmClone,
+            ctx.reductionNotes,
+            ctx.scoreNotes,
+            ctx.referenceMpmText,
             demoRange.from,
             { minimumPedalHoldMs: narrationMs },
         )
@@ -134,7 +182,7 @@ export const exaggeratedStrategy: TeacherStrategy = async (ctx, take, controls) 
 
     // Render mood chord if available
     const moodPerf = moodPlan
-        ? await performTeacherPlayback(ctx.reductionMei!, ctx.reductionMsm!, moodPlan.mpm, moodPlan.range)
+        ? performTeacherPlayback(ctx.reductionMei!, ctx.reductionNotes!, moodPlan.mpm, moodPlan.range)
         : undefined;
     if (isCancelled()) return;
 

@@ -1,110 +1,38 @@
 /**
- * visualize_implant.ts — Extract implantation data and render a piano roll PNG.
+ * visualize_implant.ts — what the matcher did with a take, as a piano roll PNG.
  *
- * Uses the same real pipeline as generate_test.ts:
- *   MEI → /convert → MSM → enrich → implantLocal(MSM, studentMIDI)
+ * The same first two steps the app runs, headless:
+ *   convert(score.mei) → MSM, one render of performance.mpm over it → the reference notes
+ *   render(a deliberately amateurish MPM) → MIDI → jitter, misses, wrong notes → implantLocal
  *
- * Student scenario: realistic amateur — close to Grünfeld's tempo (~50 BPM)
- * but with local timing jitter, missed notes, and accidental wrong notes.
+ * The output is `test_output/implant_viz_data.json` — reference notes, the student's messy
+ * ones, the matcher's pairs, deletions and insertions, and the implanted result — which
+ * `render_implant_pianoroll.py` draws. Times in that file are seconds, as the drawing expects;
+ * `MeasuredNote` speaks milliseconds, and this script is the one place that converts.
  *
- * Requires: meico at localhost:8080, python3 with matplotlib
- * Run:  npx tsx visualize_implant.ts
+ * Requires: python3 with matplotlib
+ * Run:  npx tsx visualize_implant.ts        (JSON only: NO_RENDER=1 npx tsx …)
  */
 
 import * as fs from 'fs';
 import { execSync } from 'child_process';
-import { read as readMidi, write as writeMidi } from 'midifile-ts';
+import { performMsmToData } from 'espressivo';
+import { read as readMidi } from 'midifile-ts';
 import type { MidiFile } from 'midifile-ts';
 import {
     implantLocal,
     extractNotesFromMidi,
-    extractRefNotes,
+    refNotesFrom,
     matchSubsequence,
     type StudentNote,
 } from './client/src/matcher';
+import { isImplanted, measuredNotesFromPerformanceData, msToSeconds, withoutUnisons } from './client/src/score/measured';
+import { convert, render } from './client/src/services/mpmRenderer';
+import { PPQ } from './client/src/shared/constants';
 
-const { MSM } = await import('../mpmify/src/index.ts');
-
-const CONVERT_URL = 'http://localhost:8080/convert';
-const PERFORM_URL = 'http://localhost:8080/perform';
-const PPQ = 720;
 const BEAT = PPQ;
 const MEASURE = 4 * BEAT;
 const OUT_DIR = 'test_output';
-
-// ── Helpers (from generate_test.ts) ──
-
-function parseMsmNotes(msmXml: string): any[] {
-    const notes: any[] = [];
-    const partRegex = /<part\b[^>]*number="(\d+)"[^>]*>([\s\S]*?)<\/part>/g;
-    let pm;
-    while ((pm = partRegex.exec(msmXml)) !== null) {
-        const partNum = parseInt(pm[1], 10);
-        const noteRegex = /<note\b([^>]*)\/?>/g;
-        let nm;
-        while ((nm = noteRegex.exec(pm[2])) !== null) {
-            const a = nm[1];
-            const attr = (n: string) => {
-                const re = n === 'xml:id'
-                    ? /xml:id="([^"]*)"/
-                    : new RegExp(`${n.replace('.', '\\.')}="([^"]*)"`);
-                return a.match(re)?.[1] ?? '';
-            };
-            notes.push({
-                'xml:id': attr('xml:id'),
-                date: parseFloat(attr('date') || '0'),
-                duration: parseFloat(attr('duration') || '0'),
-                pitchname: attr('pitchname'),
-                octave: parseInt(attr('octave') || '0', 10),
-                accidentals: parseFloat(attr('accidentals') || '0'),
-                'midi.pitch': parseInt(attr('midi.pitch') || '0', 10),
-                part: partNum,
-            });
-        }
-    }
-    return notes.reduce((acc: any[], curr: any) => {
-        const existing = acc.find(
-            (n: any) => n.date === curr.date && n['midi.pitch'] === curr['midi.pitch'],
-        );
-        if (existing) {
-            if (curr.duration > existing.duration) acc[acc.indexOf(existing)] = curr;
-        } else {
-            acc.push(curr);
-        }
-        return acc;
-    }, []);
-}
-
-function enrichWithPerformanceData(notes: any[], mei: string): number {
-    const recRegex = /<recording\b[^>]*source="([^"]*)"[^>]*>([\s\S]*?)<\/recording>/g;
-    let matched = 0;
-    let rm;
-    while ((rm = recRegex.exec(mei)) !== null) {
-        const wR = /<when\b([^>]*)>([\s\S]*?)<\/when>/g;
-        let wm;
-        while ((wm = wR.exec(rm[2])) !== null) {
-            const da = wm[1].match(/data="([^"]*)"/);
-            const ab = wm[1].match(/absolute="(\d+)ms"/);
-            if (!da || !ab) continue;
-            const ids = da[1].split(/\s+/).map(d => d.replace('#', ''));
-            const onset = parseInt(ab[1], 10);
-            const vel = wm[2].match(/<extData type="velocity">(\d+)<\/extData>/);
-            const dur = wm[2].match(/<extData type="duration">(\d+)ms<\/extData>/);
-            if (!vel || !dur) continue;
-            for (const id of ids) {
-                const note = notes.find((x: any) => x['xml:id'] === id);
-                if (note) {
-                    note['midi.onset'] = onset / 1000;
-                    note['midi.duration'] = parseInt(dur[1], 10) / 1000;
-                    note['midi.velocity'] = parseInt(vel[1], 10);
-                    note.source = rm[1];
-                    matched++;
-                }
-            }
-        }
-    }
-    return matched;
-}
 
 // ── Student MPM builder ──
 
@@ -332,51 +260,29 @@ const scenario = {
         relativeDuration: 0.9,
     }),
 };
-
 // ── Main pipeline ──
 
-console.log('Loading MEI...');
+console.log('Loading score + Grünfeld’s performance...');
 const mei = fs.readFileSync('client/public/score.mei', 'utf8');
+const referenceMpmText = fs.readFileSync('client/public/performance.mpm', 'utf8');
 
-console.log('Converting MEI → MSM via /convert...');
-const convertResp = await fetch(CONVERT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mei }),
-});
-if (!convertResp.ok) throw new Error(`/convert: ${convertResp.status}`);
-const msmXml = (await convertResp.json()).msm;
+console.log('Converting MEI → MSM...');
+const scoreMsm = convert(mei);
 
-const msmNotes = parseMsmNotes(msmXml);
-enrichWithPerformanceData(msmNotes, mei);
-const enrichedNotes = msmNotes.filter((n: any) => typeof n['midi.onset'] === 'number');
-console.log(`  ${enrichedNotes.length} enriched notes`);
+// The matcher's reference side, exactly as `pipeline/boot.ts` builds it: what Grünfeld's
+// document *sounds* like over the score, with the unisons a piano score writes twice folded.
+const scoreNotes = withoutUnisons(measuredNotesFromPerformanceData(
+    performMsmToData({ msm: scoreMsm, mpm: referenceMpmText }, { expandOrnaments: false }),
+));
+console.log(`  ${scoreNotes.length} reference notes`);
 
-const savedLog = console.log;
-console.log = () => {};
-const baseMsm = new MSM(enrichedNotes, { numerator: 4, denominator: 4 });
-console.log = savedLog;
-
-// Render clean student MIDI via /perform
-console.log('Rendering student MIDI via /perform...');
-const studentPerformResp = await fetch(PERFORM_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-        mei, mpm: scenario.mpm,
-        from: scenario.startDate, to: scenario.endDate, ppq: PPQ,
-    }),
-});
-if (!studentPerformResp.ok) throw new Error(`/perform: ${studentPerformResp.status}`);
-const cleanMidiBytes = Buffer.from((await studentPerformResp.json()).midi_b64, 'base64');
+// Render clean student MIDI
+console.log('Rendering student MIDI...');
+const cleanMidiBytes = render(mei, scenario.mpm, { from: scenario.startDate, to: scenario.endDate });
+if (!cleanMidiBytes) throw new Error('render: nothing to play');
 
 // Parse clean MIDI → notes
-const cleanMidi = readMidi(
-    cleanMidiBytes.buffer.slice(
-        cleanMidiBytes.byteOffset,
-        cleanMidiBytes.byteOffset + cleanMidiBytes.byteLength,
-    ),
-);
+const cleanMidi = readMidi(cleanMidiBytes);
 const cleanNotes = extractNotesFromMidi(cleanMidi);
 console.log(`  Clean student notes: ${cleanNotes.length}`);
 
@@ -395,8 +301,9 @@ console.log(`  Messy student notes: ${messyNotes.length}`);
 // Rebuild MIDI file from messy notes
 const messyMidi = notesToMidiFile(messyNotes);
 
-// Extract ref notes and run matching
-const refNotes = extractRefNotes(baseMsm);
+// Extract ref notes and run matching. `matchSubsequence` is run separately from `implantLocal`
+// only to report its pairs and gaps — the implant runs it again on the same input.
+const refNotes = refNotesFrom(scoreNotes);
 const dateHint = (scenario.startDate + scenario.endDate) / 2;
 const matchResult = matchSubsequence(refNotes, messyNotes, { dateHint });
 
@@ -404,10 +311,7 @@ console.log(`Match: ${matchResult.matches.length} pairs, ${matchResult.deletions
 console.log(`Range: [${matchResult.range.from}, ${matchResult.range.to}]`);
 
 // Run implantation
-const { studentMsm, range } = implantLocal(baseMsm, messyMidi, dateHint);
-
-// Extract implanted notes
-const implantedNotes = (studentMsm as any).allNotes;
+const { notes: implantedNotes, range } = implantLocal(scoreNotes, messyMidi, dateHint);
 
 // Build visualization data
 const vizData = {
@@ -443,21 +347,26 @@ const vizData = {
         id: s.id, pitch: s.pitch, onset: s.onset, duration: s.duration,
     })),
 
-    implantedNotes: implantedNotes.map((n: any) => ({
+    implantedNotes: implantedNotes.map(n => ({
         id: n['xml:id'],
         pitch: n['midi.pitch'],
-        date: n['date'],
-        onset: n['midi.onset'],
-        duration: n['midi.duration'],
-        velocity: n['midi.velocity'],
-        source: n['source'] || 'reference',
+        date: n.date,
+        onset: msToSeconds(n['milliseconds.date']),
+        duration: msToSeconds(n['milliseconds.date.end'] - n['milliseconds.date']),
+        velocity: n.velocity,
+        source: isImplanted(n) ? 'implanted' : 'reference',
     })),
 };
 
 const jsonPath = `${OUT_DIR}/implant_viz_data.json`;
+fs.mkdirSync(OUT_DIR, { recursive: true });
 fs.writeFileSync(jsonPath, JSON.stringify(vizData, null, 2));
 console.log(`Wrote visualization data to ${jsonPath}`);
 
-console.log('Rendering piano roll with matplotlib...');
-execSync(`python3 render_implant_pianoroll.py`, { stdio: 'inherit' });
-console.log('Done!');
+if (process.env.NO_RENDER === '1') {
+    console.log('NO_RENDER=1 — skipping matplotlib.');
+} else {
+    console.log('Rendering piano roll with matplotlib...');
+    execSync(`python3 render_implant_pianoroll.py`, { stdio: 'inherit' });
+    console.log('Done!');
+}

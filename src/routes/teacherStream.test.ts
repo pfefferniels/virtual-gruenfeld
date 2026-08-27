@@ -170,6 +170,17 @@ describe('system prompt', () => {
         }
     });
 
+    it('explains the two judgement numbers where the payload carries them', () => {
+        const prompt = buildTeacherSystemPrompt();
+        // Every field name the JUDGEMENT SUMMARY can carry has to be named here or the model is
+        // reading JSON keys it was never told about (inventory §2.3's risk).
+        expect(prompt).toContain('distanceJnd');
+        expect(prompt).toContain('subThresholdFraction');
+        expect(prompt).toContain('Never say either number out loud');
+        // Appended after the existing contract, so everything above it stays cacheable.
+        expect(prompt.indexOf('distanceJnd')).toBeGreaterThan(prompt.indexOf('«MARKER» delimiters'));
+    });
+
     it('tells the teacher to ground its choices without reciting the corpus', () => {
         const prompt = buildTeacherSystemPrompt();
         expect(prompt).toContain('Brevity always wins');
@@ -267,6 +278,26 @@ describe('a session across two takes', () => {
         expect(callArgs(0).input).not.toContain('PREVIOUS TAKES');
         // The rules are there from the start so the model knows not to invent one.
         expect(callArgs(0).instructions).toContain('never imply a shared past');
+    });
+
+    it('stamps a take with what it could hear, and says so when reading it back (R7)', async () => {
+        await take({ sessionId: SESSION, measuredTypes: ['tempo', 'dynamics'] });
+        expect(readSession(SESSION)?.takes[0].measured).toEqual(['tempo', 'dynamics']);
+
+        await flushProfileUpdates();
+        await take({ sessionId: SESSION });
+        expect((teacherCalls()[1] as { input: string }).input).toContain('measured tempo dynamics');
+    });
+
+    it('renders a take stored before the dimensions were measurable as exactly that', async () => {
+        await take({ sessionId: SESSION });
+        expect(readSession(SESSION)?.takes[0].measured).toBeUndefined();
+
+        await flushProfileUpdates();
+        await take({ sessionId: SESSION });
+        // Silence about tempo in an old record means nothing was listening for it, not that the
+        // student's tempo was fine — and the teacher is told which of the two it is reading.
+        expect((teacherCalls()[1] as { input: string }).input).toContain('(earlier take, fewer dimensions measured)');
     });
 
     it('records the take and answers before the profile side-channel returns', async () => {
@@ -381,6 +412,21 @@ describe('the agentic turn', () => {
         expect(agentic.plan).toBeDefined();
     });
 
+    it('teaches the fourth mode and its edit count, in the suffix and nowhere else', async () => {
+        answer(MONOLOGUE);
+        await take();
+        const plain = lastCall().instructions;
+
+        answer({ monologue: MONOLOGUE, demo: { mode: 'path', range: null, dimensions: null, edits: 3 } });
+        await take({ agentic: true });
+        const agentic = lastCall().instructions;
+
+        expect(plain).not.toContain('demo.edits');
+        expect(agentic).toContain('"path" — their OWN playing back to them');
+        expect(agentic).toContain('demo.edits');
+        expect(agentic.startsWith(plain)).toBe(true);
+    });
+
     it('parses the monologue inside the JSON exactly as it parses free text', async () => {
         answer(MONOLOGUE);
         const freeText = await take();
@@ -413,6 +459,35 @@ describe('the agentic turn', () => {
             mode: 'exaggerated',
             range: { from: 5760, to: RANGE.to },
             dimensions: [{ type: 'tempo', strength: 0.5 }],
+            edits: null,
+        });
+    });
+
+    it('lets a plan name a dimension the take measured but had nothing to say about', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        answer({
+            monologue: MONOLOGUE,
+            demo: { mode: 'exaggerated', range: null, dimensions: [{ type: 'rubato', strength: 0.2 }], edits: null },
+        });
+
+        // `rubato` produced no event in EVENTS, so the pre-S7 rule (the events' own types) would
+        // have dropped it. `measuredTypes` is what the take could hear, which is the right gate.
+        const result = await take({ agentic: true, measuredTypes: ['tempo', 'dynamics', 'rubato'] });
+        expect(result.plan?.dimensions).toEqual([{ type: 'rubato', strength: 0.2 }]);
+    });
+
+    it('plans the corrected take, with its edit count and its own passage', async () => {
+        answer({
+            monologue: MONOLOGUE,
+            demo: { mode: 'path', range: { from: 'm3.1', to: 'm5.1' }, dimensions: [{ type: 'tempo', strength: 0.2 }], edits: 2 },
+        });
+
+        const result = await take({ agentic: true, measuredTypes: ['tempo', 'dynamics', 'rubato'] });
+        expect(result.plan).toEqual({
+            mode: 'path',
+            range: { from: 5760, to: 11520 },
+            dimensions: [{ type: 'tempo', strength: 0.2 }],
+            edits: 2,
         });
     });
 
@@ -422,7 +497,7 @@ describe('the agentic turn', () => {
 
         const result = await take({ agentic: true });
         expect(result.cleanedText).toBe('Zu hastig, aber warm. [softly] ruhiger atmen');
-        expect(result.plan).toEqual({ mode: 'exaggerated', range: null, dimensions: [] });
+        expect(result.plan).toEqual({ mode: 'exaggerated', range: null, dimensions: [], edits: null });
     });
 
     it('only turns agentic when the body says so literally', () => {

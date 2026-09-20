@@ -861,6 +861,45 @@ describe('repeated sections (disambiguated by dateHint)', () => {
         }
     });
 
+    it('disambiguates a repeat on the default window, the way the app calls it', () => {
+        // Träumerei's written-out repeat of A puts corresponding points 23040 ticks apart, so
+        // the default window resolves it. implantLocal passes no window of its own.
+        const phrase: Array<[number, number]> = [
+            [60, 0], [64, 720], [65, 1440], [67, 2160],
+            [69, 2880], [67, 3600], [65, 4320], [64, 5040],
+        ];
+        const offset = 23040;
+        const ref = [
+            ...phrase.map(([p, d], i) => refNote(p, d, { index: i, onset: d / 720 * 0.5 })),
+            ...phrase.map(([p, d], i) => refNote(p, d + offset, {
+                index: i + phrase.length,
+                onset: (d + offset) / 720 * 0.5,
+                id: `ref_${d + offset}_${p}`,
+            })),
+        ];
+        const stu = buildStu([
+            [60, 0], [64, 0.5], [65, 1.0], [67, 1.5],
+            [69, 2.0], [67, 2.5], [65, 3.0], [64, 3.5],
+        ]);
+
+        const result = matchSubsequence(ref, stu, { dateHint: offset + 2520 });
+        expect(result.matches.length).toBe(8);
+        for (const m of result.matches) {
+            expect(m.ref.date).toBeGreaterThanOrEqual(offset);
+        }
+    });
+
+    it('widens the window rather than clipping a take longer than it', () => {
+        // 40 notes a quarter apart span 28080 ticks, well past the default half-width.
+        const ref = Array.from({ length: 40 }, (_, i) =>
+            refNote(60 + (i % 12), i * 720, { index: i, onset: i * 0.5 }),
+        );
+        const stu = buildStu(Array.from({ length: 40 }, (_, i) => [60 + (i % 12), i * 0.5] as [number, number]));
+
+        const result = matchSubsequence(ref, stu, { dateHint: 20 * 720 });
+        expect(result.matches.length).toBe(40);
+    });
+
     it('matches partial phrase in second occurrence with dateHint', () => {
         const ref = buildRepeatedRef();
         // Student plays only the last 4 notes of the phrase during the repeat

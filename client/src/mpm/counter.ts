@@ -31,7 +31,7 @@
  * **What the caps are for.** `strength` scales how far the push goes, never how far it is
  * *allowed* to go (semantics 28): `maxAbsDelta` and the per-attribute bounds are applied
  * afterwards and clamp the result unconditionally. The plan's `[0.05, 0.5]` clamp is
- * re-applied here so a caller that skipped `lessonPlan.ts` cannot hand this an exponent
+ * re-applied here so a caller that skipped the plan validator cannot hand this an exponent
  * nothing downstream would survive (semantics 29, both sides).
  *
  * **Text in, text out.** The caller's reference string cannot be mutated by anything here —
@@ -68,21 +68,7 @@ import { THRESHOLDS } from './diff';
 import type { InstructionDiff, Range } from './types';
 
 /** How far one deviation type gets pushed, as the lesson plan asks for it. */
-export type ExaggerationDimension = { type: string; strength: number };
-
-/**
- * What `student/fit.ts` measured, in the shape `FitResult.levels` has.
- *
- * Not read here any more — the counter-performance pivots on each instruction's own pair, not
- * on a level for the whole passage — but `TakeSnapshot.levels` is typed with it and the fitter
- * still measures it, so the name stays where the take's other measurements are named.
- */
-export type StudentLevels = {
-    readonly student: {
-        readonly bpm: readonly number[];
-        readonly volume: readonly number[];
-    };
-};
+type ExaggerationDimension = { type: string; strength: number };
 
 /** The aggressiveness the fixed-pedagogy pipeline always used. */
 const DEFAULT_EXAGGERATION_STRENGTH = 0.2;

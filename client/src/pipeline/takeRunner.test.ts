@@ -38,7 +38,7 @@ const EVIDENCE = {
     suppressed: [],
     skipped: [],
     disagreements: [],
-    levels: { student: { bpm: [], volume: [] } },
+    peaks: [],
     aggregateJnd: 1.2,
     subThresholdFraction: 0.4,
     timings: { fitMs: 10, evidenceMs: 10, referenceFitMs: 10 },
@@ -47,23 +47,17 @@ const EVIDENCE = {
 const makeControls = (over: Partial<TakeRunnerControls> = {}) => {
     const logs: string[] = [];
     const diffs: string[] = [];
-    const judgements: unknown[] = [];
 
     const controls: TakeRunnerControls = {
         log: (msg) => logs.push(msg),
         stop: () => {},
-        play: (() => {}) as unknown as TakeRunnerControls['play'],
-        playAudioBuffer: async () => {},
-        audioContext: {} as AudioContext,
-        mode: 'realtime',
+        play: () => {},
         isCancelled: () => false,
         onDiff: (text) => diffs.push(text),
-        onJudgement: (value) => judgements.push(value),
-        aiAvailable: true,
         ...over,
     };
 
-    return { controls, logs, diffs, judgements };
+    return { controls, logs, diffs };
 };
 
 const strategy = vi.fn(async () => {});
@@ -83,16 +77,15 @@ describe('a take too short to measure', () => {
         ['one chord and a stop', { from: 11520, to: 11520 }],
         ['nothing the matcher recognised', { from: 0, to: 0 }],
     ])('says so and stops, on %s', async (_name, range) => {
-        const { controls, logs, diffs, judgements } = makeControls();
+        const { controls, logs, diffs } = makeControls();
 
         await expect(runTake(CTX, [], range, strategy, controls)).resolves.toBeUndefined();
 
         expect(logs).toContain('TAKE: too little playing to measure');
         expect(runEvidence).not.toHaveBeenCalled();
         expect(strategy).not.toHaveBeenCalled();
-        // Nothing is said to the student and nothing already on screen is cleared.
+        // Nothing already on screen is cleared.
         expect(diffs).toEqual([]);
-        expect(judgements).toEqual([]);
     });
 
     it('measures a take exactly one quarter note long', async () => {
@@ -112,7 +105,7 @@ describe('a take superseded while it was being evidenced', () => {
         // The callback that runs a take is not awaited (`midi.ts:94`), so take #2 can start
         // while take #1 is still in the worker. Whichever resolves last would otherwise win.
         let cancelled = false;
-        const { controls, diffs, judgements } = makeControls({ isCancelled: () => cancelled });
+        const { controls, diffs } = makeControls({ isCancelled: () => cancelled });
         runEvidence.mockImplementation(async () => {
             cancelled = true;
             return EVIDENCE;
@@ -122,25 +115,22 @@ describe('a take superseded while it was being evidenced', () => {
 
         expect(runEvidence).toHaveBeenCalledTimes(1);
         expect(diffs).toEqual([]);
-        expect(judgements).toEqual([]);
         expect(strategy).not.toHaveBeenCalled();
     });
 
     it('shows the take’s feedback when it is still the current one', async () => {
-        const { controls, diffs, judgements } = makeControls();
+        const { controls, diffs } = makeControls();
 
         await runTake(CTX, [], { from: 720, to: 13680 }, strategy, controls);
 
         expect(diffs).toEqual(['nothing to report']);
-        expect(judgements).toEqual(['']);
         expect(strategy).toHaveBeenCalledTimes(1);
-        // The snapshot the strategy receives is the evidence's own: the student's levels (the
-        // counter-performance's fixed point), what was measured, and the diff — no MPM object.
+        // The snapshot the strategy receives is the evidence's own: the take's range, what it
+        // measured and the paired instructions — no MPM object.
         const [, take] = strategy.mock.calls[0] as unknown as [unknown, TakeSnapshot];
         expect(take.range).toEqual({ from: 720, to: 13680 });
-        expect(take.diffSummary).toBe('nothing to report');
         expect(take.measuredTypes).toEqual(['tempo']);
-        expect(take.levels).toEqual(EVIDENCE.levels);
+        expect(take.peaks).toEqual(EVIDENCE.peaks);
     });
 });
 

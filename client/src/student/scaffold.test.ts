@@ -61,10 +61,17 @@ describe('what a scaffold reads', () => {
         }
     });
 
-    it('takes each slot’s span from the reference’s own @endDate', () => {
-        // <tempo xml:id="tempo_10440" date="10440" endDate="12240" …>
+    /**
+     * The reference states no `@endDate` anywhere (`mpm/reference.test.ts` pins that), so the
+     * fallback in `endDatesOf` is the only path: a slot runs until the next slot of its kind
+     * takes over, and the chain is gapless across the whole selection.
+     */
+    it('derives each slot’s span from the next slot’s date', () => {
         expect(scaffold.tempo[0]).toMatchObject({ date: 10440, endDate: 12240 });
         expect(scaffold.tempo[1]).toMatchObject({ date: 12240, endDate: 13680 });
+        for (let i = 1; i < scaffold.tempo.length; i++) {
+            expect(scaffold.tempo[i - 1].endDate).toBe(scaffold.tempo[i].date);
+        }
     });
 
     it('copies @beatLength rather than fitting it', () => {
@@ -103,8 +110,8 @@ describe('what a scaffold reads', () => {
     it('reads an ornament’s def name and the gradient shape that def carries', () => {
         const slot = scaffold.ornament.find((s) => s.xmlId === 'ornament_11520');
         expect(slot?.defName).toBe('def_global_2_0');
-        // <ornamentDef name="def_global_2_0"><dynamicsGradient transition.from="1" transition.to="0">
-        expect(slot?.gradient).toEqual({ from: 1, to: 0 });
+        // <ornamentDef name="def_global_2_0"><dynamicsGradient transition.from="-1" transition.to="0">
+        expect(slot?.gradient).toEqual({ from: -1, to: 0 });
     });
 
     it('collects the accentuation patterns the in-range slots name', () => {
@@ -133,11 +140,12 @@ describe('what a scaffold reads', () => {
             ornamentation: 'performance_style',
             metricalAccentuation: 'performance_style',
         });
-        // The reference switches style in two of the three maps and not in the articulation
-        // map; the student document has to reproduce exactly that, not a tidier version of it.
+        // The reference switches style at date 0 in each of the three maps; the student
+        // document has to reproduce exactly that, not a tidier version of it.
         expect(scaffold.styleSwitches).toEqual([
             { map: 'ornamentationMap', date: 0, nameRef: 'performance_style' },
             { map: 'metricalAccentuationMap', date: 0, nameRef: 'performance_style' },
+            { map: 'articulationMap', date: 0, nameRef: 'performance_style' },
         ]);
     });
 

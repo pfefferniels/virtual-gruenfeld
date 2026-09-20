@@ -13,7 +13,6 @@
  * student lifts their hands.
  */
 import type { Range } from '../mpm';
-import { summarizeImmediateJudgement } from '../judgement';
 import type { Evidence } from '../mpm/evidence';
 import type { MeasuredNote } from '../score/measured';
 import { PPQ } from '../shared/constants';
@@ -85,48 +84,23 @@ export const runTake = async (
         controls.log(`EVIDENCE: direction disagreement on ${type} (meanSigned=${meanSigned.toFixed(3)}, medianDelta=${medianDelta.toFixed(3)})`);
     }
 
-    const { diffSummary, structuredDiff } = evidence;
-    // The two comparison numbers ride along with the counted events: how far the take sits from
-    // Grünfeld in JND, and how much of that distance is below the threshold of hearing. Optional
-    // on the payload, so the score, the verdict and everything downstream are unchanged.
-    const judgementSummary = summarizeImmediateJudgement(structuredDiff, range, {
-        distanceJnd: evidence.aggregateJnd,
-        subThresholdFraction: evidence.subThresholdFraction,
-    });
-
-    controls.onDiff(diffSummary);
-    controls.onJudgement('');
-
-    const mode = controls.mode;
-
-    controls.log(`CUE: mode=${mode}`);
+    controls.onDiff(evidence.diffSummary);
 
     try {
         await strategy(ctx, {
-            levels: evidence.levels,
             // DESIGN §3.4's stronger reading of `measuredTypes`: past the gate *and* written by
             // the fitter. The counter-performance may shape nothing else (review-S5, finding 1).
             // `mpm/evidence.ts` (`measuredTypes: evidence.measuredTypes.filter(t => filled.has(t))`)
             // has already taken that intersection — the only place both halves are known — so this
             // is a pass-through, not a second gate.
             measuredTypes: evidence.measuredTypes,
-            studentMpmText: evidence.studentMpmText,
-            referenceFitText: evidence.referenceFitText,
             peaks: evidence.peaks,
-            diffSummary,
-            structuredDiff,
-            judgementSummary,
             range,
         }, {
             log: controls.log,
             isCancelled: controls.isCancelled,
             play: controls.play,
-            playAudioBuffer: controls.playAudioBuffer,
-            audioContext: controls.audioContext,
-            mode,
             takeStartedAt,
-            onJudgement: controls.onJudgement,
-            aiAvailable: controls.aiAvailable,
         });
     } catch (e) {
         controls.log(`PERFORM error: ${e}`);

@@ -3,8 +3,8 @@
   "ignoreDependencies": ["espressivo"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts", "*.ts"],
-      "project": ["src/**/*.ts", "scripts/*.ts", "*.ts"]
+      "entry": ["src/plan/index.ts", "*.ts"],
+      "project": ["src/**/*.ts", "*.ts"]
     },
     "client": {
       "project": ["src/**/*.{ts,tsx}"]

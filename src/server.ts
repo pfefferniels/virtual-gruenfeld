@@ -4,17 +4,11 @@ import 'dotenv/config';
 import path from 'path';
 
 import { corsOptions } from './cors';
-import { teacherAskRouter } from './routes/teacherAsk';
-import { teacherStreamRouter } from './routes/teacherStream';
 
 const app = express();
 app.use(cors(corsOptions()));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
 app.use(express.static('client/build'));
-
-app.use(teacherStreamRouter);
-// A 30s webm question is ~0.5MB base64, well inside the 10mb JSON limit above.
-app.use(teacherAskRouter);
 
 /** For the reverse proxy and for checking by hand that TLS reaches the process. */
 app.get('/health', (_req, res) => {
@@ -26,7 +20,7 @@ app.get('/health', (_req, res) => {
 app.get('*', (req, res) => {
     const index = path.join(__dirname, '../client/build', 'index.html');
     res.sendFile(index, (err) => {
-        if (err) res.status(404).json({ error: 'This server hosts the teacher API only.' });
+        if (err) res.status(404).json({ error: 'Not found.' });
     });
 });
 

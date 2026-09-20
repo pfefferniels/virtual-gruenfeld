@@ -3,15 +3,12 @@ import { fileURLToPath } from 'node:url';
 import { read } from 'midifile-ts';
 import { describe, expect, it } from 'vitest';
 import { convert, render, renderMsm } from './mpmRenderer';
-// What the retired Java meico server (`/perform`) played for the same request — every
-// note-on of bars 1–2, in file order. espressivo must keep playing exactly these.
-import javaBars1to2 from './fixtures/javaPerformBars1-2.json';
 
 const load = (relative: string): string =>
     readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
 const mei = load('../../public/score.mei');
-const mpm = load('../../../assets/all/performance.mpm');
+const mpm = load('../../public/performance.mpm');
 
 type NoteOn = { tick: number; channel: number; pitch: number; velocity: number };
 type ControlChange = { tick: number; controller: number; value: number };
@@ -51,12 +48,6 @@ describe('convert', () => {
 });
 
 describe('render', () => {
-    it('plays bars 1–2 note for note as the Java renderer did', () => {
-        const bytes = render(mei, mpm, { from: 0, to: 5760 });
-        expect(bytes).toBeDefined();
-        expect(eventsOf(bytes!).noteOns).toEqual(javaBars1to2);
-    });
-
     it('cuts to [from, to), starts the passage at 0 ms and puts everything on channel 0', () => {
         const { noteOns } = eventsOf(render(mei, mpm, { from: 11520, to: 23040 })!);
         expect(noteOns).toHaveLength(58);

@@ -89,9 +89,9 @@ export const DEFAULT_PATH_EDITS = 3;
  * shared with the whole piece: the edit script filters its rows to instruction sites
  * (`src/comparison/diff.ts`), and {@link PATCH_KEYS} writes no def-site row, so an op of either
  * type either does not arrive or cannot be applied. Before this list existed the effect was
- * measurable and bad: on a take whose ornament spacing was doubled the teacher said *näher
- * zusammen* three times and the three corrections applied were **all `tempo`** — the monologue
- * and the demonstration about different things (final-pedagogy, finding 4).
+ * measurable and bad: on a take whose ornament spacing was doubled, the three corrections
+ * applied were **all `tempo`**, so the demonstration corrected a dimension the take had not
+ * been marked for (final-pedagogy, finding 4).
  *
  * `<ornament @scale>` is the one def-borne type with an instruction-site number, and it is
  * excluded with the rest: risk R3 (the fitted `@scale` drifts through MIDI's folded unisons) puts

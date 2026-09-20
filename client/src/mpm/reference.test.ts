@@ -14,27 +14,12 @@ const path = (relative: string): string => fileURLToPath(new URL(relative, impor
 const load = (relative: string): string => readFileSync(path(relative), 'utf8');
 
 const SERVED = '../../public/performance.mpm';
-const COMMITTED = '../../../assets/all/performance.mpm';
 
 const referenceMpm = load(SERVED);
 
 afterEach(() => {
     forgetReferenceMpm();
     vi.unstubAllGlobals();
-});
-
-/**
- * DESIGN §5 test 12. The client fetches its reference and the server's corpus reads its
- * evidence; both must be the same performance, so the two files are one file in two places.
- * Regenerate the copy with `cp assets/all/performance.mpm client/public/performance.mpm`.
- */
-describe('provenance', () => {
-    it('client/public/performance.mpm is byte-identical to assets/all/performance.mpm', () => {
-        const served = readFileSync(path(SERVED));
-        const committed = readFileSync(path(COMMITTED));
-        expect(served.length).toBe(committed.length);
-        expect(served.equals(committed)).toBe(true);
-    });
 });
 
 describe('loadReferenceMpm', () => {
@@ -51,14 +36,14 @@ describe('loadReferenceMpm', () => {
         return fetchMock;
     };
 
-    it('fetches the document served next to score.mei', async () => {
+    it('fetches the document from the reconstruction’s own home', async () => {
         const fetchMock = respond(referenceMpm);
         await expect(loadReferenceMpm()).resolves.toBe(referenceMpm);
         expect(fetchMock).toHaveBeenCalledWith(REFERENCE_MPM_URL);
-        expect(REFERENCE_MPM_URL).toBe('performance.mpm');
+        expect(REFERENCE_MPM_URL).toBe('https://welte225.org/mpm/performance.mpm');
     });
 
-    it('fetches once per session — 150 kB that never changes', async () => {
+    it('fetches once per session — a document that never changes mid-lesson', async () => {
         const fetchMock = respond(referenceMpm);
         const [first, second] = await Promise.all([loadReferenceMpm(), loadReferenceMpm()]);
         expect(first).toBe(second);
@@ -126,10 +111,10 @@ describe('the scaffold the document prints', () => {
 
     it.each([
         ['tempoMap', 'tempo', 60],
-        ['dynamicsMap', 'dynamics', 61],
+        ['dynamicsMap', 'dynamics', 62],
         ['rubatoMap', 'rubato', 56],
         ['metricalAccentuationMap', 'accentuationPattern', 51],
-        ['articulationMap', 'articulation', 47],
+        ['articulationMap', 'articulation', 65],
         ['ornamentationMap', 'ornament', 100],
         ['movementMap', 'movement', 200],
     ])('%s carries %s × %i', (mapName, elementName, count) => {
@@ -147,17 +132,27 @@ describe('the scaffold the document prints', () => {
             ['rubatoMap', 'rubato'],
         ] as const) {
             for (const element of elementsOf(mapName, elementName)) {
-                const date = element.getAttributeValue('date');
-                expect(element.getAttributeValue('id', 'http://www.w3.org/XML/1998/namespace'))
-                    .toBe(`${elementName}_${date}`);
+                const id = element.getAttributeValue('id', 'http://www.w3.org/XML/1998/namespace');
+                expect(id).toMatch(new RegExp(`^${elementName}_\\d+(\\.\\d+)?$`));
+                // `@date` is written to four decimals and the id is not, so the one instruction
+                // whose date is not an integer (`tempo_48294.11764705881`) carries a longer
+                // number than it states. The id remains the key; the date remains readable off it.
+                expect(Number(id!.slice(elementName.length + 1)))
+                    .toBeCloseTo(Number(element.getAttributeValue('date')), 3);
             }
         }
     });
 
-    it('keeps the corpus links a rebake would lose', () => {
-        const tempo = allChildElements(dated.getMap('tempoMap')!.getXml()!, 'tempo')[0];
-        expect(tempo.getAttributeValue('endDate')).toBeTruthy();
-        expect(tempo.getAttributeValue('corresp')).toBeTruthy();
+    /**
+     * What the published document does *not* state, because two spans of this pipeline are
+     * built on the absence: `scaffold.ts` derives every slot's end from the next slot's date,
+     * and nothing can follow an instruction back to the editorial claim that argued for it.
+     */
+    it('states neither @endDate nor @corresp', () => {
+        const tempo = allChildElements(dated.getMap('tempoMap')!.getXml()!, 'tempo');
+        expect(tempo).not.toHaveLength(0);
+        expect(tempo.filter((element) => element.getAttributeValue('endDate') !== null)).toEqual([]);
+        expect(tempo.filter((element) => element.getAttributeValue('corresp') !== null)).toEqual([]);
     });
 });
 

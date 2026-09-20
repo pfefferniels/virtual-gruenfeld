@@ -1,30 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CuePrepMode } from './prepMode';
 import type { Range } from './mpm';
 import { waitForPlayingSafe } from './midi';
 import { boot } from './pipeline/boot';
 import { runTake } from './pipeline/takeRunner';
 import { exaggeratedStrategy } from './pipeline/strategies/exaggerated';
-import { probeTeacherService } from './services/api';
-import { getSessionId } from './session';
 import type { PlayFn } from './pipeline/types';
 import { addAbsoluteTime } from './pianosound/MidiNote';
 
 type PianoControls = {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     play: (...args: any[]) => void;
-    playAudioBuffer: (audioBuffer: AudioBuffer, onStart?: () => void) => Promise<void>;
     stop: () => void;
     audioContext: AudioContext;
 };
 
 export const useTake = (piano: PianoControls, inputId?: string | null) => {
     const [started, setStarted] = useState(false);
-    const [cuePrepMode, setCuePrepMode] = useState<CuePrepMode>('realtime');
-    const [quickJudgement, setQuickJudgement] = useState('');
     const [lastDiff, setLastDiff] = useState('');
     const [debugLines, setDebugLines] = useState<string[]>([]);
-    const [aiAvailable, setAiAvailable] = useState(false);
     const [teacherPlaying, setTeacherPlaying] = useState(false);
     const teacherEndTimer = useRef<ReturnType<typeof setTimeout>>();
     const seqRef = useRef(0);
@@ -46,17 +39,9 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
     const lastMatchRef = useRef<Range | null>(null);
     const playRef = useRef(piano.play);
     const stopRef = useRef(piano.stop);
-    const cuePrepModeRef = useRef<CuePrepMode>(cuePrepMode);
-    const aiAvailableRef = useRef(aiAvailable);
     const takeSeqRef = useRef(0);
     playRef.current = piano.play;
     stopRef.current = piano.stop;
-    cuePrepModeRef.current = cuePrepMode;
-    aiAvailableRef.current = aiAvailable;
-
-    useEffect(() => {
-        probeTeacherService().then(setAiAvailable);
-    }, []);
 
     useEffect(() => {
         if (!started) return;
@@ -74,7 +59,7 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                     lastMatchRef.current = range;
 
                     const takeId = ++takeSeqRef.current;
-                    log(`TAKE #${takeId} (session ${getSessionId().slice(0, 8)})`);
+                    log(`TAKE #${takeId}`);
 
                     await runTake(ctx, notes, range, exaggeratedStrategy, {
                         log,
@@ -90,13 +75,8 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
                                 teacherEndTimer.current = setTimeout(() => setTeacherPlaying(false), lastMs + 3000);
                             } catch { /* fallback: stays on until next stop() */ }
                         }) as PlayFn,
-                        playAudioBuffer: piano.playAudioBuffer,
-                        audioContext: piano.audioContext,
-                        mode: cuePrepModeRef.current,
                         isCancelled: () => cancelled || takeSeqRef.current !== takeId,
                         onDiff: setLastDiff,
-                        onJudgement: setQuickJudgement,
-                        aiAvailable: aiAvailableRef.current,
                     });
                 }, log, () => {
                     const last = lastMatchRef.current;
@@ -123,12 +103,9 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
             log('APP: unmount -> disposing MIDI');
             if (disposeMidi) disposeMidi();
         };
-        // `piano.playAudioBuffer` is captured from the closure and deliberately left out of this
-        // list. The effect's job is to open the MIDI input and hold it for the session; adding a
-        // dependency re-runs it, which tears the input down and re-opens it — in the middle of a
-        // take, at worst. `piano.audioContext` is listed because a new context really is a new
-        // session, and it is the one part of `piano` whose identity has to be respected here.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        // A new AudioContext really is a new session, so it belongs here; `piano.play` and
+        // `piano.stop` are read through refs, because re-running this effect tears the MIDI
+        // input down and re-opens it — in the middle of a take, at worst.
     }, [log, started, piano.audioContext, inputId]);
 
     const clearDebugLines = useMemo(() => () => setDebugLines([]), []);
@@ -136,15 +113,9 @@ export const useTake = (piano: PianoControls, inputId?: string | null) => {
     return {
         started,
         setStarted,
-        cuePrepMode,
-        setCuePrepMode,
-        quickJudgement,
         lastDiff,
         debugLines,
         clearDebugLines,
-        /** The same sink the take pipeline writes to, for anything else on the page. */
-        log,
-        aiAvailable,
         teacherPlaying,
     };
 };

@@ -11,20 +11,13 @@ import { DEMO_MODES, EDITS_MAX, EDITS_MIN, INSTRUCTION_TYPES, STRENGTH_MAX, STRE
 export const LESSON_PLAN_SCHEMA = {
     type: 'object',
     additionalProperties: false,
-    required: ['monologue', 'demo'],
+    required: ['demo'],
     properties: {
-        monologue: {
-            type: 'string',
-            description:
-                'The spoken monologue, in the «MARKER» format from the output contract: one «JUDGE» '
-                + 'marker followed by 1-4 positional cue markers. Exactly the text you would otherwise '
-                + 'have answered with — no JSON, no escaping beyond what the field needs.',
-        },
         demo: {
             type: 'object',
             additionalProperties: false,
             required: ['mode', 'range', 'dimensions', 'edits'],
-            description: 'What the student hears after you speak.',
+            description: 'What the student hears.',
             properties: {
                 mode: {
                     type: 'string',
@@ -33,7 +26,7 @@ export const LESSON_PLAN_SCHEMA = {
                         'exaggerated = the reference pushed away from the student so the divergence '
                         + 'is audible by contrast; path = the student\'s own playing back to them with '
                         + 'the few most costly deviations corrected; reference = the reference untouched; '
-                        + 'none = no playback, you only speak.',
+                        + 'none = no demonstration.',
                 },
                 range: {
                     type: ['object', 'null'],

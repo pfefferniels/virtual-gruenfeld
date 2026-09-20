@@ -1,17 +1,14 @@
 /**
  * Grünfeld's performance, as the document it already is.
  *
- * `performance.mpm` is the mpm-desk snapshot of the Welte roll reconstruction — the same
- * file the server's corpus reads out of `assets/all/`, copied verbatim into `client/public/`
- * so the browser can fetch it (the copy's byte-identity is asserted by `reference.test.ts`;
- * the server keeps reading the `assets/` original).
+ * `performance.mpm` is the Welte roll reconstruction, published at {@link RECONSTRUCTION_BASE}
+ * and read by several projects. This repository keeps no copy.
  *
- * It replaces the boot-time rebuild from `info.json`: instead of replaying 494 transformer
- * calls to *manufacture* instruction ids, the client reads the ids the document prints —
- * `<tempo xml:id="tempo_720" date="720" endDate="2160" bpm="76.15" …>`. Those deterministic
- * `${type}_${date}` ids are the scaffold the student's performance is later written into,
- * which is why the reference is never rebaked: a rebake would lose `@corresp` (the corpus
- * argumentation links) and `@endDate`.
+ * The client reads the instruction ids the document prints — `<tempo xml:id="tempo_720"
+ * date="720" bpm="76.15" …>`. Those deterministic `${type}_${date}` ids are the scaffold the
+ * student's performance is later written into. The published document states neither
+ * `@endDate` nor `@corresp`: spans are derived from the following slot (`student/scaffold.ts`)
+ * and the argumentation links into the editorial record are not carried here.
  *
  * The document crosses every module boundary as XML **text**; `parseReferenceMpm` is for
  * the one caller that needs the object model, and hands back a fresh `Mpm` every time so
@@ -20,8 +17,10 @@
 import { Mpm } from 'espressivo';
 import { PPQ } from '../shared/constants';
 
-/** Where the browser fetches it from — `client/public/performance.mpm`, served at the app root. */
-export const REFERENCE_MPM_URL = 'performance.mpm';
+/** The reconstruction's home. Served with `Access-Control-Allow-Origin: *`. */
+export const RECONSTRUCTION_BASE = 'https://welte225.org/mpm';
+
+export const REFERENCE_MPM_URL = `${RECONSTRUCTION_BASE}/performance.mpm`;
 
 /**
  * There is no second reference document to fetch. The *comparison* side — Grünfeld's own
@@ -68,8 +67,9 @@ export const forgetReferenceMpm = (): void => {
 
 /**
  * Text → `Mpm`, with the three checks every consumer would otherwise repeat: the document
- * parses, it carries a performance, and its tick grid is the 720 ppq that `tickToPos`, the
- * corpus spans and the matcher all assume. Malformed source throws out of `new Mpm` itself.
+ * parses, it carries a performance, and its tick grid is the 720 ppq that `tickToPos`,
+ * `info.json`'s spans and the matcher all assume. Malformed source throws out of `new Mpm`
+ * itself.
  */
 export const parseReferenceMpm = (text: string): Mpm => {
     const mpm = new Mpm(text);

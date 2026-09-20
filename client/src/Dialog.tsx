@@ -3,18 +3,6 @@ import { usePiano } from "./pianosound";
 import { useTake } from "./useTake";
 import { useMidiDevices } from "./useMidiDevices";
 import type { MidiDeviceInfo } from "./useMidiDevices";
-import type { CuePrepMode } from "./prepMode";
-import {
-    isAgenticTeacher, isVoiceTeacher, setFlagOverride,
-    TEACHER_AGENTIC_KEY, TEACHER_VOICE_KEY,
-} from "./featureFlags";
-import { useVoiceQuestion } from "./useVoiceQuestion";
-
-const CUE_MODE_OPTIONS: Array<{ value: CuePrepMode; label: string; hint: string }> = [
-    { value: 'realtime', label: 'Realtime', hint: '~1.3s, compact scholarly context' },
-    { value: 'balanced', label: 'Balanced', hint: '~2s, full scholarly context' },
-    { value: 'studio', label: 'Studio', hint: 'full context, most detailed cues' },
-];
 
 const ghostKeyframes = `
 @keyframes ghostFlicker {
@@ -46,30 +34,6 @@ const selectStyle: React.CSSProperties = {
     minWidth: 0,
     maxWidth: '100%',
 };
-
-/**
- * One prototype switch in the debug sidebar. Writes the localStorage override
- * `featureFlags.ts` reads, so it outlives the reload the flag may need.
- */
-const FlagToggle = ({ label, note, checked, onChange }: {
-    label: string;
-    note: string;
-    checked: boolean;
-    onChange: (next: boolean) => void;
-}) => (
-    <label style={{ display: 'grid', gap: 2, cursor: 'pointer' }}>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <input
-                type="checkbox"
-                checked={checked}
-                onChange={(e) => onChange(e.target.checked)}
-                style={{ margin: 0, cursor: 'pointer' }}
-            />
-            <span style={{ fontSize: 10, letterSpacing: '0.03em' }}>{label}</span>
-        </span>
-        <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3, paddingLeft: 19 }}>{note}</span>
-    </label>
-);
 
 const DeviceSelect = ({ label, devices, selectedId, onChange }: {
     label: string;
@@ -109,35 +73,17 @@ const DeviceSelect = ({ label, devices, selectedId, onChange }: {
 
 export const Dialog = () => {
     const midi = useMidiDevices();
-    const { play, playAudioBuffer, stop, unlock, audioContext } = usePiano(midi.selectedOutputId);
+    const { play, stop, unlock, audioContext } = usePiano(midi.selectedOutputId);
     const {
         started, setStarted,
-        cuePrepMode, setCuePrepMode,
-        quickJudgement, lastDiff, debugLines, clearDebugLines, log,
-        aiAvailable,
+        lastDiff, debugLines, clearDebugLines,
         teacherPlaying,
-    } = useTake({ play, playAudioBuffer, stop, audioContext }, midi.selectedInputId);
+    } = useTake({ play, stop, audioContext }, midi.selectedInputId);
 
     const hasInput = midi.inputs.length > 0;
     const hasOutput = midi.outputs.length > 0;
     const canStart = hasInput && midi.supported === true;
     const [showHelp, setShowHelp] = useState(false);
-
-    // Off by default: without the flag the page has no microphone UI at all, and
-    // the hook never asks for a device. Held in state so the debug toggle below
-    // shows and hides the panel without a reload.
-    const [voiceEnabled, setVoiceEnabled] = useState(isVoiceTeacher);
-    // The strategy reads this one afresh for every take, so the toggle only has
-    // to record the choice.
-    const [agenticEnabled, setAgenticEnabled] = useState(isAgenticTeacher);
-    const voice = useVoiceQuestion({ mode: cuePrepMode, audioContext, playAudioBuffer, log });
-    const showVoice = voiceEnabled && aiAvailable;
-    const voiceAnswer = voiceEnabled ? voice.answer : null;
-
-    const askLabel = voice.recording ? 'Listening — release to ask'
-        : voice.thinking ? 'Thinking...'
-        : voice.speaking ? 'Answering...'
-        : 'Hold to ask';
 
     return (
         <>
@@ -244,57 +190,6 @@ export const Dialog = () => {
                         )}
                     </div>
 
-                    {aiAvailable ? (
-                        <div className="sketch-box" style={{ padding: 16, background: '#fff', display: 'grid', gap: 10 }}>
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                                <strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Teacher Cue Mode</strong>
-                                <span style={{ fontSize: 11, opacity: 0.45 }}>
-                                    — latency vs quality
-                                </span>
-                            </div>
-                            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                                {CUE_MODE_OPTIONS.map((option) => {
-                                    const active = cuePrepMode === option.value;
-                                    return (
-                                        <button
-                                            key={option.value}
-                                            type="button"
-                                            className="sketch-btn"
-                                            onClick={() => setCuePrepMode(option.value)}
-                                            style={{
-                                                padding: '8px 14px',
-                                                cursor: 'pointer',
-                                                display: 'grid',
-                                                gap: 2,
-                                                textAlign: 'left',
-                                                minWidth: 120,
-                                                fontFamily: 'inherit',
-                                                fontSize: 13,
-                                                color: '#222',
-                                                background: active ? '#e8e8e8' : '#fff',
-                                                borderWidth: active ? 3 : 2,
-                                            }}
-                                        >
-                                            <span style={{ fontWeight: active ? 700 : 500 }}>{option.label}</span>
-                                            <span style={{ fontSize: 11, opacity: 0.5 }}>{option.hint}</span>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="sketch-box" style={{ padding: 14, background: '#fff', fontSize: 12, opacity: 0.85 }}>
-                            <strong>Spoken feedback unavailable.</strong>{' '}
-                            The teacher will respond with an exaggerated corrective performance only.
-                            To enable spoken feedback,{' '}
-                            <a href="https://github.com/pfefferniels/virtual-gruenfeld/blob/main/SPOKEN_FEEDBACK.md"
-                               target="_blank" rel="noopener noreferrer"
-                               style={{ color: '#333' }}>
-                                follow the setup instructions
-                            </a>.
-                        </div>
-                    )}
-
                     {!started && (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
                             <button
@@ -317,69 +212,6 @@ export const Dialog = () => {
                             </button>
                         </div>
                     )}
-
-                    {showVoice && (
-                        <div className="sketch-box" style={{ padding: 14, background: '#fff', display: 'grid', gap: 8 }}>
-                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-                                <strong style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ask the teacher</strong>
-                                <span style={{ fontSize: 11, opacity: 0.45 }}>— hold the button and speak</span>
-                            </div>
-                            <div>
-                                <button
-                                    type="button"
-                                    className="sketch-btn"
-                                    disabled={!voice.supported || voice.thinking}
-                                    onPointerDown={(e) => { e.preventDefault(); void voice.start(); }}
-                                    onPointerUp={voice.stop}
-                                    onPointerLeave={voice.stop}
-                                    onPointerCancel={voice.stop}
-                                    style={{
-                                        padding: '10px 22px',
-                                        fontSize: 14,
-                                        fontFamily: 'inherit',
-                                        cursor: voice.supported && !voice.thinking ? 'pointer' : 'not-allowed',
-                                        color: '#222',
-                                        background: voice.recording ? '#f3f4f6' : '#fff',
-                                        borderWidth: voice.recording ? 3 : 2,
-                                        touchAction: 'none',
-                                        userSelect: 'none',
-                                        opacity: voice.supported ? 1 : 0.5,
-                                    }}
-                                >
-                                    {askLabel}
-                                </button>
-                            </div>
-                            {!voice.supported && (
-                                <div style={{ fontSize: 12, color: '#944' }}>
-                                    This browser cannot record audio, so spoken questions are unavailable.
-                                </div>
-                            )}
-                            {voice.message && (
-                                <div style={{ fontSize: 12, color: '#944' }}>{voice.message}</div>
-                            )}
-                        </div>
-                    )}
-
-                    {aiAvailable && (quickJudgement || voiceAnswer) && (
-                        <div className="sketch-box" style={{ padding: 14, background: '#fff' }}>
-                            <strong style={{ display: 'block', marginBottom: 6, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.45 }}>Teacher Reaction</strong>
-                            {quickJudgement && (
-                                <div style={{ fontSize: 16, lineHeight: 1.5 }}>{quickJudgement}</div>
-                            )}
-                            {voiceAnswer && (
-                                <div style={{
-                                    marginTop: quickJudgement ? 12 : 0,
-                                    paddingTop: quickJudgement ? 10 : 0,
-                                    borderTop: quickJudgement ? '1px solid #e5e7eb' : 'none',
-                                }}>
-                                    <div style={{ fontSize: 12, opacity: 0.45, marginBottom: 4 }}>
-                                        You asked: "{voiceAnswer.transcript}"
-                                    </div>
-                                    <div style={{ fontSize: 16, lineHeight: 1.5 }}>{voiceAnswer.answerText}</div>
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
 
                 {/* Right sidebar: logs */}
@@ -397,39 +229,10 @@ export const Dialog = () => {
                     fontSize: 10,
                     color: '#444',
                 }}>
-                    <div style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 10, display: 'grid', gap: 8 }}>
-                        <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                            Prototype features
-                        </strong>
-                        <FlagToggle
-                            label="Agentic lesson plan"
-                            note="The teacher chooses what to demonstrate. Applies to the next take."
-                            checked={agenticEnabled}
-                            onChange={(next) => {
-                                setFlagOverride(TEACHER_AGENTIC_KEY, next);
-                                setAgenticEnabled(next);
-                            }}
-                        />
-                        <FlagToggle
-                            label="Ask by voice"
-                            note="Hold-to-ask button. Needs the AI service."
-                            checked={voiceEnabled}
-                            onChange={(next) => {
-                                setFlagOverride(TEACHER_VOICE_KEY, next);
-                                setVoiceEnabled(next);
-                            }}
-                        />
-                        {!aiAvailable && (
-                            <span style={{ fontSize: 9, opacity: 0.5, lineHeight: 1.3 }}>
-                                Both need the teacher service; neither does anything while it is unreachable.
-                            </span>
-                        )}
-                    </div>
-
-                    {aiAvailable && lastDiff && (
+                    {lastDiff && (
                         <details style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
                             <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                Diff sent to LLM
+                                Measured deviations
                             </summary>
                             <pre style={{ margin: '6px 0 0', fontSize: 9, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
                                 {lastDiff}
@@ -497,16 +300,15 @@ export const Dialog = () => {
                         <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 500 }}>What is this?</h2>
                         <p style={{ margin: '0 0 10px' }}>
                             <strong>Virtual Grünfeld</strong> is a dialogic piano teaching prototype.
-                            It listens to you playing Schumann's <em>Träumerei</em> and responds
-                            like a virtual teacher modeled after the pianist Alfred Grünfeld.
+                            It listens to you playing Schumann's <em>Träumerei</em> and answers by
+                            playing, as the pianist Alfred Grünfeld might have.
                         </p>
                         <h3 style={{ margin: '16px 0 6px', fontSize: 15, fontWeight: 500 }}>How to use</h3>
                         <ol style={{ margin: 0, paddingLeft: 20 }}>
                             <li>Connect a MIDI keyboard.</li>
                             <li>Press <strong>Start</strong> and play <em>Träumerei</em>.</li>
-                            <li>After each take the teacher responds with an exaggerated
-                                corrective performance — and, if the AI service is running,
-                                spoken feedback.</li>
+                            <li>After each take the teacher answers with an exaggerated
+                                corrective performance.</li>
                         </ol>
                         <div style={{ marginTop: 20, textAlign: 'right' }}>
                             <button

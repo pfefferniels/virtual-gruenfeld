@@ -247,38 +247,47 @@ describe('a take with one dimension altered', () => {
     });
 
     /**
-     * The sixth dimension, and why it cannot have a take.
+     * The sixth dimension, as far as this file can take it.
      *
-     * `performance.mpm`'s `articulationMap` declares no `<style>`, so `@name.ref` resolves to
-     * nothing: the 47 `<articulation>` elements name 26 defs that neither the renderer nor
-     * `compareMpm` ever looks up. Scaling every `@relativeDuration` by 0.7 therefore changes not
-     * one sounding note, and there is no student who can differ from Grünfeld in articulation
-     * because Grünfeld's document does not sound its own. The gate suppresses the type on every
-     * take, which is exactly right — a difference nobody can hear is not evidence.
+     * `performance.mpm`'s `articulationMap` declares `<style name.ref="performance_style">`, so
+     * every `@name.ref` resolves and the renderer applies the 26 defs: scaling each
+     * `@relativeDuration` by 0.7 shortens the notes those defs govern. The fitter reads the
+     * change back — it solves one `@relativeDuration` per def from the ratio of measured to
+     * prescribed duration — so the student document states a shorter figure than the reference
+     * fit states for the same def.
      *
-     * Committed as a test because it is a property of the *document*, fixable there (one
-     * `<style name.ref="performance_style">` in the map) and nowhere in this code.
+     * What the take *says* about it is not asserted here. Through `evidenceForTake` the
+     * dimension is named correctly from ×0.6 downward ("mehr Legato", severity large) and at
+     * ×1.6 upward ("kuerzer"), but ×0.7 measures 5.05 JND and is still suppressed as wholly
+     * sub-threshold, and a rubato, an accentuation or an ornament take is named in articulation
+     * too. Where that floor belongs is the open question; a test pinning today's verdict would
+     * pin the thing under question.
      */
-    it('articulation ×0.7 changes no sounding note, and is suppressed on every take', () => {
+    it('articulation ×0.7 shortens the notes its defs govern, and the fitter reads it back', () => {
         const altered = alter(referenceText, 'articulationDef', ['relativeDuration'], (v) => v * 0.7);
         expect(altered).not.toBe(referenceText);
+        expect(referenceText).toMatch(/<articulationMap>\s*<style/);
 
         const before = playedFrom(referenceText, WHOLE);
         const after = new Map(playedFrom(altered, WHOLE).map((note) => [note['xml:id'], note]));
+        const sounded = (note: MeasuredNote) => note['milliseconds.date.end'] - note['milliseconds.date'];
         const moved = before.filter((note) => {
             const played = after.get(note['xml:id']);
             if (!played) return false;
-            const one = note['milliseconds.date.end'] - note['milliseconds.date'];
-            const other = played['milliseconds.date.end'] - played['milliseconds.date'];
-            return Math.abs(one - other) > 0.5;
+            return Math.abs(sounded(note) - sounded(played)) > 0.5;
         });
-        expect(moved).toHaveLength(0);
-        expect(referenceText).not.toMatch(/<articulationMap>\s*<style/);
+        expect(moved.length).toBeGreaterThan(0);
+        // Shorter, every one of them: a duration multiplier under 1 has one direction.
+        for (const note of moved) expect(sounded(after.get(note['xml:id'])!)).toBeLessThan(sounded(note));
 
-        const evidence = takeOf(altered);
-        expect(evidence.report.dimensions.articulation.mean).toBe(0);
-        expect(evidence.suppressed.get('articulation')?.reason).toContain('under one');
-        expect(evidence.structuredDiff.filter((e) => e.type === 'articulation')).toEqual([]);
+        const statedBy = (mpmText: string, defName: string): number =>
+            Number(
+                new RegExp(`<articulationDef name="${defName}"[^>]*\\srelativeDuration="([-\\d.]+)"`)
+                    .exec(mpmText)?.[1],
+            );
+        const student = fitOf(altered, TAKE).studentMpmText;
+        const grünfeld = referenceFitOver(TAKE);
+        expect(statedBy(student, 'Überlegato')).toBeLessThan(statedBy(grünfeld, 'Überlegato'));
     });
 });
 

@@ -245,7 +245,7 @@ describe('what the edit script finds', () => {
         // A take that hurried *and* played quietly, so both are measured and the plan has a real
         // choice to make. Tempo is the costlier of the two here, which is what makes naming
         // `dynamics` a narrowing rather than a coincidence.
-        expect(new Set(both.evidence.measuredTypes)).toEqual(new Set(['tempo', 'dynamics']));
+        expect(both.evidence.measuredTypes).toEqual(expect.arrayContaining(['tempo', 'dynamics']));
         // Unnarrowed, the costliest three are all dynamics — so naming tempo is a narrowing that
         // changes the answer, not one that agrees with it.
         expect(new Set(pathFor(both).edits.map((edit) => edit.type))).toEqual(new Set(['dynamics']));

@@ -2,9 +2,9 @@
  * Grünfeld's instruction slots, read out of `performance.mpm`.
  *
  * This is the finding the whole rewrite turns on. The reference document already prints
- * deterministic ids — `<tempo xml:id="tempo_720" date="720" endDate="2160" bpm="76.15"
- * beatLength="0.25" transition.to="48.15">` — so the join key the old pipeline replayed 494
- * transformer calls to *manufacture* is simply there to be read. Written into those same
+ * deterministic ids — `<tempo date="720" bpm="76.15" transition.to="48.15" beatLength="0.25"
+ * xml:id="tempo_720">` — so the join key the old pipeline replayed 494 transformer calls to
+ * *manufacture* is simply there to be read. Written into those same
  * slots, the student's performance pairs with the reference by a `Map` lookup, and fitting
  * stops being a search for *where* an instruction belongs and becomes an interpolation of
  * *what value* belongs in a slot whose date, span and `@name.ref` are already decided.
@@ -175,10 +175,10 @@ const selectSlots = <T extends { date: number }>(all: readonly T[], { from, to }
 };
 
 /**
- * Where a slot's span ends. `@endDate` where the reference states it (it does, on every
- * `<tempo>` and `<dynamics>`), else the next element of the same kind, else the window's end
- * — because an instruction prevails until the next one, and the last one prevails to the end
- * of what was played.
+ * Where a slot's span ends. `@endDate` where a document states it, else the next element of
+ * the same kind, else the window's end — because an instruction prevails until the next one,
+ * and the last one prevails to the end of what was played. The published reference states
+ * none, so on it the second branch is the one that runs.
  */
 const endDatesOf = (dates: readonly number[], stated: readonly (number | undefined)[], to: number): number[] =>
     dates.map((date, i) => stated[i] ?? dates[i + 1] ?? Math.max(to, date));

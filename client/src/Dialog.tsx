@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { usePiano } from "./pianosound";
-import { useTake } from "./useTake";
+import { useLiveLesson } from "./useLiveLesson";
 import { useMidiDevices } from "./useMidiDevices";
 import type { MidiDeviceInfo } from "./useMidiDevices";
 
@@ -73,12 +73,12 @@ const DeviceSelect = ({ label, devices, selectedId, onChange }: {
 
 export const Dialog = () => {
     const midi = useMidiDevices();
-    const { play, stop, unlock, audioContext } = usePiano(midi.selectedOutputId);
+    const { play, stop, unlock } = usePiano(midi.selectedOutputId);
     const {
-        started, setStarted,
-        lastDiff, debugLines, clearDebugLines,
+        started, start,
+        position, lines, clearLines,
         teacherPlaying,
-    } = useTake({ play, stop, audioContext }, midi.selectedInputId);
+    } = useLiveLesson(midi.selectedInputId, midi.selectedOutputId, { play, stop });
 
     const hasInput = midi.inputs.length > 0;
     const hasOutput = midi.outputs.length > 0;
@@ -194,7 +194,7 @@ export const Dialog = () => {
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
                             <button
                                 className="sketch-btn"
-                                onClick={() => { void unlock(); setStarted(true); }}
+                                onClick={() => { void unlock(); start(); }}
                                 disabled={!canStart}
                                 style={{
                                     padding: '14px 52px',
@@ -229,13 +229,13 @@ export const Dialog = () => {
                     fontSize: 10,
                     color: '#444',
                 }}>
-                    {lastDiff && (
+                    {position !== '—' && (
                         <details style={{ borderBottom: '1px solid #e5e7eb', paddingBottom: 8 }}>
                             <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                                 Measured deviations
                             </summary>
                             <pre style={{ margin: '6px 0 0', fontSize: 9, lineHeight: 1.35, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                                {lastDiff}
+                                {position}
                             </pre>
                         </details>
                     )}
@@ -245,7 +245,7 @@ export const Dialog = () => {
                             <strong style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Log</strong>
                             <button
                                 className="sketch-btn"
-                                onClick={clearDebugLines}
+                                onClick={clearLines}
                                 style={{
                                     padding: '2px 8px',
                                     cursor: 'pointer',
@@ -256,7 +256,7 @@ export const Dialog = () => {
                             >
                                 Clear
                             </button>
-                            <span style={{ opacity: 0.4, fontSize: 9 }}>{debugLines.length}</span>
+                            <span style={{ opacity: 0.4, fontSize: 9 }}>{lines.length}</span>
                         </div>
 
                         <pre
@@ -271,7 +271,7 @@ export const Dialog = () => {
                                 fontFamily: 'ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace',
                             }}
                         >
-                            {debugLines.join('\n')}
+                            {lines.join('\n')}
                         </pre>
                     </div>
                 </div>

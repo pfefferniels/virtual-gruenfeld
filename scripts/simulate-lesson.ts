@@ -263,7 +263,7 @@ const heardBy = (played: readonly PlayedNote[], nowMs: number): StudentNote[] =>
         }));
 
 /** The scoring side of the loop: the real fit and the real audibility gate, over one window. */
-const scoreWindow = (played: readonly StudentNote[], window: { from: number; to: number }) => {
+const scoreWindow = async (played: readonly StudentNote[], window: { from: number; to: number }) => {
     try {
         forgetReferenceFits();
         const asMidi = midiFromPlayed(played.map((note) => ({

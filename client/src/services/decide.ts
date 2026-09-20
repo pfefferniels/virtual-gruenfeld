@@ -41,6 +41,17 @@ export type DecisionVerdict = {
     latencyMs: number;
 };
 
+/**
+ * The plan as it comes off the wire. `src/plan/` is what shapes and clamps it; this is the client's
+ * view of the fields it executes.
+ */
+export type LivePlan = {
+    mode: 'exaggerated' | 'path' | 'reference' | 'none';
+    range: { from: number; to: number } | null;
+    dimensions: { type: string; strength: number }[];
+    edits: number | null;
+};
+
 export type DecisionResponse<TPlan> = {
     verdict: DecisionVerdict | null;
     plan: TPlan | null;

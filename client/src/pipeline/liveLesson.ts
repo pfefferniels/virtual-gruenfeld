@@ -52,8 +52,11 @@ export type Decision<TPlan> = {
 
 export type LiveLessonDeps<TPlan> = {
     readonly tracker: Tracker;
-    /** Score a window. Returns null when the fit could not answer for it. */
-    readonly score: (played: readonly StudentNote[], window: Window) => WindowEvidence | null;
+    /**
+     * Score a window, off the main thread. Returns null when the fit could not answer for it.
+     * Measured 42–74 ms warm in the worker, which is why nothing waits on it synchronously.
+     */
+    readonly score: (played: readonly StudentNote[], window: Window) => Promise<WindowEvidence | null>;
     /** Ask what Grünfeld makes of it. Never throws: a missing verdict is silence, not an error. */
     readonly deliberate: (request: DeliberationRequest) => Promise<Decision<TPlan>>;
     /** Take the keyboard. */
@@ -128,7 +131,7 @@ export const createLiveLesson = <TPlan>(
 
             if (fresh && !inFlight && position.confidence >= window.minConfidence) {
                 lastScoredTo = bounds.to;
-                const evidence = deps.score(played, bounds);
+                const evidence = await deps.score(played, bounds);
                 const persistent = store.observe(evidence?.measuredTypes ?? []);
 
                 if (evidence !== null && persistent.length > 0) {

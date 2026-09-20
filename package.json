@@ -1,7 +1,7 @@
 {
   "name": "virtual-gruenfeld",
   "version": "1.0.0",
-  "description": "AI web app for conversing with Alfred Grünfeld's historical piano rendition",
+  "description": "AI web app for conversing with Alfred Gr\u00fcnfeld's historical piano rendition",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
@@ -18,7 +18,8 @@
     "knip": "knip",
     "fetch:data": "tsx scripts/fetch-reconstruction.ts",
     "pretest": "tsx scripts/fetch-reconstruction.ts",
-    "predev": "tsx scripts/fetch-reconstruction.ts"
+    "predev": "tsx scripts/fetch-reconstruction.ts",
+    "test:budgets": "BUDGETS=1 vitest run client/src/mpm/evidence.test.ts client/src/mpm/path.test.ts"
   },
   "keywords": [
     "music",
@@ -27,7 +28,7 @@
     "historical",
     "performance"
   ],
-  "author": "Virtual Grünfeld Project",
+  "author": "Virtual Gr\u00fcnfeld Project",
   "license": "MIT",
   "dependencies": {
     "@types/cors": "^2.8.17",

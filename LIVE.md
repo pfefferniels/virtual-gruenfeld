@@ -519,5 +519,11 @@ concluded. The single instrument is this project's constraint, not Grünfeld's.
 7. ~~The Jev decision service~~ — built. `src/jev/`, `POST /decide`, and the commit rule in
    `client/src/pipeline/standingVerdict.ts`. Thresholds are calibrated against this pipeline's own
    evidence (§4a); they should be re-tuned against a real player, not a synthetic one.
-8. The handover signal, and wiring the loop into the UI. Nothing calls `requestDecision` yet,
-   because there is no live loop for it to serve.
+8. ~~Wiring the loop into the UI~~ — done. `client/src/useLiveLesson.ts` assembles it: the
+   student's playing from Web MIDI (`liveInput.ts`, a stream rather than a take), the scoring from
+   the evidence worker, the decision from `POST /decide`, and the playing from the Disklavier when
+   one is connected or the sampler when not. `Dialog.tsx` drives it, and the take-based path —
+   `midi.ts`, `useTake.ts`, `takeRunner.ts`, `strategies/` — is gone.
+9. The handover signal. Yamaha's SmartKey moves a key below the threshold of sound while still
+   sensing the player, which is the physical equivalent of Shimon's head-turn and the one piece of
+   the experience still unbuilt.

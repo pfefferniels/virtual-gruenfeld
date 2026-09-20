@@ -46,7 +46,7 @@ const harness = (over: Partial<LiveLessonDeps<Plan>> = {}) => {
 
     const deps: LiveLessonDeps<Plan> = {
         tracker,
-        score: () => evidence(['tempo']),
+        score: async () => evidence(['tempo']),
         deliberate: async (request) => {
             requests.push(request);
             return {
@@ -105,7 +105,7 @@ describe('when a window is scored', () => {
     });
 
     it('scores a window once, however often it is asked', async () => {
-        const score = vi.fn(() => evidence(['tempo']));
+        const score = vi.fn(async () => evidence(['tempo']));
         const { deps, positions } = harness({ score });
         // The playhead creeps forward but stays inside the same settled window.
         positions.push(at(4 * BAR), at(4 * BAR + 200), at(4 * BAR + 400));
@@ -119,9 +119,9 @@ describe('when a window is scored', () => {
     it('holds a dimension back until it has survived consecutive windows', async () => {
         const { deps, positions, requests } = harness({
             score: vi.fn()
-                .mockReturnValueOnce(evidence(['tempo']))
-                .mockReturnValueOnce(evidence(['dynamics']))
-                .mockReturnValue(evidence(['dynamics'])),
+                .mockResolvedValueOnce(evidence(['tempo']))
+                .mockResolvedValueOnce(evidence(['dynamics']))
+                .mockResolvedValue(evidence(['dynamics'])),
         });
         positions.push(at(4 * BAR), at(6 * BAR), at(8 * BAR));
         const lesson = createLiveLesson(deps);
@@ -137,7 +137,7 @@ describe('when a window is scored', () => {
     });
 
     it('says nothing when the fit could not answer for the window', async () => {
-        const { deps, positions, requests } = harness({ score: () => null });
+        const { deps, positions, requests } = harness({ score: async () => null });
         positions.push(at(4 * BAR));
         const lesson = createLiveLesson(deps);
         const heard = await lesson.heard(played(0), quiet(0));

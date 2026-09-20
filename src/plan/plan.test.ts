@@ -243,27 +243,23 @@ describe('plan dimensions', () => {
 });
 
 describe('agentic response parsing', () => {
-    const MONOLOGUE = '«JUDGE» Zu hastig, aber warm «m2.2» [softly] ruhiger atmen';
-
-    it('reads the monologue verbatim, markers and all', () => {
+    it('reads the demo object out of the payload', () => {
         const parsed = parseAgenticResponse(JSON.stringify({
-            monologue: MONOLOGUE,
             demo: { mode: 'none', range: null, dimensions: null },
         }));
-        expect(parsed?.monologue).toBe(MONOLOGUE);
-        expect(parsed?.demo).toMatchObject({ mode: 'none' });
+        expect(parsed).toMatchObject({ mode: 'none' });
     });
 
     it('returns null for anything that is not a lesson-plan object', () => {
-        for (const raw of ['', 'not json', '[]', '"text"', '{"demo":{}}', '{"monologue":5}']) {
+        for (const raw of ['', 'not json', '[]', '"text"']) {
             expect(parseAgenticResponse(raw)).toBeNull();
         }
     });
 
-    it('accepts a monologue with no demo attached', () => {
-        const parsed = parseAgenticResponse(JSON.stringify({ monologue: MONOLOGUE }));
-        expect(parsed?.demo).toBeNull();
-        expect(validatePlan(parsed?.demo).plan).toEqual(DEFAULT_PLAN);
+    it('falls back to the default plan when no demo is attached', () => {
+        const parsed = parseAgenticResponse(JSON.stringify({}));
+        expect(parsed).toBeNull();
+        expect(validatePlan(parsed).plan).toEqual(DEFAULT_PLAN);
     });
 });
 

@@ -27,7 +27,3 @@ export const positionToTick = (position: string): number | null => {
 
     return ((measure - 1) * BEATS_PER_MEASURE + (beat - 1)) * PPQ;
 };
-
-/** Compact span label: a single position when from === to, otherwise `from–to`. */
-export const spanLabel = (from: number, to: number): string =>
-    tickToPos(from) === tickToPos(to) ? tickToPos(from) : `${tickToPos(from)}–${tickToPos(to)}`;

@@ -1,13 +1,26 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "ignoreDependencies": ["espressivo"],
+  "ignoreDependencies": [
+    "espressivo"
+  ],
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts", "*.ts"],
-      "project": ["src/**/*.ts", "scripts/*.ts", "*.ts"]
+      "entry": [
+        "src/plan/index.ts",
+        "src/jev/index.ts",
+        "*.ts",
+        "scripts/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "*.ts",
+        "scripts/*.ts"
+      ]
     },
     "client": {
-      "project": ["src/**/*.{ts,tsx}"]
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ]
     }
   }
 }

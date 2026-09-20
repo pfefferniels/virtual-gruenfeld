@@ -70,11 +70,10 @@ type TempoPoint = { atTick: number; atSec: number; usPQ: number };
  * A Format 1 MIDI file puts its tempo changes in the conductor track and the notes in the
  * others, on one shared tick timeline — which is exactly what espressivo's expressive export
  * writes (`setTempo 720000` on track 0, so that one tick is one millisecond, notes on tracks
- * 1 and 2). Reading each track with its own tempo cursor left those tracks at the 120 BPM
- * default and compressed every onset by 500000/720000 = 0.694; the cue timing map
- * (`teacherCues.buildTimingMap`) is built out of these onsets, so every cue landed 31 % early.
- * `pianosound/MidiNote.addAbsoluteTime`, which schedules the audio, has always done it this
- * way; now the two agree.
+ * 1 and 2). Reading each track with its own tempo cursor would leave those tracks at the
+ * 120 BPM default and compress every onset by 500000/720000 = 0.694.
+ * `pianosound/MidiNote.addAbsoluteTime`, which schedules playback, reads the map the same way,
+ * so the two agree.
  *
  * The student's own take is a single-track file with its tempo at tick 0 and is unaffected.
  */
@@ -611,9 +610,22 @@ type MatcherOptions = {
     gapExtend?: number;
     /** If provided, restrict search to this score-date window. */
     dateHint?: number;
-    /** Size of the date window around dateHint. Default: 30000 */
+    /** Size of the date window around dateHint. Default: {@link DEFAULT_DATE_WINDOW} */
     dateWindow?: number;
 };
+
+/**
+ * Half-width of the search window around `dateHint`, in ticks.
+ *
+ * The ceiling is structural: two passes of a repeat carry identical pitches, and
+ * `smithWaterman` breaks a tie toward the earlier reference index. A window that reaches
+ * both passes therefore always resolves to the first, whatever the hint says. It must stay
+ * under half the distance between corresponding points in the two passes — 23760 ticks in
+ * Träumerei's written-out repeat of A, so under 11880.
+ *
+ * The floor is the take: a window narrower than half the passage clips the match.
+ */
+const DEFAULT_DATE_WINDOW = 3 * 4 * 720;
 
 /**
  * Match a student MIDI performance to a reference MSM.
@@ -631,26 +643,46 @@ export function matchSubsequence(
         gapOpen = -0.6,
         gapExtend = -0.15,
         dateHint,
-        dateWindow = 30000,
+        dateWindow = DEFAULT_DATE_WINDOW,
     } = options;
 
     if (studentNotes.length === 0 || refNotes.length === 0) {
         return { matches: [], deletions: [], insertions: studentNotes.map(s => s), range: { from: 0, to: 0 } };
     }
 
-    // Optionally restrict reference to a date window
-    let workingRef = refNotes;
-    if (dateHint != null) {
-        const lo = dateHint - dateWindow;
-        const hi = dateHint + dateWindow;
-        workingRef = refNotes.filter(n => n.date >= lo && n.date <= hi);
-        if (workingRef.length === 0) workingRef = refNotes; // fallback
-    }
-
-    // Group and sort: reference by date (tolerance=0), student by onset
-    const sortedRef = groupAndSort(workingRef, n => n.date, 0);
     const sortedStu = groupAndSort(studentNotes, n => n.onset, chordTolerance);
+    const align = (ref: RefNote[]) =>
+        alignAgainst(groupAndSort(ref, n => n.date, 0), sortedStu, { gapOpen, gapExtend });
 
+    if (dateHint == null) return align(refNotes);
+
+    const lo = dateHint - dateWindow;
+    const hi = dateHint + dateWindow;
+    const windowed = refNotes.filter(n => n.date >= lo && n.date <= hi);
+    if (windowed.length === 0 || windowed.length === refNotes.length) return align(refNotes);
+
+    // A window narrow enough to tell two passes of a repeat apart is also narrow enough to clip
+    // a take longer than itself. When coverage is short, try the whole reference too — but only
+    // adopt it if it reaches substantially further, since on a repeat the wider search can match
+    // more notes in the wrong pass.
+    const inWindow = align(windowed);
+    if (inWindow.matches.length >= sortedStu.length * WINDOW_COVERAGE_FLOOR) return inWindow;
+
+    const whole = align(refNotes);
+    return whole.matches.length > inWindow.matches.length * WIDENING_GAIN ? whole : inWindow;
+}
+
+/** Coverage of the student's notes at which a windowed match is trusted without a second look. */
+const WINDOW_COVERAGE_FLOOR = 0.95;
+
+/** How much further an unwindowed match must reach before it displaces the windowed one. */
+const WIDENING_GAIN = 1.2;
+
+function alignAgainst(
+    sortedRef: RefNote[],
+    sortedStu: StudentNote[],
+    { gapOpen, gapExtend }: { gapOpen: number; gapExtend: number },
+): MatchResult {
     // Run Smith-Waterman
     const alignment = smithWaterman(sortedRef, sortedStu, { gapOpen, gapExtend });
 
@@ -748,11 +780,12 @@ export function implantLocal(
     scoreNotes: readonly MeasuredNote[],
     midi: MidiFile,
     dateHint?: number,
+    dateWindow?: number,
 ): { notes: MeasuredNote[]; range: { from: number; to: number } } {
     const studentNotes = extractNotesFromMidi(midi);
     const refNotes = refNotesFrom(scoreNotes);
 
-    const result = matchSubsequence(refNotes, studentNotes, { dateHint });
+    const result = matchSubsequence(refNotes, studentNotes, { dateHint, dateWindow });
 
     // Create a map from ref note id -> student note for fast lookup
     const matchMap = new Map<string, StudentNote>();

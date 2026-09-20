@@ -14,17 +14,15 @@ import {
     type InstructionType,
     type LessonPlan,
     type PlanDimension,
-    type RawLessonPlan,
 } from './types';
 
 type PlanContext = {
-    /** The take the plan has to stay inside. Absent for the legacy diff-string path. */
+    /** The take the plan has to stay inside. Absent, the range is taken as given. */
     takeRange?: { from: number; to: number };
     /**
      * The types this take actually measured — the audibility gate's list intersected with what
-     * the fitter wrote (DESIGN §3.4), sent by the client since S5/S6. A plan may only shape a
-     * type the diff measured (semantics 26); absent, nothing is filtered, which is what the
-     * legacy diff-string path and the probe get.
+     * the fitter wrote (DESIGN §3.4). A plan may only shape a type the diff measured
+     * (semantics 26); absent, nothing is filtered.
      *
      * It is a stronger list than "types that produced an event": a type can be measured on a
      * take where the student got it right, and the demonstration is then allowed to name it.
@@ -34,7 +32,7 @@ type PlanContext = {
 
 type ValidatedPlan = {
     plan: LessonPlan;
-    /** Everything that had to be corrected — logged by the route, asserted by tests. */
+    /** Everything that had to be corrected — logged by the caller, asserted by tests. */
     warnings: string[];
 };
 
@@ -212,10 +210,10 @@ export const validatePlan = (raw: unknown, context: PlanContext = {}): Validated
 };
 
 /**
- * Read the structured-output payload. The monologue is returned verbatim so the
- * existing «MARKER» parser sees exactly the bytes it would have seen as free text.
+ * The `demo` object out of a structured-output payload, unvalidated — {@link validatePlan}
+ * is what makes it a plan. Null when the output is not the JSON object it claims to be.
  */
-export const parseAgenticResponse = (rawOutput: string): RawLessonPlan | null => {
+export const parseAgenticResponse = (rawOutput: string): unknown => {
     let payload: unknown;
     try {
         payload = JSON.parse(rawOutput);
@@ -224,10 +222,7 @@ export const parseAgenticResponse = (rawOutput: string): RawLessonPlan | null =>
     }
     if (typeof payload !== 'object' || payload === null) return null;
 
-    const { monologue, demo } = payload as { monologue?: unknown; demo?: unknown };
-    if (typeof monologue !== 'string') return null;
-
-    return { monologue, demo: (demo ?? null) as RawLessonPlan['demo'] };
+    return (payload as { demo?: unknown }).demo ?? null;
 };
 
 export const describePlan = (plan: LessonPlan): string => {

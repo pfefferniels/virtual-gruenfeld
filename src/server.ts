@@ -4,21 +4,21 @@ import 'dotenv/config';
 import path from 'path';
 
 import { corsOptions } from './cors';
-import { teacherAskRouter } from './routes/teacherAsk';
-import { teacherStreamRouter } from './routes/teacherStream';
+import { startHeartbeat } from './jev/client';
+import { decideRoute } from './routes/decide';
 
 const app = express();
 app.use(cors(corsOptions()));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '256kb' }));
 app.use(express.static('client/build'));
-
-app.use(teacherStreamRouter);
-// A 30s webm question is ~0.5MB base64, well inside the 10mb JSON limit above.
-app.use(teacherAskRouter);
 
 /** For the reverse proxy and for checking by hand that TLS reaches the process. */
 app.get('/health', (_req, res) => {
     res.json({ ok: true });
+});
+
+app.post('/decide', (req, res) => {
+    void decideRoute(req, res);
 });
 
 // Only meaningful when the server also hosts the client. In the deployment
@@ -26,12 +26,15 @@ app.get('/health', (_req, res) => {
 app.get('*', (req, res) => {
     const index = path.join(__dirname, '../client/build', 'index.html');
     res.sendFile(index, (err) => {
-        if (err) res.status(404).json({ error: 'This server hosts the teacher API only.' });
+        if (err) res.status(404).json({ error: 'Not found.' });
     });
 });
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
+    // Opened before the first student plays: a cold socket costs 2.1–2.4 s against 0.5–0.7 s warm.
+    startHeartbeat();
     console.log(`Virtual Grünfeld server running on port ${PORT}`);
     console.log(`CORS: ${process.env.TEACHER_CORS_ORIGIN || 'localhost only (TEACHER_CORS_ORIGIN unset)'}`);
+    console.log(`Jev: ${process.env.TYPESAFE_API_KEY ? 'configured, connection warm' : 'no TYPESAFE_API_KEY — /decide will skip'}`);
 });

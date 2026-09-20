@@ -22,19 +22,6 @@ function convertRange(value: number, r1: [number, number], r2: [number, number])
 
 type EventListener = (e: AnyEvent) => void;
 
-type ScheduledAudioCue = {
-    atSec: number;
-    audioBuffer: AudioBuffer;
-    onStart?: () => void;
-};
-
-type PlaybackSetupApi = {
-    scheduleAudioCue: (cue: ScheduledAudioCue) => void;
-    audioContext: AudioContext;
-};
-
-type PlaybackSetup = (api: PlaybackSetupApi) => void;
-
 const isNoteOn = (e: AnyEvent) => e.type === 'channel' && e.subtype === 'noteOn';
 const isNoteOff = (e: AnyEvent) => e.type === 'channel' && e.subtype === 'noteOff';
 
@@ -119,7 +106,6 @@ export const usePiano = (outputId?: string | null) => {
     const transport = Tone.getTransport();
     const audioContext = Tone.getContext().rawContext as AudioContext;
     const usingHardware = useMemo(() => !!midiOutput, [midiOutput]);
-    const activeCueSources = useMemo(() => new Set<AudioBufferSourceNode>(), []);
 
     useEffect(() => {
         let cancelled = false;
@@ -157,18 +143,7 @@ export const usePiano = (outputId?: string | null) => {
         if (midiAccessRef) setMidiOutput(getOutput(midiAccessRef, outputId));
     }, [outputId, midiAccessRef]);
 
-    const stopActiveCueSources = () => {
-        for (const source of activeCueSources) {
-            try { source.stop(); } catch { /* ignore */ }
-        }
-        activeCueSources.clear();
-    };
-
-    const scheduleEvents = (
-        file: MidiFile,
-        cb?: EventListener,
-        setup?: PlaybackSetup,
-    ) => {
+    const scheduleEvents = (file: MidiFile, cb?: EventListener) => {
         const events = addAbsoluteTime(file);
         const softRegions = events.reduce((arr, ev) => {
             if (isSoftPedalOn(ev)) {
@@ -182,21 +157,6 @@ export const usePiano = (outputId?: string | null) => {
         transport.stop();
         transport.position = 0;
         transport.cancel();
-        stopActiveCueSources();
-
-        const scheduleAudioCue = (cue: ScheduledAudioCue) => {
-            transport.schedule((time) => {
-                cue.onStart?.();
-                const source = audioContext.createBufferSource();
-                source.buffer = cue.audioBuffer;
-                source.connect(audioContext.destination);
-                source.onended = () => activeCueSources.delete(source);
-                activeCueSources.add(source);
-                source.start(time);
-            }, cue.atSec);
-        };
-
-        setup?.({ scheduleAudioCue, audioContext });
 
         if (usingHardware) {
             for (const ev of events) {
@@ -249,8 +209,8 @@ export const usePiano = (outputId?: string | null) => {
         }
     };
 
-    const play = (file: MidiFile, cb?: EventListener, setup?: PlaybackSetup) => {
-        scheduleEvents(file, cb, setup);
+    const play = (file: MidiFile, cb?: EventListener) => {
+        scheduleEvents(file, cb);
 
         if (transport.state !== 'started') {
             void Tone.start();
@@ -258,34 +218,10 @@ export const usePiano = (outputId?: string | null) => {
         }
     };
 
-    const playAudioBuffer = async (audioBuffer: AudioBuffer, onStart?: () => void) => {
-        await Tone.start();
-        if (audioContext.state === 'suspended') await audioContext.resume();
-
-        await new Promise<void>((resolve) => {
-            const source = audioContext.createBufferSource();
-            let settled = false;
-            const finish = () => {
-                if (settled) return;
-                settled = true;
-                activeCueSources.delete(source);
-                resolve();
-            };
-
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.onended = finish;
-            activeCueSources.add(source);
-            onStart?.();
-            source.start();
-        });
-    };
-
     const stopAll = () => {
         transport.stop();
         transport.position = 0;
         transport.cancel();
-        stopActiveCueSources();
 
         if (usingHardware && midiOutput) {
             for (let c = 0; c < 16; c++) {
@@ -328,7 +264,6 @@ export const usePiano = (outputId?: string | null) => {
     return {
         status,
         play,
-        playAudioBuffer,
         playSingleNote,
         stop: stopAll,
         jumpTo,

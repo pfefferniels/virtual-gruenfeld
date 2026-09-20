@@ -81,7 +81,7 @@ describe('what a cut keeps', () => {
         ['dynamicsMap', 'dynamics', 11],
         ['rubatoMap', 'rubato', 10],
         ['metricalAccentuationMap', 'accentuationPattern', 9],
-        ['articulationMap', 'articulation', 11],
+        ['articulationMap', 'articulation', 12],
         ['ornamentationMap', 'ornament', 13],
     ])('drops everything else from %s: %s × %i survives', (mapName, elementName, count) => {
         expect(elementsOf(cut, mapName, elementName)).toHaveLength(count);
@@ -102,11 +102,15 @@ describe('what a cut keeps', () => {
             const before = whole.filter((date) => date < TAKE.from);
             const after = whole.filter((date) => date >= TAKE.to);
             const inside = whole.filter((date) => date >= TAKE.from && date < TAKE.to);
+            // The opening and the closing are dates, not single elements: the articulation map
+            // writes one element per note, so several can share the date that opens or closes
+            // the window and every one of them is kept.
+            const at = (dates: readonly number[], date: number) => dates.filter((d) => d === date);
 
             expect(kept).toEqual([
-                ...(before.length ? [Math.max(...before)] : []),
+                ...(before.length ? at(before, Math.max(...before)) : []),
                 ...inside,
-                ...(after.length ? [Math.min(...after)] : []),
+                ...(after.length ? at(after, Math.min(...after)) : []),
             ]);
             // …and it really is a cut, not a copy.
             expect(kept.length).toBeLessThan(whole.length);
@@ -128,16 +132,26 @@ describe('what a cut keeps', () => {
     });
 
     it('never prunes the definitions those references resolve into', () => {
-        const header = allChildElements(
-            new Mpm(cut).getPerformance(0)!.getGlobal()!.getXml()!,
-            'header',
-        )[0];
-        const defs = (collection: string, def: string) =>
-            allChildElements(allChildElements(allChildElements(header, collection)[0], 'styleDef')[0], def);
+        const defs = (mpmText: string, collection: string, def: string) => {
+            const header = allChildElements(
+                new Mpm(mpmText).getPerformance(0)!.getGlobal()!.getXml()!,
+                'header',
+            )[0];
+            return allChildElements(
+                allChildElements(allChildElements(header, collection)[0], 'styleDef')[0],
+                def,
+            );
+        };
 
-        expect(defs('ornamentationStyles', 'ornamentDef')).toHaveLength(77);
-        expect(defs('metricalAccentuationStyles', 'accentuationPatternDef')).toHaveLength(42);
-        expect(defs('articulationStyles', 'articulationDef')).toHaveLength(26);
+        for (const [collection, def] of [
+            ['ornamentationStyles', 'ornamentDef'],
+            ['metricalAccentuationStyles', 'accentuationPatternDef'],
+            ['articulationStyles', 'articulationDef'],
+        ] as const) {
+            const whole = defs(reference, collection, def);
+            expect(whole.length).toBeGreaterThan(0);
+            expect(defs(cut, collection, def)).toHaveLength(whole.length);
+        }
     });
 
     it('keeps the document a document: metadata, performance name, tick grid', () => {
@@ -182,14 +196,27 @@ describe('window equivalence', () => {
             .map(([name, dimension]) => [name, dimension.distance] as const);
     };
 
-    it('compares to the whole performance as 0 in every dimension', () => {
-        expect(distances(cut, cutToRange(reference, WHOLE))).toEqual([]);
+    /**
+     * Articulation is the exception, and not because the cut lost anything. Grünfeld addresses
+     * every `<articulation>` by `@noteid`, and espressivo prices an id-anchored atom whatever
+     * the window is — `articulationDistance`: "the window cannot exclude it … dropping it would
+     * silently forgive a difference the renderer performs somewhere in the piece". So the whole
+     * document brings 130 atoms to a four-bar comparison where the cut brings 24. Every atom
+     * the cut kept still matches; the distance is the excess the other side carried in.
+     */
+    it('compares to the whole performance as 0 in every dimension the window can place', () => {
+        const whole = cutToRange(reference, WHOLE);
+        expect(distances(cut, whole).map(([name]) => name)).toEqual(['articulation']);
+
+        const { report } = compareMpm({ a: cut, b: whole, msm: scoreMsm, window });
+        expect(report.dimensions.articulation.events?.unmatchedA).toBe(0);
+        expect(report.dimensions.articulation.events?.unmatchedB).toBeGreaterThan(0);
     });
 
-    it('differs from the uncut document in the pedal alone — the one thing it drops', () => {
+    it('differs from the uncut document in the pedal it drops, and nothing else it can place', () => {
         const differing = distances(cut, reference);
-        expect(differing.map(([name]) => name)).toEqual(['pedal']);
-        expect(differing[0][1]).toBeGreaterThan(0);
+        expect(differing.map(([name]) => name)).toEqual(['articulation', 'pedal']);
+        for (const [, distance] of differing) expect(distance).toBeGreaterThan(0);
     });
 
     it('is 0 against itself', () => {

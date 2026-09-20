@@ -1,4 +1,4 @@
-export type MidiMessageEvent = { tMs: number; data: Uint8Array };
+type MidiMessageEvent = { tMs: number; data: Uint8Array };
 
 const clampInt = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n | 0));
 const u16be = (n: number) => new Uint8Array([(n >> 8) & 0xff, n & 0xff]);
@@ -28,7 +28,7 @@ const concatBytes = (chunks: Uint8Array[]) => {
     return out;
 };
 
-export const isRealtimeStatus = (status: number) => status >= 0xf8 && status <= 0xff;
+const isRealtimeStatus = (status: number) => status >= 0xf8 && status <= 0xff;
 
 export const buildSmfFromMessages = (
     messages: MidiMessageEvent[],
@@ -100,3 +100,22 @@ export const buildSmfFromMessages = (
 
     return concatBytes([header, track]);
 };
+
+/**
+ * A take as the matcher and the fit want it: MIDI bytes.
+ *
+ * 480 tpq at 120 bpm puts one tick just over a millisecond, which is finer than any expressive
+ * timing this project measures and coarse enough to keep the file small.
+ */
+export const midiOfPlayed = (
+    notes: readonly { pitch: number; onsetMs: number; durationMs: number; velocity: number }[],
+): Uint8Array =>
+    buildSmfFromMessages(
+        notes
+            .flatMap((note) => [
+                { tMs: note.onsetMs, data: new Uint8Array([0x90, note.pitch, note.velocity]) },
+                { tMs: note.onsetMs + note.durationMs, data: new Uint8Array([0x80, note.pitch, 0]) },
+            ])
+            .sort((a, b) => a.tMs - b.tMs),
+        { ticksPerQuarter: 480, bpm: 120 },
+    );

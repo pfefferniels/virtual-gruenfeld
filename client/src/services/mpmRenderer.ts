@@ -181,9 +181,8 @@ const renderPerformed = (msm: Msm, mpm: string, range: Range): Uint8Array | unde
 
 /**
  * Render the passage [from, to) of `mei` as performed by the first performance in `mpm`
- * (XML text: the reference as fetched, or what `mpm/counter.ts` and `pipeline/judgementMood.ts`
- * wrote), to Standard MIDI File bytes. The first note
- * starts at 0 ms and everything plays on channel 0.
+ * (XML text: the reference as fetched, or what `mpm/counter.ts` wrote), to Standard MIDI File
+ * bytes. The first note starts at 0 ms and everything plays on channel 0.
  */
 export const render = (mei: string, mpm: string, range: Range): Uint8Array | undefined =>
     renderPerformed(toMsm(mei), mpm, range);

@@ -10,10 +10,12 @@
  *
  *   1. every element with `from <= @date < to` survives **verbatim** — same `xml:id`,
  *      same attributes, same order;
- *   2. the **opening** element — the last one before `from` — survives, so the window opens
- *      on the value that was actually prevailing (`<style>` switches at date 0 included);
- *   3. the **closing** element — the first one at or after `to` — survives, so the last
- *      in-range ramp ends where it really ends instead of running to the document's end;
+ *   2. the **opening** date — the last one before `from` — survives with every element on it,
+ *      so the window opens on the value that was actually prevailing (`<style>` switches at
+ *      date 0 included);
+ *   3. the **closing** date — the first one at or after `to` — survives with every element on
+ *      it, so the last in-range ramp ends where it really ends instead of running to the
+ *      document's end;
  *   4. everything the window cannot see is gone;
  *   5. `<metadata>`, `<performance>` (name, ppq), the `<part>` structure and every
  *      `<header>` style definition are untouched — defs are never pruned, because
@@ -22,8 +24,11 @@
  *   6. the movement map is **dropped whole** (see {@link DROPPED_MAPS}).
  *
  * Measured consequence of 1–5 on `performance.mpm`: with the movement map dropped on both
- * sides, `compareMpm(cut, whole, msm, window)` is 0 in every dimension — the cut is
- * indistinguishable from the full document over its own window. `cut.test.ts` asserts it.
+ * sides, `compareMpm(cut, whole, msm, window)` is 0 in every dimension the window can place —
+ * the cut is indistinguishable from the full document over its own window. Articulation is
+ * outside that guarantee, because Grünfeld addresses every `<articulation>` by `@noteid` and
+ * espressivo prices an id-anchored atom whatever the window is; the two sides of a take are
+ * therefore always cut to the same range ({@link cutPairToRange}). `cut.test.ts` asserts both.
  *
  * Text in, text out (the design's rule for every document boundary), and idempotent:
  * cutting a cut to the same range changes nothing.

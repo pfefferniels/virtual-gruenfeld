@@ -71,10 +71,10 @@ describe('reading a document', () => {
     it('finds every instruction the reference prints, and no others', () => {
         // The inventory `reference.test.ts` pins, read through the pairing's own reader.
         expect(countOf('tempo')).toBe(60);
-        expect(countOf('dynamics')).toBe(61);
+        expect(countOf('dynamics')).toBe(62);
         expect(countOf('rubato')).toBe(56);
         expect(countOf('accentuationPattern')).toBe(51);
-        expect(countOf('articulation')).toBe(47);
+        expect(countOf('articulation')).toBe(65);
         expect(countOf('ornament')).toBe(100);
         // Nothing fits it and the reference declares none — the contract type (DESIGN §7).
         expect(countOf('asynchrony')).toBe(0);
@@ -124,10 +124,18 @@ describe('reading a document', () => {
     });
 
     it('reads an ornament’s frame and intensity off its def, its scale off the element', () => {
+        // `<ornament date="1440" name.ref="def_global_ornament_1440" scale="0" …>` states
+        // neither frame nor intensity, so a number that arrives here came off the def.
+        const spread = /<ornamentDef name="def_global_ornament_1440">\s*<temporalSpread\b[^>]*>/
+            .exec(referenceText)?.[0];
+        const stated = (attribute: string): number =>
+            Number(new RegExp(`\\s${attribute}="([-\\d.eE]+)"`).exec(spread ?? '')?.[1]);
+        expect(Number.isFinite(stated('frameLength'))).toBe(true);
+        expect(Number.isFinite(stated('intensity'))).toBe(true);
+
         const ornament = index.byId.get('ornament::ornament_1440');
-        // `<temporalSpread frameLength="114" intensity="0.1767…">` on def_3962e07d…
-        expect(ornament?.values.frameLength).toBe(114);
-        expect(ornament?.values.intensity).toBeCloseTo(0.1767, 4);
+        expect(ornament?.values.frameLength).toBe(stated('frameLength'));
+        expect(ornament?.values.intensity).toBe(stated('intensity'));
 
         const scaled = index.byId.get('ornament::ornament_720');
         expect(scaled?.values.scale).toBe(3);
@@ -194,7 +202,7 @@ describe('pairing', () => {
 
     it('skips an instruction the student never answered for, silently', () => {
         const faster = alter(referenceText, 'tempo', ['bpm'], (v) => v + 10);
-        const without = faster.replace(/<tempo xml:id="tempo_12240"[^>]*(\/>|>[\s\S]*?<\/tempo>)/, '');
+        const without = faster.replace(/<tempo\b[^>]*\bxml:id="tempo_12240"[^>]*(\/>|>[\s\S]*?<\/tempo>)/, '');
         const dates = pairInstructions(reference, new Mpm(without), TAKE)
             .filter((p) => p.type === 'tempo')
             .map((p) => p.date);
@@ -293,13 +301,13 @@ describe('the options the comparison hands in', () => {
 describe('ornament styles', () => {
     it('answers what kind of figure a def describes, and nothing for a name it has never seen', () => {
         const styles = ornamentStylesOf(reference);
-        // def_3a8bdcaa… carries both a `<temporalSpread>` and a `<dynamicsGradient>`.
-        expect(styles('def_3a8bdcaa-62ae-44c6-b061-2dc897a49afa')).toEqual({
+        // def_global_ornament_720 carries both a `<temporalSpread>` and a `<dynamicsGradient>`.
+        expect(styles('def_global_ornament_720')).toEqual({
             temporalSpread: true,
             dynamicsGradient: true,
         });
-        // def_3962e07d… carries only the spread.
-        expect(styles('def_3962e07d-4bc3-4bfd-9db4-cc719293ad8a')).toEqual({
+        // def_global_ornament_1440 carries only the spread.
+        expect(styles('def_global_ornament_1440')).toEqual({
             temporalSpread: true,
             dynamicsGradient: false,
         });

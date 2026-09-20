@@ -1,7 +1,7 @@
 {
   "name": "virtual-gruenfeld",
   "version": "1.0.0",
-  "description": "AI web app for conversing with Alfred Grünfeld's historical piano rendition",
+  "description": "AI web app for conversing with Alfred Gr\u00fcnfeld's historical piano rendition",
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
@@ -15,7 +15,11 @@
     "type-check": "tsc --noEmit",
     "type-check:scripts": "tsc --noEmit -p client/tsconfig.scripts.json",
     "test": "cd client && vitest run",
-    "knip": "knip"
+    "knip": "knip",
+    "fetch:data": "tsx scripts/fetch-reconstruction.ts",
+    "pretest": "tsx scripts/fetch-reconstruction.ts",
+    "predev": "tsx scripts/fetch-reconstruction.ts",
+    "test:budgets": "BUDGETS=1 vitest run client/src/mpm/evidence.test.ts client/src/mpm/path.test.ts"
   },
   "keywords": [
     "music",
@@ -24,7 +28,7 @@
     "historical",
     "performance"
   ],
-  "author": "Virtual Grünfeld Project",
+  "author": "Virtual Gr\u00fcnfeld Project",
   "license": "MIT",
   "dependencies": {
     "@types/cors": "^2.8.17",
@@ -32,8 +36,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "espressivo": "file:../meico-ts",
-    "express": "^4.18.2",
-    "openai": "^6.7.0"
+    "express": "^4.18.2"
   },
   "devDependencies": {
     "@types/node": "^20.10.5",

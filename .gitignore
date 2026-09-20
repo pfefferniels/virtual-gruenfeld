@@ -43,3 +43,7 @@ test_output/
 # Client build
 client/build/
 client/dist/
+# The reconstruction: fetched from welte225.org, never committed (scripts/fetch-reconstruction.ts)
+client/public/score.mei
+client/public/performance.mpm
+client/public/score.msm

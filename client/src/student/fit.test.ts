@@ -256,15 +256,13 @@ describe('the document the fitter writes', () => {
         expect(result.studentMpmText).toContain('<articulationStyles>');
         expect(result.studentMpmText).toContain('<metricalAccentuationStyles>');
         expect(result.studentMpmText).toContain('name="performance_style"');
-        // the two maps the reference switches style in, and not the third
-        const map = (name: string) =>
-            result.studentMpmText.slice(
-                result.studentMpmText.indexOf(`<${name}>`),
-                result.studentMpmText.indexOf(`</${name}>`),
-            );
-        expect(map('ornamentationMap')).toContain('<style ');
-        expect(map('metricalAccentuationMap')).toContain('<style ');
-        expect(map('articulationMap')).not.toContain('<style ');
+        // the three maps the reference switches style in, each reproduced in its own map
+        const map = (text: string, name: string) =>
+            text.slice(text.indexOf(`<${name}>`), text.indexOf(`</${name}>`));
+        for (const name of ['ornamentationMap', 'metricalAccentuationMap', 'articulationMap']) {
+            expect(map(referenceText, name)).toContain('<style ');
+            expect(map(result.studentMpmText, name)).toContain('<style ');
+        }
     });
 
     it('reports the student’s own levels, for the counter-performance’s pivot', () => {
@@ -378,14 +376,21 @@ describe('the identity take (the procedure-bias fixture, risk R2)', () => {
     /**
      * DESIGN §5 test 2, the round trip: `fitStudent(render(perf))` against `perf`, as a
      * tolerance and never as equality. The design's target was 2 JND. The measured figure is
-     * ~9.4, of which tempo alone is ~6.6 — the same bias the table above states in raw units,
-     * seen through the metric.
+     * ~14.0, of which tempo is ~6.3 — the same bias the table above states in raw units, seen
+     * through the metric — and articulation ~4.1.
+     *
+     * Articulation's share is not a fitting error. Of the reference cut's 24 articulation
+     * atoms over this window, 4 belong to the closing instruction at 24 480, past the end of
+     * the take, whose notes the student never played and for which the fitter therefore writes
+     * nothing (`skipped: none of its notes were played`). Those four are charged in full,
+     * because espressivo prices an id-anchored atom whatever the window is.
      */
     it('round-trips to a committed distance, dominated by tempo', () => {
         const report = compare(result.studentMpmText, TAKE);
 
-        expect(report.aggregate.mean).toBeLessThan(11);
+        expect(report.aggregate.mean).toBeLessThan(16);
         expect(report.dimensions.tempo.mean).toBeLessThan(7.5);
+        expect(report.dimensions.articulation.mean).toBeLessThan(5);
         expect(report.dimensions.ornamentation.mean).toBeLessThan(2.5);
         // Below one JND — inaudible, which is what the comparison's own gate is for.
         expect(report.dimensions.dynamics.mean).toBeLessThan(1);

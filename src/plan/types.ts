@@ -64,12 +64,6 @@ export type LessonPlan = {
     edits: number | null;
 };
 
-/** What the model returns, before validation: shapes are unknown at this point. */
-export type RawLessonPlan = {
-    monologue: string;
-    demo: LessonPlan | null;
-};
-
 export const STRENGTH_MIN = 0.05;
 export const STRENGTH_MAX = 0.5;
 
@@ -77,8 +71,7 @@ export const STRENGTH_MAX = 0.5;
  * How many corrections `mode: 'path'` may put into one demonstration.
  *
  * One is the smallest statement there is; five is where "the things that matter most" stops being
- * a shortlist and becomes a rewrite of the take. The client clamps to the same band
- * (`client/src/lessonPlan.ts`), as it does with the strengths.
+ * a shortlist and becomes a rewrite of the take.
  */
 export const EDITS_MIN = 1;
 export const EDITS_MAX = 5;

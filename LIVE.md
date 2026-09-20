@@ -360,13 +360,30 @@ pays a TLS handshake and takes 2.1–2.4 s. The simulation cannot hold a socket 
 and so runs with a 4 s abandon timer, which is about the harness. The server must keep the
 connection alive, and then 900 ms is the right number.
 
-**What fine-tuning means on the day.** Everything in `POLICY` is a named constant with an
-environment override, so the knobs can be turned against a real player without editing code:
-`FIRE_ABOVE` / `RELEASE_BELOW` (how readily he comes in), `WINDOW_BARS`, `ABANDON_MS`. The rest —
-`refractoryMs`, `verdictTtlMs`, `persistenceWindows`, `settleTicks` — are one-line changes in the
-same block. The two that will most likely want moving against a real student are `fireAbove`,
-because a real player's unevenness is not Gaussian the way the synthetic one's is, and
-`refractoryMs`, because eight seconds was chosen to feel right rather than measured.
+**The simulator drives the shipped loop**, not a copy of it: `createTracker`, `createLiveLesson`,
+`createVerdictStore`, `decide` and `planFrom` are the same modules the browser and the server will
+use. Calibrating the policy and integration-testing the code are therefore one activity, and a
+scenario that misbehaves is a bug in what ships.
+
+Run live, it produces this, and the demonstration *mode* varies by case — he chooses between
+playing his reading straight, exaggerating it, and handing the student their own playing back with
+the fault mended:
+
+```
+identity, fine player, ordinary human, 15 % rush   silence
+rush 25 %        1 interruption   tempo      reference
+rush 40 %        1 interruption   tempo      path
+60 % louder      2 interruptions  dynamics   path, then reference
+same error ×4    1 interruption   tempo      path
+```
+
+**What fine-tuning means on the day.** The thresholds live in `LIVE_POLICY`
+(`client/src/pipeline/standingVerdict.ts`), each with the measurement it was set against written
+beside it. The simulator overrides them from the environment — `FIRE_ABOVE`, `RELEASE_BELOW`,
+`WINDOW_BARS` — so the knobs turn without editing code. The two most likely to want moving against
+a real student are `fireAbove`, because a real player's unevenness is not Gaussian the way the
+synthetic one's is, and `refractoryMs`, because eight seconds was chosen to feel right rather than
+measured.
 
 What the simulation cannot tell you: how it feels to be interrupted by a piano playing itself.
 
@@ -382,6 +399,14 @@ Four of these are five-minute checks and each could invalidate an assumption now
 5. Acoustic onset against scheduled time across the velocity range, with MIDI IN Delay on and off.
 6. **The lowest velocity that reliably sounds, per register, at the intended volume setting.**
 7. What happens to a commanded note whose key is already held.
+8. **Is MIDI OUT tapped before or after the 500 ms delay?** `disklavier/echo.ts` spans both
+   hypotheses with a window of `[sent − 60 ms, sent + 560 ms]`; knowing the answer halves it.
+9. **The retrigger gap.** `plan.ts` enforces 30 ms between a release and a restrike of the same
+   key, which is chosen rather than measured. It is not idle: over the whole reconstruction 33
+   strikes land on a key still down and 10 repeats leave under 30 ms.
+10. **Whether a key-by-key release is physically distinguishable** from a key the student is
+    holding. `stop()` releases only what the fragment struck, never All Notes Off, which is the
+    part software can control; whether the action agrees is another matter.
 
 Items 1 to 4 gate the build. Items 5 to 7 are **deferred by decision**: this instrument is well
 regulated and the quiet end is trusted for now.
@@ -475,10 +500,22 @@ concluded. The single instrument is this project's constraint, not Grünfeld's.
    assumption now in the pipeline.
 3. Fix `dateWindow`, and expand the second repeat in `score.mei`. Both are bugs in the app as it
    stands, independent of this rework.
-4. Move the matcher and the evidence chain into the worker; quantise the memo key.
-5. The structural position tracker, validated against the existing offline matcher on recorded
-   takes. This is the largest single piece.
-6. The Disklavier output path: Web MIDI scheduling and pedal filtering.
+4. Move the matcher and the evidence chain into the worker. The memo key is quantised to the bar
+   grid by `pipeline/liveLesson.ts`, which is what makes a sliding window hit it.
+5. ~~The structural position tracker~~ — built, `client/src/tracker.ts`. It drives the existing
+   matcher rather than replacing it: a window narrower than half the 23760-tick repeat offset
+   resolves A₁ from A₂, the pass through `B A'` is carried as state because the score does not
+   encode it, and a confidence collapse triggers a search of the whole piece. Tested against the
+   real score, including a student who breaks off and restarts elsewhere. One known limit, tested
+   as such: a cold start inside A₂ is indistinguishable from A₁ and guesses the first.
+6. ~~The Disklavier output path~~ — built, `client/src/disklavier/`. A port interface with a fake,
+   a plan that pairs strikes with releases and enforces the retrigger gap, a scheduler with the
+   500 ms lead that hands messages over in slices (Web MIDI has no `clear()`, so a fragment flushed
+   whole would be unstoppable), and an echo guard that recognises the app's own pedal coming back.
+   Stale strikes are dropped, stale releases sent at once, stale pedal coalesced to its last value.
+6b. ~~The loop~~ — built, `client/src/pipeline/liveLesson.ts`. Track, score, deliberate, commit,
+   with the clock, the scoring, the decision and the playing all injected. That is what lets the
+   same code run against a virtual clock in the simulator and against Web MIDI in the browser.
 7. ~~The Jev decision service~~ — built. `src/jev/`, `POST /decide`, and the commit rule in
    `client/src/pipeline/standingVerdict.ts`. Thresholds are calibrated against this pipeline's own
    evidence (§4a); they should be re-tuned against a real player, not a synthetic one.

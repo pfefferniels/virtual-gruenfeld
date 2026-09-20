@@ -13,6 +13,7 @@
  *   npx tsx scripts/simulate-lesson.ts                 every scenario
  *   npx tsx scripts/simulate-lesson.ts identity rush   named scenarios
  *   DRY_RUN=1 npx tsx scripts/simulate-lesson.ts       no Jev; the local gate alone
+ *   TRACE=1 …  what each window measured      TRACE=loop …  what the loop did with it
  */
 import { readFileSync } from 'fs';
 import { dirname, join } from 'path';
@@ -24,10 +25,15 @@ import { measuredNotesFromPerformanceData, withoutUnisons } from '../client/src/
 import { perform } from '../client/src/services/mpmRenderer';
 import { buildSmfFromMessages } from '../client/src/smf';
 import { read as readMidi } from 'midifile-ts';
-import { decide, type Verdict as JevVerdict } from '../src/jev';
+import { decide, planFrom, startHeartbeat, type Verdict as JevVerdict } from '../src/jev';
 import { deviationsFrom } from '../client/src/services/decide';
 import type { DecisionState } from '../src/jev/state';
-import { createVerdictStore, LIVE_POLICY } from '../client/src/pipeline/standingVerdict';
+import { LIVE_POLICY } from '../client/src/pipeline/standingVerdict';
+import { createLiveLesson, type LiveLesson } from '../client/src/pipeline/liveLesson';
+import { createTracker } from '../client/src/tracker';
+import { isLiveDimension } from '../src/jev';
+import type { LessonPlan } from '../src/plan';
+import type { StudentNote } from '../client/src/matcher';
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'public');
 const load = (name: string) => readFileSync(join(PUBLIC, name), 'utf8');
@@ -176,6 +182,14 @@ const dropNotes = (fraction: number): StreamEdit => (notes) =>
 const apiKey = process.env.TYPESAFE_API_KEY;
 const DRY_RUN = process.env.DRY_RUN === '1' || !apiKey;
 
+/**
+ * The server holds a warm socket and answers in 0.5–0.7 s, so it budgets 1200 ms. This harness
+ * cannot: it spends seconds of CPU between verdicts, the connection drops, and every call pays a
+ * TLS handshake at 2.1–2.4 s. The heartbeat below helps but cannot fire during a synchronous fit,
+ * so the budget is widened here. This number is about the harness, not the policy.
+ */
+process.env.JEV_ABANDON_MS ??= '4000';
+
 const seenFailures = new Set<string>();
 
 /**
@@ -213,7 +227,7 @@ type Interruption = {
     exaggeration: number;
     interrupt: number;
     demoTicks: number;
-    waitedMs: number;
+    mode: string;
 };
 
 type AttemptResult = {
@@ -226,7 +240,7 @@ type AttemptResult = {
     lastMs: number;
 };
 
-const midiFromPlayed = (notes: readonly PlayedNote[]) => {
+const midiFromPlayed = (notes: readonly { pitch: number; onsetMs: number; durationMs: number; velocity: number }[]) => {
     const messages = notes
         .flatMap((n) => [
             { tMs: n.onsetMs, data: new Uint8Array([0x90, n.pitch, n.velocity]) },
@@ -236,150 +250,80 @@ const midiFromPlayed = (notes: readonly PlayedNote[]) => {
     return readMidi(buildSmfFromMessages(messages, { ticksPerQuarter: 480, bpm: 120 }));
 };
 
+/** What the student has struck by `nowMs`, with any still-sounding note truncated to now. */
+const heardBy = (played: readonly PlayedNote[], nowMs: number): StudentNote[] =>
+    played
+        .filter((note) => note.onsetMs <= nowMs)
+        .map((note, index) => ({
+            id: `s${index}`,
+            pitch: note.pitch,
+            onset: note.onsetMs / 1000,
+            duration: Math.max(0.01, Math.min(note.durationMs, nowMs - note.onsetMs)) / 1000,
+            velocity: note.velocity,
+        }));
+
+/** The scoring side of the loop: the real fit and the real audibility gate, over one window. */
+const scoreWindow = (played: readonly StudentNote[], window: { from: number; to: number }) => {
+    try {
+        forgetReferenceFits();
+        const asMidi = midiFromPlayed(played.map((note) => ({
+            pitch: note.pitch,
+            onsetMs: note.onset * 1000,
+            durationMs: note.duration * 1000,
+            velocity: note.velocity,
+        })));
+        const evidence = evidenceForTake({
+            notes: implantLocal(scoreNotes, asMidi, (window.from + window.to) / 2).notes,
+            range: window,
+            scoreMsm,
+            scoreNotes,
+            referenceMpmText,
+        }) as { measuredTypes?: readonly string[]; structuredDiff?: readonly Record<string, unknown>[]; aggregateJnd?: number };
+
+        const measured = (evidence.measuredTypes ?? []).filter(isLiveDimension);
+        const diff = evidence.structuredDiff ?? [];
+        if (process.env.TRACE === '1') {
+            console.log(
+                `      [trace] window=${window.from}..${window.to} notes=${played.length}`
+                + ` types=[${(evidence.measuredTypes ?? []).join(',')}]`
+                + ` jnd=${evidence.aggregateJnd?.toFixed(2) ?? '—'} events=${diff.length}`,
+            );
+        }
+        return { measuredTypes: measured, structuredDiff: diff };
+    } catch {
+        return null;
+    }
+};
+
+/** One attempt, driven entirely through the shipped loop. */
+/** The virtual clock, read by `play()` so the transcript can say when he came in. */
+let lastNowMs = 0;
+let lastVerdict: (JevVerdict & { latencyMs: number }) | null = null;
+
 const runAttempt = async (
     played: readonly PlayedNote[],
-    store: ReturnType<typeof createVerdictStore<null>>,
-    scenario: Scenario,
+    lesson: LiveLesson,
+    result: AttemptResult,
 ): Promise<AttemptResult> => {
-    const result: AttemptResult = {
-        interruptions: [], verdicts: 0, abandoned: 0, latencies: [], tokens: 0,
-        notes: played.length, lastMs: played.length ? played[played.length - 1].onsetMs : 0,
-    };
     if (played.length === 0) return result;
-
-    let inFlight: Promise<void> | null = null;
-    let lastScoredBar = 0;
-    /** The last window scored, as the matcher's prior for where the student is now. */
-    let lastWindow: { from: number; to: number } | null = null;
+    lesson.newAttempt();
 
     const endMs = result.lastMs + LIVE_POLICY.silenceMs + 500;
-
     for (let now = POLICY.trackEveryMs; now <= endMs; now += POLICY.trackEveryMs) {
-        // A note is heard when it is struck, not when it is released. Waiting for note-off drops
-        // still-sounding notes out of the window, and the fit reads the gap as a deviation.
-        const heard = played
-            .filter((n) => n.onsetMs <= now)
-            .map((n) => ({ ...n, durationMs: Math.min(n.durationMs, Math.max(10, now - n.onsetMs)) }));
+        lastNowMs = now;
+        const heard = heardBy(played, now);
         if (heard.length < 4) continue;
-
-        // --- track: where is the student, on the real matcher -------------------
-        const prefix = midiFromPlayed(heard);
-        const hint = lastWindow ? (lastWindow.from + lastWindow.to) / 2 : undefined;
-        const { range } = implantLocal(scoreNotes, prefix, hint);
-        const bar = tickToBar(range.to);
-
-        // --- score: one verdict per completed bar -------------------------------
-        // The window ends a settling margin behind the playhead. A bar judged the moment its last
-        // onset arrives is judged on the notes that happen to have finished sounding: an identity
-        // take scored six notes of bar 5 and read itself 4.4 bpm slow, 17.27 JND, three events.
-        // Half a bar later the same window is silent.
-        const windowTicks = POLICY.windowBars * BAR;
-        const to = Math.min(scenario.range.to, Math.floor((range.to - POLICY.settleTicks) / BAR) * BAR);
-        const from = Math.max(scenario.range.from, to - windowTicks);
-
-        if (bar > lastScoredBar && to - from >= BAR && inFlight === null) {
-            lastScoredBar = bar;
-            lastWindow = { from, to };
-            // The verdict is formed only from notes that have finished sounding, so a truncated
-            // duration never reaches the fit.
-            const windowed = played.filter((n) => n.onsetMs + n.durationMs <= now);
-            const evidence = (() => {
-                try {
-                    forgetReferenceFits();
-                    return evidenceForTake({
-                        notes: implantLocal(scoreNotes, midiFromPlayed(windowed), (from + to) / 2).notes,
-                        range: { from, to },
-                        scoreMsm,
-                        scoreNotes,
-                        referenceMpmText,
-                    });
-                } catch {
-                    return null;
-                }
-            })();
-
-            const measured = ((evidence as { measuredTypes?: readonly string[] } | null)?.measuredTypes ?? [])
-                .filter((t) => (POLICY.liveDimensions as readonly string[]).includes(t));
-            const diff = (evidence as { structuredDiff?: readonly Record<string, unknown>[] } | null)?.structuredDiff ?? [];
-
-            if (process.env.TRACE === '1') {
-                const jnd = (evidence as { aggregateJnd?: number } | null)?.aggregateJnd;
-                console.log(
-                    `      [trace] t=${(now / 1000).toFixed(1)}s  matched=${range.from}..${range.to}`
-                    + `  window=${from}..${to}  notes=${windowed.length}`
-                    + `  types=[${((evidence as { measuredTypes?: readonly string[] } | null)?.measuredTypes ?? []).join(',')}]`
-                    + `  jnd=${jnd?.toFixed(2) ?? '—'}  events=${diff.length}`,
-                );
-                diff.slice(0, 3).forEach((e) => console.log(`              ${JSON.stringify(e)}`));
-            }
-
-            const persistent = store.observe(measured);
-
-            if (persistent.length > 0) {
-                const requestedAt = now;
-                const state: DecisionState = {
-                    position: `bar ${bar}`,
-                    barsMeasured: `${tickToBar(from)}\u2013${tickToBar(to)}`,
-                    handsOffKeys: now - Math.max(...heard.map((n) => n.onsetMs)) >= LIVE_POLICY.silenceMs,
-                    alreadyCorrectedThisLesson: store.corrections(),
-                    deviations: deviationsFrom(diff),
-                };
-
-                if (DRY_RUN) {
-                    // Stands in for Jev so the commit path can be exercised without the network:
-                    // the local gate opened, so assume he would come in.
-                    store.record({
-                        verdict: { interrupt: 0.8, dimension: persistent[0], severity: 3, exaggeration: 1.5 },
-                        plan: null, range: { from, to }, landedAtMs: requestedAt + 370,
-                    });
-                    result.verdicts += 1;
-                } else {
-                    inFlight = askJev(state).then((verdict) => {
-                        inFlight = null;
-                        if (!verdict) { result.abandoned += 1; return; }
-                        result.verdicts += 1;
-                        result.latencies.push(verdict.latencyMs);
-                        result.tokens += verdict.inputTokens;
-                        // The verdict lands where its real latency puts it on the virtual clock.
-                        store.record({
-                            verdict,
-                            plan: null,
-                            range: { from, to },
-                            landedAtMs: requestedAt + verdict.latencyMs,
-                        });
-                        if (process.env.TRACE === '1') {
-                            console.log(
-                                `      [jev] interrupt=${verdict.interrupt.toFixed(2)} dim=${verdict.dimension}`
-                                + ` sev=${verdict.severity.toFixed(2)} exag=${verdict.exaggeration.toFixed(2)}`
-                                + ` mode=${verdict.mode} (${verdict.latencyMs.toFixed(0)}ms, ${verdict.inputTokens} tok)`,
-                            );
-                        }
-                    });
-                    await inFlight;
-                }
-            }
+        const outcome = await lesson.heard(heard, now);
+        if (process.env.TRACE === 'loop') {
+            const since = now - Math.max(...heard.map((n) => n.onset * 1000));
+            console.log(`      [loop] t=${(now/1000).toFixed(1)}s pos=${outcome.position?.tick ?? 'null'}`
+                + ` conf=${outcome.position?.confidence.toFixed(2) ?? '—'} asked=${outcome.asked}`
+                + ` sinceNote=${since.toFixed(0)}ms played=${outcome.played ? 'YES' : 'no'}`);
         }
-
-        // --- commit: the shipped local rule, no network on this path ------------
-        const sinceLastNote = now - Math.max(...heard.map((n) => n.onsetMs));
-        const due = store.due(now, sinceLastNote);
-        if (!due) continue;
-
-        const demoFrom = Math.max(scenario.range.from, due.range.to - BAR);
-        result.interruptions.push({
-            atMs: now,
-            bar: tickToBar(demoFrom),
-            dimension: due.verdict.dimension,
-            severity: due.verdict.severity,
-            exaggeration: due.verdict.exaggeration,
-            interrupt: due.verdict.interrupt,
-            demoTicks: due.range.to - demoFrom,
-            waitedMs: now - due.landedAtMs,
-        });
-        store.committed(due, now, tickToBar(demoFrom));
     }
     return result;
 };
+
 
 // ---------------------------------------------------------------------------
 //  Scenarios
@@ -514,15 +458,78 @@ const runScenario = async (scenario: Scenario) => {
     console.log(`\n${scenario.name}  —  ${scenario.what}`);
     console.log(`   expected: ${scenario.expect}`);
 
-    // One store for the whole lesson: what he corrected on the first attempt is still remembered
-    // on the fourth, which is what makes him stop making the same point.
-    const store = createVerdictStore<null>();
     const all: AttemptResult[] = [];
+    let current: AttemptResult | null = null;
+
+    // One lesson across every attempt: what he corrected on the first is still remembered on the
+    // fourth, which is what makes him stop making the same point.
+    const lesson = createLiveLesson<LessonPlan>({
+        tracker: createTracker(scoreNotes),
+        score: scoreWindow,
+        deliberate: async (request) => {
+            if (DRY_RUN) {
+                // Stands in for Jev so the commit path runs without the network.
+                current!.verdicts += 1;
+                const verdict = {
+                    interrupt: 0.8, dimension: request.measuredTypes[0], severity: 3, exaggeration: 1.5,
+                    mode: 'exaggerated', confidence: { dimension: 1, severity: 1 }, latencyMs: 370, inputTokens: 0,
+                };
+                lastVerdict = verdict;
+                return {
+                    verdict,
+                    plan: planFrom(verdict, { range: request.window, measuredTypes: request.measuredTypes }).plan,
+                };
+            }
+            const verdict = await askJev({
+                position: `bar ${tickToBar(request.window.to)}`,
+                barsMeasured: `${tickToBar(request.window.from)}–${tickToBar(request.window.to)}`,
+                handsOffKeys: request.handsOffKeys,
+                alreadyCorrectedThisLesson: request.alreadyCorrectedThisLesson,
+                deviations: deviationsFrom(request.structuredDiff),
+            });
+            if (!verdict) {
+                current!.abandoned += 1;
+                return { verdict: null, plan: null };
+            }
+            current!.verdicts += 1;
+            current!.latencies.push(verdict.latencyMs);
+            current!.tokens += verdict.inputTokens;
+            if (process.env.TRACE === '1') {
+                console.log(
+                    `      [jev] interrupt=${verdict.interrupt.toFixed(2)} dim=${verdict.dimension}`
+                    + ` sev=${verdict.severity.toFixed(2)} exag=${verdict.exaggeration.toFixed(2)}`
+                    + ` mode=${verdict.mode} (${verdict.latencyMs.toFixed(0)}ms, ${verdict.inputTokens} tok)`,
+                );
+            }
+            lastVerdict = verdict;
+            // The real mapping, clamping and all: the simulator exercises what the route runs.
+            return {
+                verdict,
+                plan: planFrom(verdict, { range: request.window, measuredTypes: request.measuredTypes }).plan,
+            };
+        },
+        play: (plan, fragment) => {
+            current!.interruptions.push({
+                atMs: lastNowMs,
+                bar: tickToBar(fragment.from),
+                dimension: lastVerdict?.dimension ?? 'tempo',
+                severity: lastVerdict?.severity ?? 0,
+                exaggeration: lastVerdict?.exaggeration ?? 0,
+                interrupt: lastVerdict?.interrupt ?? 0.8,
+                demoTicks: fragment.to - fragment.from,
+                mode: plan.mode,
+            });
+        },
+    });
 
     for (const [index, attempt] of scenario.attempts.entries()) {
         const rendered = playedNotesOf(mei, attempt.mutate(referenceMpmText), scenario.range, scenario.humanize);
         const played = attempt.edit ? attempt.edit(rendered) : rendered;
-        const result = await runAttempt(played, store, scenario);
+        current = {
+            interruptions: [], verdicts: 0, abandoned: 0, latencies: [], tokens: 0,
+            notes: played.length, lastMs: played.length ? played[played.length - 1].onsetMs : 0,
+        };
+        const result = await runAttempt(played, lesson, current);
         all.push(result);
 
         const label = scenario.attempts.length > 1 ? `   attempt ${index + 1}` : '   ';
@@ -534,7 +541,7 @@ const runScenario = async (scenario: Scenario) => {
                 console.log(
                     `                    ${ms(i.atMs).padStart(6)}  bar ${String(i.bar).padStart(2)}  ${i.dimension.padEnd(9)}`
                     + ` p=${i.interrupt.toFixed(2)}  sev=${i.severity.toFixed(1)}  exag=${i.exaggeration.toFixed(1)}`
-                    + `  plays ${(i.demoTicks / BAR).toFixed(1)} bar  (waited ${i.waitedMs.toFixed(0)}ms)`,
+                    + `  ${i.mode} ${(i.demoTicks / BAR).toFixed(1)} bar`,
                 ));
         }
     }
@@ -567,6 +574,8 @@ const main = async () => {
         + `policy: window ${POLICY.windowBars} bars, fire>${LIVE_POLICY.fireAbove} release<${LIVE_POLICY.releaseBelow}, `
         + `refractory ${LIVE_POLICY.refractoryMs / 1000}s, ttl ${LIVE_POLICY.ttlMs / 1000}s, dims ${POLICY.liveDimensions.join('+')}`,
     );
+
+    if (!DRY_RUN) startHeartbeat();
 
     const results = [];
     for (const scenario of chosen) results.push(await runScenario(scenario));

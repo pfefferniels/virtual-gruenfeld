@@ -620,8 +620,8 @@ type MatcherOptions = {
  * The ceiling is structural: two passes of a repeat carry identical pitches, and
  * `smithWaterman` breaks a tie toward the earlier reference index. A window that reaches
  * both passes therefore always resolves to the first, whatever the hint says. It must stay
- * under half the distance between corresponding points in the two passes — 23040 ticks in
- * Träumerei's written-out repeat of A, so under 11520.
+ * under half the distance between corresponding points in the two passes — 23760 ticks in
+ * Träumerei's written-out repeat of A, so under 11880.
  *
  * The floor is the take: a window narrower than half the passage clips the match.
  */

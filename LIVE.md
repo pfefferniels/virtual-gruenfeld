@@ -208,8 +208,14 @@ seconds late points at the wrong bar, which is worse than silence because the st
 what it answers. It is a **standing verdict**, recomputed continuously so the answer is already in
 hand when a boundary arrives.
 
+**Where it lives.** `src/jev/` holds the questions, the state shape, the call and the mapping onto
+a lesson plan; `POST /decide` wraps it so the key stays server-side; `client/src/services/decide.ts`
+is the caller and `client/src/pipeline/standingVerdict.ts` is the local rule that decides whether
+the verdict in hand may be acted on. The simulator drives the same modules rather than a copy of
+them, so calibrating the policy and testing the shipped code are one activity.
+
 **It replaces the planner, not the voice.** `src/plan/schema.ts` already defines this exact
-decision, built for the agentic lesson plan and currently gated behind `VITE_TEACHER_AGENTIC`:
+decision, built for the agentic lesson plan and previously gated behind `VITE_TEACHER_AGENTIC`:
 
 ```
 demo.mode        exaggerated | path | reference | none
@@ -473,6 +479,8 @@ concluded. The single instrument is this project's constraint, not Grünfeld's.
 5. The structural position tracker, validated against the existing offline matcher on recorded
    takes. This is the largest single piece.
 6. The Disklavier output path: Web MIDI scheduling and pedal filtering.
-7. The Jev decision service, with its thresholds calibrated against recorded takes rather than
-   taken from the model's raw probabilities.
-8. The commit rule and the handover signal.
+7. ~~The Jev decision service~~ — built. `src/jev/`, `POST /decide`, and the commit rule in
+   `client/src/pipeline/standingVerdict.ts`. Thresholds are calibrated against this pipeline's own
+   evidence (§4a); they should be re-tuned against a real player, not a synthetic one.
+8. The handover signal, and wiring the loop into the UI. Nothing calls `requestDecision` yet,
+   because there is no live loop for it to serve.

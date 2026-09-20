@@ -24,6 +24,10 @@ import { measuredNotesFromPerformanceData, withoutUnisons } from '../client/src/
 import { perform } from '../client/src/services/mpmRenderer';
 import { buildSmfFromMessages } from '../client/src/smf';
 import { read as readMidi } from 'midifile-ts';
+import { decide, type Verdict as JevVerdict } from '../src/jev';
+import { deviationsFrom } from '../client/src/services/decide';
+import type { DecisionState } from '../src/jev/state';
+import { createVerdictStore, LIVE_POLICY } from '../client/src/pipeline/standingVerdict';
 
 const PUBLIC = join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'public');
 const load = (name: string) => readFileSync(join(PUBLIC, name), 'utf8');
@@ -35,47 +39,25 @@ const BAR = 4 * PPQ;
 //  The policy under test
 // ---------------------------------------------------------------------------
 
+/**
+ * What belongs to the harness. Everything about *whether and when* Grünfeld comes in lives in
+ * `client/src/pipeline/standingVerdict.ts` and is exercised here rather than reimplemented.
+ */
 const POLICY = {
     /** Re-run the tracker this often, in virtual milliseconds. */
     trackEveryMs: 250,
     /** Trailing window the verdict is formed over. Two bars clears every floor in LIVE.md §1. */
     windowBars: Number(process.env.WINDOW_BARS ?? 2),
-    /** How far behind the playhead the window ends, so the bars in it have finished sounding. */
-    settleTicks: BAR / 2,
-    /** Hands off the keys for this long is a place he may come in. */
-    silenceMs: 1200,
     /**
-     * Schmitt trigger. Calibrated against real evidence, not against the model's raw scale:
-     * measured over this pipeline, human unevenness and a 15 % rush both top out at 0.51, while
-     * a 25 % rush, a 30 % drag and a 60 % dynamics departure all clear 0.52. The dead band is
-     * wider than the ±0.05 jitter Jev shows on identical input.
-     */
-    fireAbove: Number(process.env.FIRE_ABOVE ?? 0.52),
-    releaseBelow: Number(process.env.RELEASE_BELOW ?? 0.45),
-    /** He does not come in again inside this, however wrong the playing. */
-    refractoryMs: 8000,
-    /** A verdict older than this is stale — the student has moved on. */
-    verdictTtlMs: 6000,
-    /** Abandon a Jev call that has not answered. p99 measured at 883 ms. */
-    /**
-     * Abandon a call that has not answered.
+     * How far behind the playhead the window ends.
      *
-     * Production wants 900 ms, which covers the p99 of a warm connection. This simulation cannot
-     * hold one — it spends seconds of CPU between verdicts, so undici drops the socket and every
-     * call pays a TLS handshake: measured 2.1–2.4 s cold against 0.5–0.7 s warm. The server must
-     * keep the connection alive; until then this number is about the harness, not the policy.
+     * A bar judged the moment its last onset arrives is judged on whichever notes happen to have
+     * finished sounding: an identity take scored six notes of bar 5 and read itself 4.4 bpm slow,
+     * 17.27 JND, three events. Half a bar later the same window is silent.
      */
-    abandonMs: Number(process.env.ABANDON_MS ?? 4000),
+    settleTicks: BAR / 2,
     /** Only these are identifiable in a short window (LIVE.md §1). */
     liveDimensions: ['tempo', 'dynamics'] as const,
-    /**
-     * Consecutive windows a dimension must survive before it may be acted on.
-     *
-     * Human unevenness and a reading are close in magnitude — measured, 13.05 JND for ordinary
-     * jitter against 23.87 for a deliberate 15 % rush — but they differ in kind: noise moves
-     * about, a reading persists. One window cannot tell them apart and two can.
-     */
-    persistenceWindows: 2,
 };
 
 // ---------------------------------------------------------------------------
@@ -191,98 +173,23 @@ const dropNotes = (fraction: number): StreamEdit => (notes) =>
 //  Jev
 // ---------------------------------------------------------------------------
 
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const MODEL = 'jev-1.13.0';
 const apiKey = process.env.TYPESAFE_API_KEY;
 const DRY_RUN = process.env.DRY_RUN === '1' || !apiKey;
 
-type Verdict = {
-    interrupt: number;
-    dimension: string;
-    severity: number;
-    exaggeration: number;
-    latencyMs: number;
-    inputTokens: number;
-};
-
-const QUESTIONS = {
-    interrupt: {
-        type: 'noul',
-        instructions:
-            'Should Grünfeld break in now, take the keyboard, and play this passage himself? He teaches by playing, '
-            + 'comes in often and early, and plays fragments rather than whole passages. He does not make the same point twice.',
-        criteria: {
-            true: 'Something departs audibly from his reading and is better heard than described.',
-            false: 'The playing is within his idea, the departure is inaudible, or he has just made this point.',
-        },
-    },
-    dimension: {
-        type: 'choice',
-        instructions: 'What is the demonstration about?',
-        criteria: {
-            tempo: 'The pace of the passage.',
-            dynamics: 'Weight, and the balance between melody and inner voices.',
-            none: 'Nothing here is worth demonstrating.',
-        },
-    },
-    severity: {
-        type: 'score',
-        instructions: 'How far is this playing from Grünfeld’s idea of the passage?',
-        criteria: [
-            'Indistinguishable from his own reading.',
-            'Within what he would let pass without comment.',
-            'Audibly different, worth a remark but not a demonstration.',
-            'Clearly against his reading; he would stop and play it.',
-            'Contrary to the whole sense of the passage.',
-        ],
-    },
-    exaggeration: {
-        type: 'score',
-        instructions: 'How far should he push the demonstration away from the student, so the contrast is heard without caricature?',
-        criteria: [
-            'Play it straight, no exaggeration.',
-            'Slightly beyond his own reading.',
-            'Clearly beyond it, so the difference cannot be missed.',
-            'As far as taste allows.',
-        ],
-    },
-};
-
 const seenFailures = new Set<string>();
 
-const askJev = async (state: unknown): Promise<Verdict | null> => {
-    const started = performance.now();
-    const controller = new AbortController();
-    const abandon = setTimeout(() => controller.abort(), POLICY.abandonMs);
-    try {
-        const response = await fetch(ENDPOINT, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state, model: MODEL, questions: QUESTIONS }),
-            signal: controller.signal,
-        });
-        const body = await response.json();
-        if (!response.ok) throw new Error(`HTTP ${response.status} ${JSON.stringify(body).slice(0, 300)}`);
-        return {
-            interrupt: body.answers.interrupt.noul,
-            dimension: body.answers.dimension.choice,
-            severity: body.answers.severity.score,
-            exaggeration: body.answers.exaggeration.score,
-            latencyMs: performance.now() - started,
-            inputTokens: body.usage?.input_tokens ?? 0,
-        };
-    } catch (error) {
-        // Abandoned, or refused. The lesson goes on without a verdict either way, but the two
-        // must be distinguishable or a broken request reads as a slow one.
-        const why = error instanceof Error && error.name === 'AbortError'
-            ? `abandoned after ${POLICY.abandonMs}ms`
-            : `refused: ${error instanceof Error ? error.message : String(error)}`;
-        if (process.env.TRACE === '1' || !seenFailures.has(why)) console.log(`      [jev] ${why}`);
-        seenFailures.add(why);
-        return null;
-    } finally {
-        clearTimeout(abandon);
-    }
+/**
+ * The shipped call, so this exercises what runs rather than a copy of it. The questions, the
+ * state shape, the abandon timer and the mapping onto a lesson plan all live in `src/jev/`.
+ */
+const askJev = async (state: DecisionState): Promise<(JevVerdict & { latencyMs: number }) | null> => {
+    const outcome = await decide(state);
+    if (outcome.ok) return outcome.verdict;
+
+    const why = `${outcome.reason}: ${outcome.detail}`;
+    if (process.env.TRACE === '1' || !seenFailures.has(why)) console.log(`      [jev] ${why}`);
+    seenFailures.add(why);
+    return null;
 };
 
 // ---------------------------------------------------------------------------
@@ -331,7 +238,7 @@ const midiFromPlayed = (notes: readonly PlayedNote[]) => {
 
 const runAttempt = async (
     played: readonly PlayedNote[],
-    corrected: { bar: number; dimension: string; times: number }[],
+    store: ReturnType<typeof createVerdictStore<null>>,
     scenario: Scenario,
 ): Promise<AttemptResult> => {
     const result: AttemptResult = {
@@ -340,16 +247,12 @@ const runAttempt = async (
     };
     if (played.length === 0) return result;
 
-    /** The standing verdict: what Jev last said, and when it landed. */
-    let standing: (Verdict & { landedAtMs: number; bar: number; ticks: { from: number; to: number } }) | null = null;
     let inFlight: Promise<void> | null = null;
-    let armed = false; // Schmitt trigger state
-    let lastInterruptionMs = -Infinity;
     let lastScoredBar = 0;
-    /** Consecutive windows each dimension has been measured in. */
-    const streak = new Map<string, number>();
+    /** The last window scored, as the matcher's prior for where the student is now. */
+    let lastWindow: { from: number; to: number } | null = null;
 
-    const endMs = result.lastMs + POLICY.silenceMs + 500;
+    const endMs = result.lastMs + LIVE_POLICY.silenceMs + 500;
 
     for (let now = POLICY.trackEveryMs; now <= endMs; now += POLICY.trackEveryMs) {
         // A note is heard when it is struck, not when it is released. Waiting for note-off drops
@@ -361,7 +264,7 @@ const runAttempt = async (
 
         // --- track: where is the student, on the real matcher -------------------
         const prefix = midiFromPlayed(heard);
-        const hint = standing ? (standing.ticks.from + standing.ticks.to) / 2 : undefined;
+        const hint = lastWindow ? (lastWindow.from + lastWindow.to) / 2 : undefined;
         const { range } = implantLocal(scoreNotes, prefix, hint);
         const bar = tickToBar(range.to);
 
@@ -376,6 +279,7 @@ const runAttempt = async (
 
         if (bar > lastScoredBar && to - from >= BAR && inFlight === null) {
             lastScoredBar = bar;
+            lastWindow = { from, to };
             // The verdict is formed only from notes that have finished sounding, so a truncated
             // duration never reaches the fit.
             const windowed = played.filter((n) => n.onsetMs + n.durationMs <= now);
@@ -409,47 +313,25 @@ const runAttempt = async (
                 diff.slice(0, 3).forEach((e) => console.log(`              ${JSON.stringify(e)}`));
             }
 
-            measured.forEach((type) => streak.set(type, (streak.get(type) ?? 0) + 1));
-            [...streak.keys()]
-                .filter((type) => !measured.includes(type))
-                .forEach((type) => streak.delete(type));
-            const persistent = measured.filter((type) => (streak.get(type) ?? 0) >= POLICY.persistenceWindows);
+            const persistent = store.observe(measured);
 
             if (persistent.length > 0) {
                 const requestedAt = now;
-                const state = {
-                    piece: 'Robert Schumann, Träumerei op. 15 nr. 7',
-                    reading:
-                        'Alfred Grünfeld, Welte-Mignon roll 1905. Unhurried, long phrases, the inner voices under the melody. '
-                        + 'He does not push the tempo and releases tension only at the cadence.',
+                const state: DecisionState = {
                     position: `bar ${bar}`,
-                    bars_measured: `${tickToBar(from)}–${tickToBar(to)}`,
-                    persisting_dimensions: persistent,
-                    hands_off_keys: false,
-                    already_corrected_this_lesson: corrected,
-                    deviations: diff
-                        .filter((event) => (POLICY.liveDimensions as readonly string[]).includes(String(event.type)))
-                        .slice(0, 8)
-                        .map((event) => ({
-                            at: event.position,
-                            dimension: event.type,
-                            attribute: event.primaryAttr,
-                            severity: event.severity,
-                            direction: event.direction,
-                            cue: event.cueText,
-                            gruenfeld: event.refValue,
-                            student: event.studentValue,
-                        })),
+                    barsMeasured: `${tickToBar(from)}\u2013${tickToBar(to)}`,
+                    handsOffKeys: now - Math.max(...heard.map((n) => n.onsetMs)) >= LIVE_POLICY.silenceMs,
+                    alreadyCorrectedThisLesson: store.corrections(),
+                    deviations: deviationsFrom(diff),
                 };
 
                 if (DRY_RUN) {
                     // Stands in for Jev so the commit path can be exercised without the network:
                     // the local gate opened, so assume he would come in.
-                    standing = {
-                        interrupt: 0.8, dimension: measured[0], severity: 3, exaggeration: 1.5,
-                        latencyMs: 370, inputTokens: 0,
-                        landedAtMs: requestedAt + 370, bar, ticks: { from, to },
-                    };
+                    store.record({
+                        verdict: { interrupt: 0.8, dimension: persistent[0], severity: 3, exaggeration: 1.5 },
+                        plan: null, range: { from, to }, landedAtMs: requestedAt + 370,
+                    });
                     result.verdicts += 1;
                 } else {
                     inFlight = askJev(state).then((verdict) => {
@@ -459,12 +341,17 @@ const runAttempt = async (
                         result.latencies.push(verdict.latencyMs);
                         result.tokens += verdict.inputTokens;
                         // The verdict lands where its real latency puts it on the virtual clock.
-                        standing = { ...verdict, landedAtMs: requestedAt + verdict.latencyMs, bar, ticks: { from, to } };
+                        store.record({
+                            verdict,
+                            plan: null,
+                            range: { from, to },
+                            landedAtMs: requestedAt + verdict.latencyMs,
+                        });
                         if (process.env.TRACE === '1') {
                             console.log(
                                 `      [jev] interrupt=${verdict.interrupt.toFixed(2)} dim=${verdict.dimension}`
                                 + ` sev=${verdict.severity.toFixed(2)} exag=${verdict.exaggeration.toFixed(2)}`
-                                + ` (${verdict.latencyMs.toFixed(0)}ms, ${verdict.inputTokens} tok)`,
+                                + ` mode=${verdict.mode} (${verdict.latencyMs.toFixed(0)}ms, ${verdict.inputTokens} tok)`,
                             );
                         }
                     });
@@ -473,39 +360,23 @@ const runAttempt = async (
             }
         }
 
-        // --- commit: the local rule, no network on this path --------------------
-        const fresh = standing !== null
-            && standing.landedAtMs <= now
-            && now - standing.landedAtMs <= POLICY.verdictTtlMs;
-        if (!fresh) continue;
-
-        armed = armed ? standing!.interrupt > POLICY.releaseBelow : standing!.interrupt > POLICY.fireAbove;
-        if (!armed) continue;
-        if (now - lastInterruptionMs < POLICY.refractoryMs) continue;
-        if (standing!.dimension === 'none') continue;
-
+        // --- commit: the shipped local rule, no network on this path ------------
         const sinceLastNote = now - Math.max(...heard.map((n) => n.onsetMs));
-        const handsOff = sinceLastNote >= POLICY.silenceMs;
-        const atNoteBoundary = played.some((n) => Math.abs(n.onsetMs - now) < POLICY.trackEveryMs);
-        if (!handsOff && !atNoteBoundary) continue;
+        const due = store.due(now, sinceLastNote);
+        if (!due) continue;
 
-        // He plays a fragment: the bar that carries the point.
-        const demoFrom = Math.max(scenario.range.from, standing!.ticks.to - BAR);
-        const demoTo = standing!.ticks.to;
+        const demoFrom = Math.max(scenario.range.from, due.range.to - BAR);
         result.interruptions.push({
             atMs: now,
             bar: tickToBar(demoFrom),
-            dimension: standing!.dimension,
-            severity: standing!.severity,
-            exaggeration: standing!.exaggeration,
-            interrupt: standing!.interrupt,
-            demoTicks: demoTo - demoFrom,
-            waitedMs: now - standing!.landedAtMs,
+            dimension: due.verdict.dimension,
+            severity: due.verdict.severity,
+            exaggeration: due.verdict.exaggeration,
+            interrupt: due.verdict.interrupt,
+            demoTicks: due.range.to - demoFrom,
+            waitedMs: now - due.landedAtMs,
         });
-        corrected.push({ bar: tickToBar(demoFrom), dimension: standing!.dimension, times: 1 });
-        lastInterruptionMs = now;
-        armed = false;
-        standing = null;
+        store.committed(due, now, tickToBar(demoFrom));
     }
     return result;
 };
@@ -643,13 +514,15 @@ const runScenario = async (scenario: Scenario) => {
     console.log(`\n${scenario.name}  —  ${scenario.what}`);
     console.log(`   expected: ${scenario.expect}`);
 
-    const corrected: { bar: number; dimension: string; times: number }[] = [];
+    // One store for the whole lesson: what he corrected on the first attempt is still remembered
+    // on the fourth, which is what makes him stop making the same point.
+    const store = createVerdictStore<null>();
     const all: AttemptResult[] = [];
 
     for (const [index, attempt] of scenario.attempts.entries()) {
         const rendered = playedNotesOf(mei, attempt.mutate(referenceMpmText), scenario.range, scenario.humanize);
         const played = attempt.edit ? attempt.edit(rendered) : rendered;
-        const result = await runAttempt(played, corrected, scenario);
+        const result = await runAttempt(played, store, scenario);
         all.push(result);
 
         const label = scenario.attempts.length > 1 ? `   attempt ${index + 1}` : '   ';
@@ -690,9 +563,9 @@ const main = async () => {
         process.exit(1);
     }
     console.log(
-        `Simulated lesson — ${DRY_RUN ? 'DRY RUN, local gate only' : `live ${MODEL}`}, virtual clock, real matcher and fit\n`
-        + `policy: window ${POLICY.windowBars} bars, fire>${POLICY.fireAbove} release<${POLICY.releaseBelow}, `
-        + `refractory ${POLICY.refractoryMs / 1000}s, ttl ${POLICY.verdictTtlMs / 1000}s, dims ${POLICY.liveDimensions.join('+')}`,
+        `Simulated lesson — ${DRY_RUN ? 'DRY RUN, local gate only' : `live ${process.env.JEV_MODEL ?? 'jev-1.13.0'}`}, virtual clock, real matcher and fit\n`
+        + `policy: window ${POLICY.windowBars} bars, fire>${LIVE_POLICY.fireAbove} release<${LIVE_POLICY.releaseBelow}, `
+        + `refractory ${LIVE_POLICY.refractoryMs / 1000}s, ttl ${LIVE_POLICY.ttlMs / 1000}s, dims ${POLICY.liveDimensions.join('+')}`,
     );
 
     const results = [];

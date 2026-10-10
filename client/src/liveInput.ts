@@ -22,6 +22,8 @@ type LiveInputOptions = {
     readonly accepts?: (data: Uint8Array, atMs: number) => boolean;
     /** Called after every accepted message, with the buffer as it now stands. */
     readonly onHeard: (played: readonly StudentNote[], atMs: number) => void;
+    /** Called for every accepted strike before it is recorded, so a {@link LiveInput.clear} here keeps it. */
+    readonly onStruck?: (atMs: number) => void;
 };
 
 export type LiveInput = {
@@ -63,6 +65,7 @@ export const createLiveInput = (options: LiveInputOptions): LiveInput => {
             if (options.accepts && !options.accepts(data, atMs)) return;
 
             if (isNoteOn(data)) {
+                options.onStruck?.(atMs);
                 // A key struck again without a note-off in between: the first sounding ends here.
                 const stillHeld = held.get(data[1]);
                 if (stillHeld && stillHeld.releasedAtMs === null) stillHeld.releasedAtMs = atMs;

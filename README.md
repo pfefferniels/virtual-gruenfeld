@@ -29,6 +29,21 @@ The whole loop runs in the browser, on [espressivo](https://github.com/pfefferni
 alone: the MEI→MSM conversion, the fit, the comparison, the counter-performance and the MIDI
 rendering. Only the LLM + TTS call leaves it (Node server).
 
+## When nobody is playing
+
+Grünfeld practises. After **Start** he works through *Träumerei* on his own, on the Disklavier
+when one is connected and on the sampler when not: a planned session of about sixty passes, top
+to bottom, going back over the spots where his roll is most extreme, and checking the harmony on
+the reduction (`client/public/harmonic_reduction.mei`) sped up 1.8–5×. He never plays the same
+bars the same way twice, nor ever plainly as on the roll: every pass drives two to four
+dimensions of the roll's own expression to extremes with `exaggerateMpm`, the reduction
+included, arpeggios and all.
+
+The first note you strike stops him mid-phrase, and he becomes the teacher described below.
+After 20 s in which neither you nor he has played, he goes back to his practice, starting the
+interrupted pass again. `client/src/practice/`: `planner.ts` plans a session, `render.ts` turns a
+pass into MIDI, `session.ts` plays it, `room.ts` decides who is at the piano.
+
 ## What the teacher knows
 
 The teacher is not given a summary of your playing to react to. It is given the evidence.

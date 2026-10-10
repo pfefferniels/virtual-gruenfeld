@@ -101,3 +101,24 @@ describe('the buffer', () => {
         expect(input.played(4000)).toHaveLength(0);
     });
 });
+
+describe('a strike announced before it is recorded', () => {
+    it('lets the listener clear what came before and still keeps the strike', () => {
+        const input = createLiveInput({ onHeard: () => undefined, onStruck: () => input.clear() });
+        input.receive(noteOn(60), 1000);
+        input.receive(noteOn(62), 2000);
+        const played = input.played(2500);
+        expect(played).toHaveLength(1);
+        expect(played[0].pitch).toBe(62);
+    });
+
+    it('is not called for releases or the pedal', () => {
+        const onStruck = vi.fn();
+        const input = createLiveInput({ onHeard: () => undefined, onStruck });
+        input.receive(noteOn(60), 1000);
+        input.receive(noteOff(60), 1100);
+        input.receive(sustain(127), 1200);
+        expect(onStruck).toHaveBeenCalledTimes(1);
+        expect(onStruck).toHaveBeenCalledWith(1000);
+    });
+});

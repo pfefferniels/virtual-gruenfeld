@@ -78,6 +78,7 @@ export const Dialog = () => {
         started, start,
         position, lines, clearLines,
         teacherPlaying,
+        mode, practice,
     } = useLiveLesson(midi.selectedInputId, midi.selectedOutputId, { play, stop });
 
     const hasInput = midi.inputs.length > 0;
@@ -189,6 +190,37 @@ export const Dialog = () => {
                             </div>
                         )}
                     </div>
+
+                    {started && (
+                        <div className="sketch-box" style={{ padding: 14, background: '#fff', display: 'grid', gap: 6, maxWidth: 520 }}>
+                            <strong style={{ fontSize: 13 }}>
+                                {mode === 'teaching' ? 'Grünfeld is listening' : 'Grünfeld is practising'}
+                            </strong>
+                            {mode === 'teaching' && (
+                                <span style={{ fontSize: 12, opacity: 0.6, lineHeight: 1.4 }}>
+                                    He answers by playing. When you stop for a while, he goes back to his own practice.
+                                </span>
+                            )}
+                            {mode === 'practising' && practice && (
+                                <>
+                                    <span style={{ fontSize: 12 }}>
+                                        {practice.bars} · {practice.source === 'red' && practice.speed
+                                            ? `harmonic reduction, ${practice.speed.toFixed(1)}× faster`
+                                            : practice.title}
+                                    </span>
+                                    <span style={{ fontSize: 11, opacity: 0.6 }}>
+                                        Pass {practice.pass} of {practice.passes} · {practice.character}
+                                        {' '}· episode {practice.episode} of {practice.episodes}
+                                    </span>
+                                </>
+                            )}
+                            {mode === 'practising' && (
+                                <span style={{ fontSize: 11, opacity: 0.45, lineHeight: 1.3 }}>
+                                    Play something and he stops to teach you.
+                                </span>
+                            )}
+                        </div>
+                    )}
 
                     {!started && (
                         <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
@@ -306,7 +338,9 @@ export const Dialog = () => {
                         <h3 style={{ margin: '16px 0 6px', fontSize: 15, fontWeight: 500 }}>How to use</h3>
                         <ol style={{ margin: 0, paddingLeft: 20 }}>
                             <li>Connect a MIDI keyboard.</li>
-                            <li>Press <strong>Start</strong> and play <em>Träumerei</em>.</li>
+                            <li>Press <strong>Start</strong>. Until you play, Grünfeld practises
+                                on his own.</li>
+                            <li>Play <em>Träumerei</em>: he stops and listens.</li>
                             <li>After each take the teacher answers with an exaggerated
                                 corrective performance.</li>
                         </ol>
